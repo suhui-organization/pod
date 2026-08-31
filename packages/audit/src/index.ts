@@ -27,6 +27,8 @@ export interface AuditEntry {
   approver?: string;
   outputHash?: string;
   policyVersion: string;
+  /** false = 仅记录未强制执行（pod record 模式）；缺省视为 true */
+  enforced?: boolean;
   /** 上一条记录的 hash；链首为 '' */
   prevHash: string;
   /** sha256(正文)，正文 = 本记录除 hash 外的所有字段 */
@@ -82,6 +84,9 @@ export class AuditLog {
       prevHash: prev ? prev.hash : '',
       hash: '',
     };
+    // undefined 的 enforced 会被 JSON.stringify 省略，若不剔除会导致
+    // append 时哈希正文（含该键）与 verify 时正文（不含该键）不一致
+    if (entry.enforced === undefined) delete entry.enforced;
     entry.hash = hashEntryBody(entry);
     this.entries.push(entry);
     this.onAppend?.(entry);

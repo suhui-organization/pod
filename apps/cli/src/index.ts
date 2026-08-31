@@ -14,10 +14,10 @@
  * 注意：网关进程的 stdout 被 MCP 协议占用，所有日志必须走 stderr。
  */
 import { parseArgs } from 'node:util';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { AuditLog, appendToAuditFile } from '@podsec/audit';
+import { AuditLog, appendToAuditFile, loadAuditFile } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createStdioProxy } from '@podsec/gateway';
 
@@ -94,6 +94,120 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
   log('gateway ready on stdio; waiting for agent…');
 }
 
+interface RecordOptions {
+  config: string;
+  server: string;
+  agent: string;
+  policy?: string;
+  auditDir: string;
+}
+
+/** 从 dsh-mcp-manager 格式的配置里找 server 条目 */
+function findMcpServer(
+  configPath: string,
+  name: string,
+): { command: string; args: string[]; env?: Record<string, string> } {
+  const raw = JSON.parse(readFileSync(configPath, 'utf8')) as {
+    servers?: Array<{
+      name?: string;
+      id?: string;
+      transport?: string;
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+    }>;
+  };
+  const servers = raw.servers ?? [];
+  const hit = servers.find((s) => s.name === name || s.id === name);
+  if (!hit) {
+    const available = servers.map((s) => s.name ?? s.id).filter(Boolean).join(', ');
+    throw new Error(`server "${name}" not found in ${configPath}; available: ${available || '(none)'}`);
+  }
+  if (hit.transport && hit.transport !== 'stdio') {
+    throw new Error(`server "${name}" uses transport "${hit.transport}"; only stdio is supported in v0`);
+  }
+  if (!hit.command) {
+    throw new Error(`server "${name}" has no command`);
+  }
+  return { command: hit.command, args: hit.args ?? [], env: hit.env };
+}
+
+async function cmdRecord(opts: RecordOptions): Promise<void> {
+  const upstream = findMcpServer(opts.config, opts.server);
+
+  const policy: Policy = opts.policy
+    ? (JSON.parse(readFileSync(opts.policy, 'utf8')) as Policy)
+    : {
+        version: '0.1.0',
+        agent: opts.agent,
+        // 未提供策略时全部标注 allow（record-only 不阻断，仅作中性标注）
+        servers: { [opts.server]: { allow: ['*'] } },
+      };
+
+  const auditDir = opts.auditDir;
+  mkdirSync(auditDir, { recursive: true });
+  const auditPath = join(auditDir, `${opts.server}.jsonl`);
+  const audit = new AuditLog(policy.version, {
+    onAppend: (entry) => appendToAuditFile(auditPath, entry),
+  });
+
+  const server = await createStdioProxy({
+    agent: opts.agent,
+    serverName: opts.server,
+    policy,
+    audit,
+    recordOnly: true,
+    command: upstream.command,
+    args: upstream.args,
+    env: { ...process.env, ...(upstream.env ?? {}) } as Record<string, string>,
+  });
+
+  log(`recording "${opts.server}" (record-only, nothing is blocked)`);
+  log(`upstream: ${upstream.command} ${upstream.args.join(' ')}`);
+  log(`audit: ${auditPath}`);
+
+  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+  await server.connect(new StdioServerTransport());
+  log('recorder ready on stdio; waiting for agent…');
+  log('agent-side config: point your agent\'s MCP server at this process (see docs/agent-onboarding.md)');
+}
+
+interface AuditOptions {
+  server?: string;
+  tail: number;
+  auditDir: string;
+}
+
+async function cmdAudit(opts: AuditOptions): Promise<void> {
+  const files = readdirSync(opts.auditDir)
+    .filter((f) => f.endsWith('.jsonl'))
+    .sort();
+  if (files.length === 0) {
+    log(`no audit files in ${opts.auditDir}`);
+    return;
+  }
+  const matched = opts.server
+    ? files.filter((f) => f === `${opts.server}.jsonl`)
+    : files;
+  if (opts.server && matched.length === 0) {
+    log(`no audit file for server "${opts.server}" in ${opts.auditDir} (have: ${files.join(', ')})`);
+    return;
+  }
+  for (const file of matched) {
+    const path = join(opts.auditDir, file);
+    const log_ = loadAuditFile(path, ''); // 校验链（policyVersion 仅用于构造，不影响校验）
+    const entries = log_.entries.slice(-opts.tail);
+    log(`${file}: ${log_.entries.length} entries (chain verified, last ${entries.length})`);
+    for (const e of entries) {
+      const enforced = e.enforced === false ? 'rec' : 'enf';
+      log(
+        `  #${String(e.seq).padStart(4)} ${e.ts} ${e.decision.padEnd(7)} ${e.outcome.padEnd(7)} ` +
+          `${enforced} ${e.tool}${e.reason ? `  — ${e.reason}` : ''}`,
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     args: normalizePodArgs(process.argv.slice(2)),
@@ -102,9 +216,11 @@ async function main(): Promise<void> {
       agent: { type: 'string' },
       server: { type: 'string' },
       policy: { type: 'string' },
+      config: { type: 'string' },
       command: { type: 'string' },
       arg: { type: 'string', multiple: true },
       'audit-dir': { type: 'string' },
+      tail: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -132,6 +248,31 @@ async function main(): Promise<void> {
       policy: values.policy,
       command: values.command,
       args: values.arg ?? [],
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+    });
+    return;
+  }
+
+  if (cmd === 'record') {
+    if (!values.config || !values.server) {
+      console.error('pod record requires --config <mcp-manager.json> --server <name>');
+      console.error(usage());
+      process.exit(1);
+    }
+    await cmdRecord({
+      config: values.config,
+      server: values.server,
+      agent: values.agent ?? 'local',
+      policy: values.policy,
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+    });
+    return;
+  }
+
+  if (cmd === 'audit') {
+    await cmdAudit({
+      server: values.server,
+      tail: values.tail ? Number.parseInt(values.tail, 10) : 20,
       auditDir: values['audit-dir'] ?? podPath('audit'),
     });
     return;
@@ -167,7 +308,13 @@ Usage:
   pod init
   pod serve --agent <name> --server <name> --policy <file> \\
            --command <cmd> [--arg <value> ...] [--audit-dir <dir>]
+  pod record --config <mcp-manager.json> --server <name> \\
+             [--agent <name>] [--policy <file>] [--audit-dir <dir>]
+  pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
   pod --help
+
+record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
+audit:  查看审计（含哈希链校验）。
 `;
 }
 

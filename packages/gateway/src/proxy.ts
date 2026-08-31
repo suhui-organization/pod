@@ -29,6 +29,11 @@ export interface ProxyOptions {
   serverName: string;
   policy: Policy;
   audit: AuditLog;
+  /**
+   * record-only（pod record）：策略照常求值并写入审计（含 enforced:false），
+   * 但绝不阻断——所有调用直接透传。用于 Phase 0 语料采集。
+   */
+  recordOnly?: boolean;
   /** 建立到真实 MCP server 的客户端连接（已连接） */
   connectUpstream: () => Promise<Client>;
 }
@@ -38,7 +43,7 @@ export interface ProxyOptions {
  * 测试可用 InMemoryTransport；CLI 用 StdioServerTransport。
  */
 export function createProxyServer(opts: ProxyOptions): Server {
-  const { agent, serverName, policy, audit } = opts;
+  const { agent, serverName, policy, audit, recordOnly } = opts;
   let upstream: Client | undefined;
 
   const ensureUpstream = async (): Promise<Client> => {
@@ -78,43 +83,83 @@ export function createProxyServer(opts: ProxyOptions): Server {
       };
     };
 
+    const forward = async (): Promise<CallToolResult> => {
+      const client = await ensureUpstream();
+      let result: CallToolResult;
+      try {
+        // 显式要求兼容格式（{ content, isError }），与 server 侧 handler 的返回类型一致；
+        // callTool 声明为 union（content | toolResult 分支），此处按请求的 schema 收窄
+        result = (await client.callTool(
+          { name, arguments: args ?? {} },
+          CompatibilityCallToolResultSchema,
+        )) as CallToolResult;
+      } catch (err) {
+        audit.append({
+          ...ctx,
+          session: 'cli-v0',
+          argsHash: hashValue(args),
+          decision: 'allow',
+          outcome: 'error',
+          reason: err instanceof Error ? err.message : String(err),
+          policyVersion: policy.version,
+        });
+        throw err;
+      }
+      audit.append({
+        ...ctx,
+        session: 'cli-v0',
+        argsHash: hashValue(args),
+        decision: 'allow',
+        outcome: result.isError ? 'error' : 'ok',
+        outputHash: hashValue(result.content),
+        policyVersion: policy.version,
+      });
+      return result;
+    };
+
+    if (recordOnly) {
+      // 只录不拦：求值结果作为 decision 标注写入审计，但一律放行
+      const client = await ensureUpstream();
+      let result: CallToolResult;
+      try {
+        result = (await client.callTool(
+          { name, arguments: args ?? {} },
+          CompatibilityCallToolResultSchema,
+        )) as CallToolResult;
+      } catch (err) {
+        audit.append({
+          ...ctx,
+          session: 'cli-v0',
+          argsHash: hashValue(args),
+          decision: verdict.decision,
+          outcome: 'error',
+          reason: `${verdict.reason} (record-only) | ${err instanceof Error ? err.message : String(err)}`,
+          enforced: false,
+          policyVersion: policy.version,
+        });
+        throw err;
+      }
+      audit.append({
+        ...ctx,
+        session: 'cli-v0',
+        argsHash: hashValue(args),
+        decision: verdict.decision,
+        outcome: result.isError ? 'error' : 'ok',
+        reason: `${verdict.reason} (record-only)`,
+        outputHash: hashValue(result.content),
+        enforced: false,
+        policyVersion: policy.version,
+      });
+      return result;
+    }
+
     if (verdict.decision === 'deny') return blocked('deny', verdict.reason);
     if (verdict.decision === 'approve') {
       // v0 fail-closed：审批流未实现，先阻断（Phase 1 接入 Approval Gate）
       return blocked('approve', `approval flow not implemented yet (v0 fail-closed): ${verdict.reason}`);
     }
 
-    const client = await ensureUpstream();
-    let result: CallToolResult;
-    try {
-      // 显式要求兼容格式（{ content, isError }），与 server 侧 handler 的返回类型一致；
-      // callTool 声明为 union（content | toolResult 分支），此处按请求的 schema 收窄
-      result = (await client.callTool(
-        { name, arguments: args ?? {} },
-        CompatibilityCallToolResultSchema,
-      )) as CallToolResult;
-    } catch (err) {
-      audit.append({
-        ...ctx,
-        session: 'cli-v0',
-        argsHash: hashValue(args),
-        decision: 'allow',
-        outcome: 'error',
-        reason: err instanceof Error ? err.message : String(err),
-        policyVersion: policy.version,
-      });
-      throw err;
-    }
-    audit.append({
-      ...ctx,
-      session: 'cli-v0',
-      argsHash: hashValue(args),
-      decision: 'allow',
-      outcome: result.isError ? 'error' : 'ok',
-      outputHash: hashValue(result.content),
-      policyVersion: policy.version,
-    });
-    return result;
+    return forward();
   });
 
   return server;

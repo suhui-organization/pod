@@ -133,3 +133,45 @@ describe('createProxyServer (in-memory)', () => {
     expect(audit.entries[0]!.outcome).toBe('error');
   });
 });
+
+describe('createProxyServer record-only mode', () => {
+  it('forwards denied calls but marks them in the audit as not enforced', async () => {
+    const audit = new AuditLog(policy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy,
+      audit,
+      recordOnly: true,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+
+    // deny 工具在 record-only 下被放行
+    const result = await client.callTool({ name: 'danger_delete', arguments: { path: '/etc' } });
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain('would delete');
+
+    // 审计标注 decision=deny 但 enforced=false
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]!.decision).toBe('deny');
+    expect(audit.entries[0]!.enforced).toBe(false);
+    expect(audit.entries[0]!.outcome).toBe('ok');
+    expect(audit.verify()).toEqual({ ok: true });
+
+    // allow 工具同样记录 enforced=false
+    await client.callTool({ name: 'echo', arguments: { message: 'x' } });
+    expect(audit.entries[1]!.decision).toBe('allow');
+    expect(audit.entries[1]!.enforced).toBe(false);
+    expect(audit.verify()).toEqual({ ok: true });
+  });
+});
