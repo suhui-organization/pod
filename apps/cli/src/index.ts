@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { AuditLog, appendToAuditFile, loadAuditFile } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createStdioProxy } from '@podsec/gateway';
+import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -65,6 +66,8 @@ interface ServeOptions {
   command: string;
   args: string[];
   auditDir: string;
+  pendingDir: string;
+  approvalTimeoutSec: number;
 }
 
 async function cmdServe(opts: ServeOptions): Promise<void> {
@@ -77,17 +80,29 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
     onAppend: (entry) => appendToAuditFile(auditPath, entry),
   });
 
+  const approval = createFileApprovalProvider({
+    pendingDir: opts.pendingDir,
+    timeoutMs: opts.approvalTimeoutSec * 1000,
+    onRequest: (req) => {
+      log(`APPROVAL NEEDED #${req.id}: server=${req.server} tool=${req.tool}`);
+      log(`  approve: pod approve --id ${req.id} [--reason <why>]`);
+      log(`  deny:    pod deny --id ${req.id} [--reason <why>]`);
+    },
+  });
+
   const server = await createStdioProxy({
     agent: opts.agent,
     serverName: opts.server,
     policy,
     audit,
+    approval,
     command: opts.command,
     args: opts.args,
   });
 
   log(`serving "${opts.server}" for agent "${opts.agent}" (audit: ${auditPath})`);
   log(`upstream: ${opts.command} ${opts.args.join(' ')}`);
+  log(`pending approvals: ${opts.pendingDir} (timeout ${opts.approvalTimeoutSec}s)`);
 
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
   await server.connect(new StdioServerTransport());
@@ -208,6 +223,38 @@ async function cmdAudit(opts: AuditOptions): Promise<void> {
   }
 }
 
+interface DecideOptions {
+  id: string;
+  approved: boolean;
+  approver: string;
+  reason?: string;
+  pendingDir: string;
+}
+
+function cmdDecide(opts: DecideOptions): void {
+  const pendingDir = opts.pendingDir;
+  mkdirSync(pendingDir, { recursive: true });
+  decideApproval(pendingDir, opts.id, {
+    approved: opts.approved,
+    approver: opts.approver,
+    reason: opts.reason,
+  });
+  log(`${opts.approved ? 'approved' : 'denied'} ${opts.id} by ${opts.approver}`);
+}
+
+function cmdPending(pendingDir: string): void {
+  mkdirSync(pendingDir, { recursive: true });
+  const list = listPendingApprovals(pendingDir);
+  if (list.length === 0) {
+    log('no pending approvals');
+    return;
+  }
+  log(`${list.length} pending approval(s):`);
+  for (const p of list) {
+    log(`  ${p.id}  server=${p.server} tool=${p.tool}  →  pod approve --id ${p.id} | pod deny --id ${p.id}`);
+  }
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     args: normalizePodArgs(process.argv.slice(2)),
@@ -220,6 +267,11 @@ async function main(): Promise<void> {
       command: { type: 'string' },
       arg: { type: 'string', multiple: true },
       'audit-dir': { type: 'string' },
+      'pending-dir': { type: 'string' },
+      'approval-timeout': { type: 'string' },
+      id: { type: 'string' },
+      approver: { type: 'string' },
+      reason: { type: 'string' },
       tail: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -249,7 +301,30 @@ async function main(): Promise<void> {
       command: values.command,
       args: values.arg ?? [],
       auditDir: values['audit-dir'] ?? podPath('audit'),
+      pendingDir: values['pending-dir'] ?? podPath('pending'),
+      approvalTimeoutSec: values['approval-timeout'] ? Number.parseInt(values['approval-timeout'], 10) : 300,
     });
+    return;
+  }
+
+  if (cmd === 'approve' || cmd === 'deny') {
+    if (!values.id) {
+      console.error(`pod ${cmd} requires --id <approval-id>`);
+      console.error(usage());
+      process.exit(1);
+    }
+    cmdDecide({
+      id: values.id,
+      approved: cmd === 'approve',
+      approver: values.approver ?? 'cli-user',
+      reason: values.reason,
+      pendingDir: values['pending-dir'] ?? podPath('pending'),
+    });
+    return;
+  }
+
+  if (cmd === 'pending') {
+    cmdPending(values['pending-dir'] ?? podPath('pending'));
     return;
   }
 
@@ -307,13 +382,18 @@ function usage(): string {
 Usage:
   pod init
   pod serve --agent <name> --server <name> --policy <file> \\
-           --command <cmd> [--arg <value> ...] [--audit-dir <dir>]
+           --command <cmd> [--arg <value> ...] [--audit-dir <dir>] \\
+           [--approval-timeout <sec>] [--pending-dir <dir>]
   pod record --config <mcp-manager.json> --server <name> \\
              [--agent <name>] [--policy <file>] [--audit-dir <dir>]
+  pod approve --id <approval-id> [--reason <why>] [--approver <who>]
+  pod deny --id <approval-id> [--reason <why>] [--approver <who>]
+  pod pending [--pending-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
+approve/deny/pending: 审批旁路通道（stdio 被 MCP 占用，交互在另一个终端进行）。
 audit:  查看审计（含哈希链校验）。
 `;
 }

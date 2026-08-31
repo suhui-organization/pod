@@ -22,6 +22,28 @@ import {
 import { AuditLog, hashValue } from '@podsec/audit';
 import { evaluate, type Policy } from '@podsec/policy';
 
+export interface ApprovalRequest {
+  /** 全局唯一 id（如 filesystem-1） */
+  id: string;
+  agent: string;
+  server: string;
+  tool: string;
+  args: unknown;
+}
+
+export interface ApprovalDecision {
+  approved: boolean;
+  approver?: string;
+  reason?: string;
+}
+
+/**
+ * 审批 provider：对需批准的调用返回决策。
+ * 实现方负责超时（超时按拒绝处理，fail-closed）与用户交互通道
+ * （stdio 被 MCP 占用，CLI 用 ~/.pod/pending/ 文件旁路）。
+ */
+export type ApprovalProvider = (req: ApprovalRequest) => Promise<ApprovalDecision>;
+
 export interface ProxyOptions {
   /** Asset Registry 中的 agent 身份 */
   agent: string;
@@ -34,6 +56,8 @@ export interface ProxyOptions {
    * 但绝不阻断——所有调用直接透传。用于 Phase 0 语料采集。
    */
   recordOnly?: boolean;
+  /** approve 决策的审批通道；缺省时 approve 按 fail-closed 阻断 */
+  approval?: ApprovalProvider;
   /** 建立到真实 MCP server 的客户端连接（已连接） */
   connectUpstream: () => Promise<Client>;
 }
@@ -43,8 +67,9 @@ export interface ProxyOptions {
  * 测试可用 InMemoryTransport；CLI 用 StdioServerTransport。
  */
 export function createProxyServer(opts: ProxyOptions): Server {
-  const { agent, serverName, policy, audit, recordOnly } = opts;
+  const { agent, serverName, policy, audit, recordOnly, approval } = opts;
   let upstream: Client | undefined;
+  let approvalSeq = 0;
 
   const ensureUpstream = async (): Promise<Client> => {
     upstream ??= await opts.connectUpstream();
@@ -67,7 +92,11 @@ export function createProxyServer(opts: ProxyOptions): Server {
     const ctx = { agent, server: serverName, tool: name };
     const verdict = evaluate(policy, ctx);
 
-    const blocked = (decision: 'deny' | 'approve', reason: string): CallToolResult => {
+    const blocked = (
+      decision: 'deny' | 'approve',
+      reason: string,
+      extra?: { approver?: string },
+    ): CallToolResult => {
       audit.append({
         ...ctx,
         session: 'cli-v0',
@@ -75,6 +104,7 @@ export function createProxyServer(opts: ProxyOptions): Server {
         decision,
         outcome: 'blocked',
         reason,
+        approver: extra?.approver,
         policyVersion: policy.version,
       });
       return {
@@ -83,7 +113,7 @@ export function createProxyServer(opts: ProxyOptions): Server {
       };
     };
 
-    const forward = async (): Promise<CallToolResult> => {
+    const forward = async (decision: 'allow' | 'approve', extra?: { approver?: string; reason?: string }): Promise<CallToolResult> => {
       const client = await ensureUpstream();
       let result: CallToolResult;
       try {
@@ -98,9 +128,10 @@ export function createProxyServer(opts: ProxyOptions): Server {
           ...ctx,
           session: 'cli-v0',
           argsHash: hashValue(args),
-          decision: 'allow',
+          decision,
           outcome: 'error',
           reason: err instanceof Error ? err.message : String(err),
+          approver: extra?.approver,
           policyVersion: policy.version,
         });
         throw err;
@@ -109,8 +140,10 @@ export function createProxyServer(opts: ProxyOptions): Server {
         ...ctx,
         session: 'cli-v0',
         argsHash: hashValue(args),
-        decision: 'allow',
+        decision,
         outcome: result.isError ? 'error' : 'ok',
+        reason: extra?.reason,
+        approver: extra?.approver,
         outputHash: hashValue(result.content),
         policyVersion: policy.version,
       });
@@ -154,12 +187,26 @@ export function createProxyServer(opts: ProxyOptions): Server {
     }
 
     if (verdict.decision === 'deny') return blocked('deny', verdict.reason);
+
     if (verdict.decision === 'approve') {
-      // v0 fail-closed：审批流未实现，先阻断（Phase 1 接入 Approval Gate）
-      return blocked('approve', `approval flow not implemented yet (v0 fail-closed): ${verdict.reason}`);
+      if (!approval) {
+        return blocked('approve', `approval flow not configured (fail-closed): ${verdict.reason}`);
+      }
+      const req: ApprovalRequest = { id: `${serverName}-${++approvalSeq}`, agent, server: serverName, tool: name, args };
+      let decision: ApprovalDecision;
+      try {
+        decision = await approval(req);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return blocked('approve', `approval provider error: ${msg}`);
+      }
+      if (!decision.approved) {
+        return blocked('approve', decision.reason ?? 'denied by approver', { approver: decision.approver });
+      }
+      return forward('approve', { approver: decision.approver, reason: decision.reason });
     }
 
-    return forward();
+    return forward('allow');
   });
 
   return server;

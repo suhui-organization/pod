@@ -134,6 +134,80 @@ describe('createProxyServer (in-memory)', () => {
   });
 });
 
+describe('createProxyServer approval flow', () => {
+  const approvePolicy: Policy = {
+    version: '0.1.0',
+    agent: 'test-agent',
+    servers: { demo: { approve: ['echo'] } },
+  };
+
+  async function buildProxy(approval: Parameters<typeof createProxyServer>[0]['approval']) {
+    const audit = new AuditLog(approvePolicy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy: approvePolicy,
+      audit,
+      approval,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+    return { client, audit };
+  }
+
+  it('forwards an approved call and audits approver/reason', async () => {
+    const { client, audit } = await buildProxy(async (req) => {
+      expect(req.tool).toBe('echo');
+      expect(req.id).toBe('demo-1');
+      return { approved: true, approver: 'walden', reason: 'manual ok' };
+    });
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'approved!' } });
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toBe('approved!');
+
+    const entry = audit.entries[0]!;
+    expect(entry.decision).toBe('approve');
+    expect(entry.outcome).toBe('ok');
+    expect(entry.approver).toBe('walden');
+    expect(entry.reason).toBe('manual ok');
+    expect(audit.verify()).toEqual({ ok: true });
+  });
+
+  it('blocks a denied call and audits the denial', async () => {
+    const { client, audit } = await buildProxy(async () => ({
+      approved: false,
+      approver: 'walden',
+      reason: 'not now',
+    }));
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'x' } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('blocked (approve)');
+    const entry = audit.entries[0]!;
+    expect(entry.decision).toBe('approve');
+    expect(entry.outcome).toBe('blocked');
+    expect(entry.approver).toBe('walden');
+    expect(entry.reason).toBe('not now');
+  });
+
+  it('fails closed when approval provider throws', async () => {
+    const { client, audit } = await buildProxy(async () => {
+      throw new Error('provider exploded');
+    });
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'x' } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('approval provider error');
+    expect(audit.entries[0]!.outcome).toBe('blocked');
+  });
+});
+
 describe('createProxyServer record-only mode', () => {
   it('forwards denied calls but marks them in the audit as not enforced', async () => {
     const audit = new AuditLog(policy.version);
