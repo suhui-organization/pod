@@ -35,6 +35,9 @@ importers:
       '@podsec/policy':
         specifier: workspace:*
         version: link:../../packages/policy
+      '@podsec/scan':
+        specifier: workspace:*
+        version: link:../../packages/scan
 
   packages/audit: {}
 
@@ -54,6 +57,8 @@ importers:
         version: 3.25.76
 
   packages/policy: {}
+
+  packages/scan: {}
 
 packages:
 

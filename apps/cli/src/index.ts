@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { AuditLog, appendToAuditFile, loadAuditFile } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createStdioProxy } from '@podsec/gateway';
+import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 
 const POD_HOME = join(homedir(), '.pod');
@@ -255,6 +256,15 @@ function cmdPending(pendingDir: string): void {
   }
 }
 
+function cmdScan(json: boolean): void {
+  const result = scanMachine({ home: homedir() });
+  if (json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  } else {
+    process.stdout.write(renderMarkdown(result) + '\n');
+  }
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     args: normalizePodArgs(process.argv.slice(2)),
@@ -273,6 +283,7 @@ async function main(): Promise<void> {
       approver: { type: 'string' },
       reason: { type: 'string' },
       tail: { type: 'string' },
+      json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -353,6 +364,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'scan') {
+    cmdScan(values.json ?? false);
+    return;
+  }
+
   console.error(`unknown command: ${cmd}`);
   console.error(usage());
   process.exit(1);
@@ -390,6 +406,7 @@ Usage:
   pod deny --id <approval-id> [--reason <why>] [--approver <who>]
   pod pending [--pending-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
+  pod scan [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
