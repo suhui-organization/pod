@@ -16,7 +16,23 @@ export interface ToolRule {
   deny?: string[];
 }
 
-export type ServerPolicy = ToolRule;
+/**
+ * server 来源白名单（T4，供应链防线）：
+ * 策略声明该 server 的合法启动来源，pod serve/record 启动时校验，
+ * 不匹配拒绝启动（防配置被篡改指向恶意/未锁定 server）。
+ */
+export interface ServerSource {
+  /** 允许的启动命令（精确匹配，如 "mcp-server-filesystem"） */
+  command?: string;
+  /** 允许的 npm 包名（从 npx args 解析，如 "@modelcontextprotocol/server-github"） */
+  package?: string;
+  /** 允许的包版本（精确；缺省 = 任意版本，lint 会提示未锁定） */
+  version?: string;
+}
+
+export interface ServerPolicy extends ToolRule {
+  source?: ServerSource;
+}
 
 /**
  * 敏感信息规则（P0，威胁 T2）：
@@ -63,6 +79,47 @@ export function collectStrings(value: unknown, out: string[] = []): string[] {
     for (const v of Object.values(value)) collectStrings(v, out);
   }
   return out;
+}
+
+/** 解析命令行里的 npx 包名（与 scan 包同构；返回 null 表示非 npx 来源） */
+export function parseNpxPackageFromArgs(args: string[]): { name: string; version: string | null } | null {
+  const idx = args.findIndex((a) => a === 'npx' || a === 'npx.cmd' || a === 'npmx');
+  if (idx === -1) return null;
+  for (let i = idx + 1; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '-y' || a === '--yes' || a === '-p' || a === '--package' || a === '--') continue;
+    if (a.startsWith('-')) continue;
+    const m = a.match(/^(@[^/@]+\/[^/@]+|[^/@]+)(?:@([^/]+))?$/);
+    if (!m) return null;
+    return { name: m[1]!, version: m[2] ?? null };
+  }
+  return null;
+}
+
+/**
+ * 校验 server 启动来源是否满足策略白名单。
+ * 返回 null = 通过；返回字符串 = 不匹配原因（gateway 据此拒绝启动，fail-closed）。
+ */
+export function checkServerSource(
+  source: ServerSource | undefined,
+  command: string,
+  args: string[],
+): string | null {
+  if (!source) return null; // 未声明来源 = 不限制（lint 会提示）
+  if (source.command !== undefined && command !== source.command) {
+    return `source.command 不匹配：策略要求 "${source.command}"，实际 "${command}"`;
+  }
+  if (source.package !== undefined) {
+    const pkg = parseNpxPackageFromArgs([command, ...args]);
+    if (!pkg) return `source.package 要求 "${source.package}"，但启动命令不是 npx 来源`;
+    if (pkg.name !== source.package) {
+      return `source.package 不匹配：策略要求 "${source.package}"，实际 "${pkg.name}"`;
+    }
+    if (source.version !== undefined && pkg.version !== source.version) {
+      return `source.version 不匹配：策略要求 "${source.version}"，实际 "${pkg.version ?? '(未锁定)'}"`;
+    }
+  }
+  return null;
 }
 
 function hitSensitivePath(policy: Policy, args: unknown): string | null {
@@ -153,6 +210,13 @@ export function lintPolicy(policy: Policy): LintIssue[] {
   }
 
   for (const [server, sp] of Object.entries(servers)) {
+    if (!sp.source) {
+      issues.push({
+        severity: 'info',
+        where: `servers.${server}.source`,
+        message: '未声明 server 来源白名单（建议声明 command 或 npm package，见 T4）',
+      });
+    }
     if (sp.deny && sp.deny.length === 0) {
       issues.push({ severity: 'warn', where: `servers.${server}.deny`, message: 'deny 为空数组（无实际拒绝规则）' });
     }

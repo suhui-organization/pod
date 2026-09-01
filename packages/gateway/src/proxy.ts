@@ -20,7 +20,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { AuditLog, hashValue } from '@podsec/audit';
-import { evaluate, type Policy } from '@podsec/policy';
+import { checkServerSource, evaluate, type Policy } from '@podsec/policy';
 
 /** 从工具响应中提取全部文本内容（用于输出侧密钥扫描） */
 function extractResponseText(result: CallToolResult): string {
@@ -295,6 +295,11 @@ export interface StdioProxyOptions extends Omit<ProxyOptions, 'connectUpstream'>
 
 /** spawn 真实 MCP server 子进程并返回已连上游的代理 server（调用方 connect 自己的 transport） */
 export async function createStdioProxy(opts: StdioProxyOptions): Promise<Server> {
+  // T4：来源白名单校验——策略声明了 source 且不匹配时拒绝启动（fail-closed）
+  const sourceCheck = checkServerSource(opts.policy.servers?.[opts.serverName]?.source, opts.command, opts.args);
+  if (sourceCheck !== null) {
+    throw new Error(`server "${opts.serverName}" 未通过来源白名单校验（T4）：${sourceCheck}`);
+  }
   const transport = new StdioClientTransport({ command: opts.command, args: opts.args, env: opts.env });
   const client = new Client({ name: 'pod-gateway-upstream', version: '0.1.0' }, { capabilities: {} });
   await client.connect(transport);

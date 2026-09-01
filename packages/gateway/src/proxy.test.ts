@@ -4,7 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { AuditLog } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createDemoServer } from './demo-server.js';
-import { createProxyServer, matchInjectionSignal } from './proxy.js';
+import { createProxyServer, createStdioProxy, matchInjectionSignal } from './proxy.js';
 
 /** SDK 1.30 将 callTool 返回类型放宽为 union，测试里收窄后取文本 */
 type CallToolResponse = Awaited<ReturnType<Client['callTool']>>;
@@ -378,5 +378,43 @@ describe('injection signal (P1, T1 lightweight defense)', () => {
 
   it('does not flag normal text', async () => {
     expect(matchInjectionSignal({ content: [{ type: 'text', text: 'the report is ready' }] })).toBe(false);
+  });
+});
+
+describe('server source whitelist (T4, startup gate)', () => {
+  const policy: Policy = {
+    version: '0.1.0',
+    agent: 'test-agent',
+    servers: {
+      demo: { allow: ['*'], source: { command: process.execPath } },
+    },
+  };
+
+  it('starts when the command matches the declared source', async () => {
+    const audit = new AuditLog(policy.version);
+    const server = await createStdioProxy({
+      agent: 'test-agent', serverName: 'demo', policy, audit,
+      command: process.execPath,
+      args: ['--import', 'tsx', new URL('./demo-server.ts', import.meta.url).pathname],
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await server.connect(proxySide);
+    const client = new Client({ name: 't', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThan(0);
+    await client.close();
+    await server.close();
+  });
+
+  it('refuses to start when the command does not match (fail-closed)', async () => {
+    const audit = new AuditLog(policy.version);
+    await expect(
+      createStdioProxy({
+        agent: 'test-agent', serverName: 'demo', policy, audit,
+        command: '/bin/false',
+        args: [],
+      }),
+    ).rejects.toThrow(/来源白名单/);
   });
 });

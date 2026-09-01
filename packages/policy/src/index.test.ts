@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluate, lintPolicy, type Policy } from './index.js';
+import { checkServerSource, evaluate, lintPolicy, type Policy } from './index.js';
 
 const policy: Policy = {
   version: '0.1.0',
@@ -191,5 +191,47 @@ describe('lintPolicy (P1, T9 misconfiguration)', () => {
     };
     const issues = lintPolicy(p);
     expect(issues.filter((i) => i.severity === 'error')).toHaveLength(0);
+  });
+});
+
+describe('checkServerSource (T4 supply-chain whitelist)', () => {
+  it('accepts matching command source', () => {
+    expect(checkServerSource({ command: 'mcp-server-filesystem' }, 'mcp-server-filesystem', ['/tmp'])).toBeNull();
+  });
+
+  it('rejects mismatched command', () => {
+    const r = checkServerSource({ command: 'mcp-server-filesystem' }, 'evil-server', []);
+    expect(r).toContain('source.command 不匹配');
+  });
+
+  it('accepts matching npx package with pinned version', () => {
+    expect(
+      checkServerSource({ package: '@modelcontextprotocol/server-github', version: '1.2.3' }, 'npx', ['-y', '@modelcontextprotocol/server-github@1.2.3']),
+    ).toBeNull();
+  });
+
+  it('rejects unpinned version when version required', () => {
+    const r = checkServerSource({ package: 'pkg', version: '1.0.0' }, 'npx', ['-y', 'pkg@latest']);
+    expect(r).toContain('source.version 不匹配');
+  });
+
+  it('rejects different package', () => {
+    const r = checkServerSource({ package: 'good-pkg' }, 'npx', ['-y', 'evil-pkg']);
+    expect(r).toContain('source.package 不匹配');
+  });
+
+  it('rejects npx requirement when command is not npx', () => {
+    const r = checkServerSource({ package: 'pkg' }, 'local-bin', []);
+    expect(r).toContain('不是 npx 来源');
+  });
+
+  it('no source declared = no restriction', () => {
+    expect(checkServerSource(undefined, 'anything', [])).toBeNull();
+  });
+
+  it('lint suggests declaring source', () => {
+    const p: Policy = { version: '0.1.0', agent: 'a', servers: { s: { allow: ['x'] } } };
+    const issues = lintPolicy(p);
+    expect(issues.some((i) => i.message.includes('来源白名单'))).toBe(true);
   });
 });
