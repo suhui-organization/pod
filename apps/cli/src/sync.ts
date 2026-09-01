@@ -120,6 +120,59 @@ export async function pushBatch(
   return { synced: data.synced };
 }
 
+export interface PulledPolicy {
+  id: number;
+  name: string;
+  agent_id: number | null;
+  policy_json: string;
+  version: string;
+}
+
+export interface PullPoliciesResult {
+  agent_id: number;
+  policies: Array<PulledPolicy & { path: string }>;
+}
+
+/**
+ * 拉取云端策略（本 agent 绑定 + 租户模板），写入 ~/.pod/policies/。
+ * 返回清单；调用方负责提示 pod serve --policy 加载。
+ */
+export async function pullPolicies(opts: {
+  config?: string;
+  apiUrl?: string;
+  agentId?: number;
+  syncToken?: string;
+  outDir: string;
+}): Promise<PullPoliciesResult> {
+  const needFile = opts.config !== undefined || !(opts.apiUrl && opts.agentId && opts.syncToken);
+  const cfg = {
+    ...(needFile ? loadCloudConfig(opts.config) : {}),
+    ...(opts.apiUrl ? { api_url: opts.apiUrl } : {}),
+    ...(opts.agentId ? { agent_id: opts.agentId } : {}),
+    ...(opts.syncToken ? { sync_token: opts.syncToken } : {}),
+  } as CloudConfig;
+
+  const url = `${cfg.api_url}/api/v1/sync/policies`;
+  const resp = await fetch(url, { headers: { 'X-Sync-Token': cfg.sync_token } });
+  if (!resp.ok) {
+    const body = (await resp.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(`拉取策略失败 HTTP ${resp.status}：${body.detail ?? ''}`);
+  }
+  const data = (await resp.json()) as { agent_id: number; policies: PulledPolicy[] };
+
+  mkdirSync(opts.outDir, { recursive: true });
+  const out: PullPoliciesResult['policies'] = [];
+  for (const p of data.policies) {
+    // 校验云端策略是合法 JSON
+    JSON.parse(p.policy_json);
+    const safeName = p.name.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const path = join(opts.outDir, `${p.id}-${safeName}.json`);
+    writeFileSync(path, p.policy_json.endsWith('\n') ? p.policy_json : p.policy_json + '\n', 'utf8');
+    out.push({ ...p, path });
+  }
+  return { agent_id: data.agent_id, policies: out };
+}
+
 /** 执行一次同步；返回各 server 推送统计。 */
 export async function runSync(opts: {
   config?: string;

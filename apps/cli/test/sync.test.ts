@@ -8,13 +8,24 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
-import { runSync } from '../src/sync.js';
+import { runSync, pullPolicies } from '../src/sync.js';
 
-/** mock Pod Cloud：按 (server) 维护链尾 hash，断链返回 409 */
-function startMockCloud(): { url: string; close: () => void; received: Map<string, number> } {
+/** mock Pod Cloud：按 (server) 维护链尾 hash，断链返回 409；提供 /sync/policies */
+function startMockCloud(): {
+  url: string;
+  close: () => void;
+  received: Map<string, number>;
+  setPolicies: (p: Array<{ id: number; name: string; agent_id: number | null; policy_json: string; version: string }>) => void;
+} {
   const tails = new Map<string, string>();
   const received = new Map<string, number>();
+  let policies: Array<{ id: number; name: string; agent_id: number | null; policy_json: string; version: string }> = [];
   const server: Server = createServer((req, res) => {
+    if (req.url?.endsWith('/api/v1/sync/policies') && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ agent_id: 1, policies }));
+      return;
+    }
     if (req.method !== 'POST' || !req.url?.endsWith('/api/v1/sync/events')) {
       res.writeHead(404).end();
       return;
@@ -40,7 +51,14 @@ function startMockCloud(): { url: string; close: () => void; received: Map<strin
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address() as { port: number };
-      resolve({ url: `http://127.0.0.1:${addr.port}`, close: () => server.close(), received });
+      resolve({
+        url: `http://127.0.0.1:${addr.port}`,
+        close: () => server.close(),
+        received,
+        setPolicies: (p) => {
+          policies = p;
+        },
+      });
     });
   });
 }
@@ -78,26 +96,26 @@ function appendAuditFile(dir: string, server: string, count: number): void {
   writeFileSync(file, log.toJSONL(), 'utf8');
 }
 
+type MockCloud = ReturnType<typeof startMockCloud>;
+let cloud: MockCloud;
+let workDir: string;
+let auditDir: string;
+
+beforeAll(async () => {
+  cloud = await startMockCloud();
+  workDir = mkdtempSync(join(tmpdir(), 'pod-sync-'));
+  auditDir = join(workDir, 'audit');
+  const stateHome = join(workDir, 'state');
+  mkdirSync(auditDir, { recursive: true });
+  mkdirSync(join(stateHome, '.pod', 'sync-state'), { recursive: true });
+  // 让 HOME 指向测试目录，sync-state 写入测试目录
+  process.env.HOME = join(stateHome, 'home');
+  mkdirSync(process.env.HOME, { recursive: true });
+});
+
+afterAll(() => cloud.close());
+
 describe('pod sync (mock Pod Cloud)', () => {
-  let cloud: { url: string; close: () => void; received: Map<string, number> };
-  let workDir: string;
-  let auditDir: string;
-  let stateHome: string;
-
-  beforeAll(async () => {
-    cloud = await startMockCloud();
-    workDir = mkdtempSync(join(tmpdir(), 'pod-sync-'));
-    auditDir = join(workDir, 'audit');
-    stateHome = join(workDir, 'state');
-    mkdirSync(auditDir, { recursive: true });
-    mkdirSync(join(stateHome, '.pod', 'sync-state'), { recursive: true });
-    // 让 HOME 指向测试目录，sync-state 写入测试目录
-    process.env.HOME = join(stateHome, 'home');
-    mkdirSync(process.env.HOME, { recursive: true });
-  });
-
-  afterAll(() => cloud.close());
-
   const opts = () => ({
     config: undefined,
     auditDir,
@@ -148,5 +166,32 @@ describe('pod sync (mock Pod Cloud)', () => {
     (broken as unknown as { entries: unknown[] }).entries = [entry];
     writeFileSync(join(auditDir, 'broken.jsonl'), broken.toJSONL(), 'utf8');
     await expect(runSync(opts())).rejects.toThrow(/哈希链断裂/);
+  });
+});
+
+describe('pod pull-policy', () => {
+  it('pulls agent-bound and template policies into the out dir', async () => {
+    cloud.setPolicies([
+      { id: 7, name: 'openclaw-main-policy', agent_id: 1, policy_json: '{"version":"0.1.0","agent":"openclaw-main","servers":{"filesystem":{"allow":["read_file"]}}}', version: '0.1.0' },
+      { id: 8, name: 'baseline', agent_id: null, policy_json: '{"version":"0.1.0","agent":"x","defaultDecision":"deny"}', version: '0.2.0' },
+    ]);
+    const outDir = join(workDir, 'policies');
+    const r = await pullPolicies({ apiUrl: cloud.url, agentId: 1, syncToken: 't', outDir });
+    expect(r.policies).toHaveLength(2);
+    expect(r.policies[0]!.path).toContain('7-openclaw-main-policy.json');
+    expect(r.policies[1]!.path).toContain('8-baseline.json');
+    // 内容落盘且为合法 JSON
+    const { readFileSync } = await import('node:fs');
+    const written = JSON.parse(readFileSync(r.policies[0]!.path, 'utf8'));
+    expect(written.servers.filesystem.allow).toContain('read_file');
+  });
+
+  it('rejects invalid policy JSON from the cloud with a clear error', async () => {
+    cloud.setPolicies([
+      { id: 9, name: 'bad', agent_id: null, policy_json: '{not json', version: '0.1.0' },
+    ]);
+    await expect(
+      pullPolicies({ apiUrl: cloud.url, agentId: 1, syncToken: 't', outDir: join(workDir, 'policies2') }),
+    ).rejects.toThrow(/Unexpected token|JSON/);
   });
 });

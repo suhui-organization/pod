@@ -22,7 +22,7 @@ import type { Policy } from '@podsec/policy';
 import { createStdioProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
-import { runSync } from './sync.js';
+import { runSync, pullPolicies } from './sync.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -288,6 +288,7 @@ async function main(): Promise<void> {
       'api-url': { type: 'string' },
       'agent-id': { type: 'string' },
       'sync-token': { type: 'string' },
+      'out-dir': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -385,6 +386,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'pull-policy') {
+    const result = await pullPolicies({
+      config: values.config,
+      apiUrl: values['api-url'],
+      agentId: values['agent-id'] ? Number.parseInt(values['agent-id'], 10) : undefined,
+      syncToken: values['sync-token'],
+      outDir: values['out-dir'] ?? podPath('policies'),
+    });
+    if (result.policies.length === 0) log('云端无策略（可先在 Pod Cloud 策略中心创建模板或绑定本 agent）');
+    for (const p of result.policies) {
+      log(`pulled "${p.name}" v${p.version}${p.agent_id ? ` (agent #${p.agent_id})` : ' (template)'} -> ${p.path}`);
+    }
+    log(`use: pod serve --policy <path> 加载策略`);
+    return;
+  }
+
   if (cmd === 'scan') {
     cmdScan(values.json ?? false);
     return;
@@ -428,6 +445,7 @@ Usage:
   pod pending [--pending-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
   pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
+  pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--out-dir <dir>]
   pod scan [--json]
   pod --help
 
