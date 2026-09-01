@@ -24,6 +24,7 @@ import { scanMachine, renderMarkdown, checkBypass } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { runSync, pullPolicies } from './sync.js';
+import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -76,6 +77,7 @@ interface ServeOptions {
   auditDir: string;
   pendingDir: string;
   approvalTimeoutSec: number;
+  alertConfig?: string;
 }
 
 async function cmdServe(opts: ServeOptions): Promise<void> {
@@ -84,9 +86,16 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
   const auditDir = opts.auditDir;
   mkdirSync(auditDir, { recursive: true });
   const auditPath = join(auditDir, `${opts.server}.jsonl`);
+  const alertConfig = loadAlertConfig(opts.alertConfig);
+  const alertCheck = alertConfig ? createAlertChecker(alertConfig, async (e: AlertEvent) => {
+    log(`ALERT [${e.severity}] ${e.kind}: ${e.message}`);
+    await fetch(alertConfig.webhook_url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e),
+    });
+  }) : null;
   const audit = existsSync(auditPath)
-    ? loadAuditFile(auditPath, policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) })
-    : new AuditLog(policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) });
+    ? loadAuditFile(auditPath, policy.version, { onAppend: (entry) => { appendToAuditFile(auditPath, entry); alertCheck?.(entry); } })
+    : new AuditLog(policy.version, { onAppend: (entry) => { appendToAuditFile(auditPath, entry); alertCheck?.(entry); } });
 
   const approval = createFileApprovalProvider({
     pendingDir: opts.pendingDir,
@@ -345,6 +354,7 @@ async function main(): Promise<void> {
       'agent-id': { type: 'string' },
       'sync-token': { type: 'string' },
       'out-dir': { type: 'string' },
+      'alert-config': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -375,6 +385,7 @@ async function main(): Promise<void> {
       auditDir: values['audit-dir'] ?? podPath('audit'),
       pendingDir: values['pending-dir'] ?? podPath('pending'),
       approvalTimeoutSec: values['approval-timeout'] ? Number.parseInt(values['approval-timeout'], 10) : 300,
+      alertConfig: values['alert-config'],
     });
     return;
   }
@@ -507,7 +518,7 @@ Usage:
   pod init
   pod serve --agent <name> --server <name> --policy <file> \\
            --command <cmd> [--arg <value> ...] [--audit-dir <dir>] \\
-           [--approval-timeout <sec>] [--pending-dir <dir>]
+           [--approval-timeout <sec>] [--pending-dir <dir>] [--alert-config <file>]
   pod record --config <mcp-manager.json> --server <name> \\
              [--agent <name>] [--policy <file>] [--audit-dir <dir>]
   pod approve --id <approval-id> [--reason <why>] [--approver <who>]
