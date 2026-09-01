@@ -19,7 +19,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog, appendToAuditFile, loadAuditFile } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
-import { createStdioProxy } from '@podsec/gateway';
+import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown, checkBypass } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
@@ -130,6 +130,8 @@ interface ServeOptions {
   pendingDir: string;
   approvalTimeoutSec: number;
   alertConfig?: string;
+  transport: 'stdio' | 'http';
+  port: number;
 }
 
 async function cmdServe(opts: ServeOptions): Promise<void> {
@@ -173,6 +175,23 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
   log(`upstream: ${opts.command} ${opts.args.join(' ')}`);
   log(`pending approvals: ${opts.pendingDir} (timeout ${opts.approvalTimeoutSec}s)`);
 
+  if (opts.transport === 'http') {
+    const result = await createHttpProxy({
+      agent: opts.agent,
+      serverName: opts.server,
+      policy,
+      audit,
+      approval,
+      command: opts.command,
+      args: opts.args,
+      port: opts.port,
+      host: '127.0.0.1',
+      log,
+    });
+    log(`gateway ready on ${result.url} (HTTP, resident)`);
+    log('agent-side config: point your agent\'s MCP server at the URL above');
+    return;
+  }
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
   await server.connect(new StdioServerTransport());
   log('gateway ready on stdio; waiting for agent…');
@@ -408,6 +427,8 @@ async function main(): Promise<void> {
       'out-dir': { type: 'string' },
       'alert-config': { type: 'string' },
       template: { type: 'string' },
+      transport: { type: 'string' },
+      port: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -439,6 +460,8 @@ async function main(): Promise<void> {
       pendingDir: values['pending-dir'] ?? podPath('pending'),
       approvalTimeoutSec: values['approval-timeout'] ? Number.parseInt(values['approval-timeout'], 10) : 300,
       alertConfig: values['alert-config'],
+      transport: values.transport === 'http' ? 'http' : 'stdio',
+      port: values.port ? Number.parseInt(values.port, 10) : 8787,
     });
     return;
   }
@@ -571,7 +594,8 @@ Usage:
   pod init [--template baseline|record]
   pod serve --agent <name> --server <name> --policy <file> \\
            --command <cmd> [--arg <value> ...] [--audit-dir <dir>] \\
-           [--approval-timeout <sec>] [--pending-dir <dir>] [--alert-config <file>]
+           [--approval-timeout <sec>] [--pending-dir <dir>] [--alert-config <file>] \
+           [--transport stdio|http] [--port <n>]
   pod record --config <mcp-manager.json> --server <name> \\
              [--agent <name>] [--policy <file>] [--audit-dir <dir>]
   pod approve --id <approval-id> [--reason <why>] [--approver <who>]

@@ -11,7 +11,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { serveHttp, type HttpServeResult } from './http-server.js';
 import {
   CallToolRequestSchema,
   CompatibilityCallToolResultSchema,
@@ -308,4 +308,42 @@ export async function createStdioProxy(opts: StdioProxyOptions): Promise<Server>
     connectUpstream: async () => client,
   });
   return server;
+}
+
+export interface HttpProxyOptions extends Omit<ProxyOptions, 'connectUpstream'> {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  port: number;
+  host?: string;
+  log?: (msg: string) => void;
+}
+
+/** spawn 真实 MCP server 并暴露为常驻 HTTP 网关（http://host:port/mcp） */
+export async function createHttpProxy(opts: HttpProxyOptions): Promise<HttpServeResult> {
+  // T4：来源白名单校验（与 createStdioProxy 一致）
+  const sourceCheck = checkServerSource(opts.policy.servers?.[opts.serverName]?.source, opts.command, opts.args);
+  if (sourceCheck !== null) {
+    throw new Error(`server "${opts.serverName}" 未通过来源白名单校验（T4）：${sourceCheck}`);
+  }
+  let upstream: Client | undefined;
+  const getUpstream = async (): Promise<Client> => {
+    if (!upstream) {
+      const transport = new StdioClientTransport({ command: opts.command, args: opts.args, env: opts.env });
+      upstream = new Client({ name: 'pod-gateway-upstream', version: '0.1.0' }, { capabilities: {} });
+      await upstream.connect(transport);
+    }
+    return upstream;
+  };
+  // stateless 模式：每请求新建 proxy server，共享 upstream 连接
+  return serveHttp({
+    port: opts.port,
+    host: opts.host,
+    log: opts.log,
+    createServer: () =>
+      createProxyServer({
+        ...opts,
+        connectUpstream: getUpstream,
+      }),
+  });
 }

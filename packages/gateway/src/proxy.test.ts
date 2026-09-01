@@ -4,7 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { AuditLog } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createDemoServer } from './demo-server.js';
-import { createProxyServer, createStdioProxy, matchInjectionSignal } from './proxy.js';
+import { createHttpProxy, createProxyServer, createStdioProxy, matchInjectionSignal } from './proxy.js';
 
 /** SDK 1.30 将 callTool 返回类型放宽为 union，测试里收窄后取文本 */
 type CallToolResponse = Awaited<ReturnType<Client['callTool']>>;
@@ -416,5 +416,50 @@ describe('server source whitelist (T4, startup gate)', () => {
         args: [],
       }),
     ).rejects.toThrow(/来源白名单/);
+  });
+});
+
+describe('createHttpProxy (resident HTTP gateway)', () => {
+  it('serves tools over Streamable HTTP and enforces policy', async () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'test-agent',
+      servers: { demo: { allow: ['echo'], deny: ['danger_delete'] } },
+      secrets: { deny_output_matching: ['ghp_[A-Za-z0-9]{36}'] },
+    };
+    const audit = new AuditLog(policy.version);
+    const demo = new URL('./demo-server.ts', import.meta.url).pathname;
+    const { url, server } = await createHttpProxy({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy,
+      audit,
+      command: process.execPath,
+      args: ['--import', 'tsx', demo],
+      port: 0, // 随机端口
+    });
+    try {
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const t = new StreamableHTTPClientTransport(new URL(url));
+      const c = new Client({ name: 'http-client', version: '0.1.0' }, { capabilities: {} });
+      await c.connect(t);
+      const { tools } = await c.listTools();
+      expect(tools.map((x) => x.name).sort()).toEqual(['danger_delete', 'echo', 'now']);
+
+      const ok = await c.callTool({ name: 'echo', arguments: { message: 'hi' } }, undefined);
+      expect(ok.isError).toBeFalsy();
+
+      const blocked = await c.callTool({ name: 'danger_delete', arguments: { path: '/etc' } }, undefined);
+      expect(blocked.isError).toBe(true);
+
+      const leak = await c.callTool({ name: 'echo', arguments: { message: 'key ghp_abcdefghijklmnopqrstuvwxyzABCDEF123456' } }, undefined);
+      expect(leak.isError).toBe(true);
+      expect(audit.entries.some((e) => e.reason?.includes('secret_leak'))).toBe(true);
+      expect(audit.verify()).toEqual({ ok: true });
+      await c.close();
+      await t.close();
+    } finally {
+      server.close();
+    }
   });
 });
