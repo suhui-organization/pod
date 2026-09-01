@@ -7,6 +7,13 @@
 | `com.podcloud.sync` | `pod sync` 推送审计到 Pod Cloud | 每 30 分钟 + 登录时 |
 | `com.podcloud.port-forward` | 常驻转发 k8s `podcloud-web` → 127.0.0.1:18088 | 常驻（KeepAlive）|
 | `com.podcloud.serve` | 常驻 HTTP 网关（Streamable MCP）`http://127.0.0.1:8786/mcp`，baseline 策略 + 真实 filesystem server | 常驻（KeepAlive）|
+| `com.podcloud.serve-hermes` | Hermes 网关 `http://127.0.0.1:8784/mcp`（agent=hermes） | 常驻（KeepAlive）|
+| `com.podcloud.serve-openclaw` | OpenClaw 网关 `http://127.0.0.1:8783/mcp`（agent=openclaw） | 常驻（KeepAlive）|
+
+> Codex 曾配 HTTP 网关 8785，因其 rmcp 客户端只发纯 JSON Accept（被 SDK 强制
+> JSON+SSE 拒绝），已切换为 stdio wrapper（`~/.pod/pod-serve-codex-stdio.sh`，
+> Codex 每次会话 spawn）；但 deepseek provider + exec 模式下 Codex 不加载 MCP 工具
+> （客户端侧限制）。审计目录按 agent 分：`~/.pod/audit/<agent>/`。
 
 serve 的 agent 接入：任何支持 Streamable HTTP 的 agent 把 MCP server 配置为
 `http://127.0.0.1:8786/mcp` 即可共用网关（策略/审批/审计/告警全在网关侧）。
