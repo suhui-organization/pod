@@ -6,6 +6,10 @@
 |-------|------|------|
 | `com.podcloud.sync` | `pod sync` 推送审计到 Pod Cloud | 每 30 分钟 + 登录时 |
 | `com.podcloud.port-forward` | 常驻转发 k8s `podcloud-web` → 127.0.0.1:18088 | 常驻（KeepAlive）|
+| `com.podcloud.serve` | 常驻 HTTP 网关（Streamable MCP）`http://127.0.0.1:8786/mcp`，baseline 策略 + 真实 filesystem server | 常驻（KeepAlive）|
+
+serve 的 agent 接入：任何支持 Streamable HTTP 的 agent 把 MCP server 配置为
+`http://127.0.0.1:8786/mcp` 即可共用网关（策略/审批/审计/告警全在网关侧）。
 
 ## 管理命令
 
@@ -31,6 +35,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.podcloud.sync.plist
 ## 依赖
 
 - `pod` 全局命令（`npm link` 于 apps/cli；代码更新后 `pnpm -r build` 即可，链接不变）
+- **端口注意**：8786 供 pod serve；**8787 被 Codex gateway 占用**（com.local.codex-gateway），不要使用
 - `kubectl` 在 PATH（plist 内写死 `/opt/homebrew/bin/kubectl`）
 - k8s `podcloud` namespace 存在（部署见 DeepThinkHarness deploy/k8s/podcloud）
 
