@@ -9,12 +9,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 export interface ServeHttpOptions {
   port: number;
   host?: string;
   /** 每个会话创建一个新的 MCP Server（upstream 连接由工厂内部共享） */
-  createServer: () => Server;
+  createServer: () => { connect(transport: Transport): Promise<void> };
   log?: (msg: string) => void;
 }
 
@@ -26,7 +27,7 @@ export interface HttpServeResult {
 
 export function serveHttp(opts: ServeHttpOptions): Promise<HttpServeResult> {
   const log = opts.log ?? (() => {});
-  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
+  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: { connect(transport: Transport): Promise<void> } }>();
 
   const httpServer = createServer(async (req, res) => {
     const url = req.url ?? '/';
@@ -38,12 +39,26 @@ export function serveHttp(opts: ServeHttpOptions): Promise<HttpServeResult> {
     res.on('finish', () => log(`http ${req.method} ${url} -> ${res.statusCode}`));
     try {
       const sessionId = (req.headers['mcp-session-id'] as string | undefined) ?? undefined;
+      // Accept 兼容层：SDK 要求客户端同时接受 application/json 与 text/event-stream，
+      // 但部分客户端（如 OpenClaw bundle-mcp）只发 text/event-stream，纯 JSON 客户端只发
+      // application/json。补齐缺失的媒体类型以通过 SDK 校验；响应模式按客户端原始
+      // Accept 决定（SSE-only → SSE 流；JSON-only → JSON 响应）。
+      const rawAccept = (req.headers.accept as string | undefined) ?? '';
+      const wantsJson = rawAccept.includes('application/json');
+      const wantsSse = rawAccept.includes('text/event-stream');
+      if (rawAccept && (!wantsJson || !wantsSse)) {
+        const patched = rawAccept + (wantsJson ? ', text/event-stream' : ', application/json');
+        req.headers.accept = patched;
+        log(`accept patched: "${rawAccept}" -> "${patched}"`);
+      }
       let session = sessionId ? sessions.get(sessionId) : undefined;
       if (!session) {
         const server = opts.createServer();
         let transport: StreamableHTTPServerTransport | undefined;
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
+          // 纯 JSON 客户端（如 Codex rmcp）→ JSON 响应模式；其余默认 SSE 流
+          enableJsonResponse: wantsJson && !wantsSse,
           onsessioninitialized: (id) => {
             if (transport) {
               sessions.set(id, { transport, server });
