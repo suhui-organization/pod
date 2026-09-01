@@ -224,7 +224,9 @@ export function scanMachine(opts: ScanOptions): ScanResult {
 // ---------- 报表渲染 ----------
 
 export function renderMarkdown(result: ScanResult): string {
-  const lines: string[] = ['# pod scan 报表', ''];
+  const lines: string[] = ['# pod scan 报表 — 你 Agent 的信任基线', ''];
+  lines.push('> 第一步：看清风险面。第二步：装闸门。第三步：每一步都有不可篡改的证据。');
+  lines.push('');
   lines.push(`扫描时间：${new Date().toISOString()}`);
   lines.push('');
   lines.push('## 1. Agent 清单（影子 agent，T6）');
@@ -279,6 +281,9 @@ export function renderMarkdown(result: ScanResult): string {
   lines.push('');
   lines.push('---');
   lines.push('pod scan 只读、不联网、不上传任何数据。');
+  lines.push('');
+  lines.push('**下一步**：`pod init --template baseline` 装上闸门，');
+  lines.push('每次工具调用写入 SHA-256 哈希链——从今天起，你的 Agent 每一步都有不可篡改的证据。');
   return lines.join('\n');
 }
 
