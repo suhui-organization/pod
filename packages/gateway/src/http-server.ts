@@ -1,24 +1,20 @@
 /**
  * pod gateway — Streamable HTTP 常驻形态（供多 agent 通过 URL 连接）。
  *
- * stdio 形态由 agent 每次 spawn，无法常驻；HTTP 形态是常驻网关的正确架构。
- * 端点：POST/GET /mcp（MCP Streamable HTTP 协议）。
- * 默认只绑 127.0.0.1（本地优先，D3）。
- *
- * 无会话（stateless）模式：SDK 要求每个请求使用新的 transport + Server 实例，
- * 因此 serveHttp 接收 createServer 工厂（每请求调用一次）；upstream 连接
- * 由工厂内部共享（真实 MCP server 进程只 spawn 一次）。
+ * 标准 session 模式：每个 MCP 会话一个 transport + Server 实例
+ * （SDK 限制：Server.connect 一次一个 transport；stateless transport 不可复用）。
+ * 请求带 Mcp-Session-Id 时复用对应会话；新会话由 sessionIdGenerator 分配。
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 export interface ServeHttpOptions {
   port: number;
   host?: string;
-  /** 每请求创建一个新的 MCP Server（stateless 模式要求） */
+  /** 每个会话创建一个新的 MCP Server（upstream 连接由工厂内部共享） */
   createServer: () => Server;
-  /** 日志（走 stderr 惯例） */
   log?: (msg: string) => void;
 }
 
@@ -30,6 +26,7 @@ export interface HttpServeResult {
 
 export function serveHttp(opts: ServeHttpOptions): Promise<HttpServeResult> {
   const log = opts.log ?? (() => {});
+  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
 
   const httpServer = createServer(async (req, res) => {
     const url = req.url ?? '/';
@@ -39,22 +36,34 @@ export function serveHttp(opts: ServeHttpOptions): Promise<HttpServeResult> {
       return;
     }
     res.on('finish', () => log(`http ${req.method} ${url} -> ${res.statusCode}`));
-    let transport: StreamableHTTPServerTransport | undefined;
     try {
-      // stateless：每请求新 transport + Server（SDK 限制：stateless transport
-      // 不可复用；Server.connect 一次只能一个 transport）
-      const server = opts.createServer();
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-        onsessioninitialized: () => log('MCP session initialized'),
-      });
-      await server.connect(transport);
+      const sessionId = (req.headers['mcp-session-id'] as string | undefined) ?? undefined;
+      let session = sessionId ? sessions.get(sessionId) : undefined;
+      if (!session) {
+        const server = opts.createServer();
+        let transport: StreamableHTTPServerTransport | undefined;
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (id) => {
+            if (transport) {
+              sessions.set(id, { transport, server });
+              log(`session initialized: ${id.slice(0, 8)}`);
+            }
+          },
+        });
+        await server.connect(transport);
+        transport.onclose = () => {
+          for (const [id, s] of sessions) {
+            if (s.transport === transport) sessions.delete(id);
+          }
+        };
+        session = { transport, server };
+      }
       res.on('close', () => {
-        transport?.close().catch(() => {});
-        server.close().catch(() => {});
+        // 不主动关闭会话 transport（SSE 断开会触发 onclose 清理）
       });
-      // 不预读 body：Hono listener 需要原始流（预读会消费流导致空 body/500）
-      await transport.handleRequest(req as IncomingMessage & { body?: unknown }, res as ServerResponse);
+      // 不预读 body：Hono listener 需要原始流
+      await session.transport.handleRequest(req as IncomingMessage & { body?: unknown }, res as ServerResponse);
     } catch (err) {
       log(`http handler error: ${err instanceof Error ? err.message : String(err)}`);
       if (!res.writableEnded && !res.headersSent) {

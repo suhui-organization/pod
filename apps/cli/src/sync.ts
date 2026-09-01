@@ -13,10 +13,20 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
 
-export interface CloudConfig {
-  api_url: string;
+export interface CloudAgentBinding {
+  /** 本地审计文件的 agent 字段（"*" = 全部） */
+  local_agent: string;
   agent_id: number;
   sync_token: string;
+}
+
+export interface CloudConfig {
+  api_url: string;
+  /** 旧格式：单 agent（agent_id/sync_token） */
+  agent_id?: number;
+  sync_token?: string;
+  /** 新格式：多 agent 绑定（优先） */
+  agents?: CloudAgentBinding[];
 }
 
 export interface SyncResult {
@@ -31,8 +41,19 @@ export function loadCloudConfig(configPath?: string): CloudConfig {
     throw new Error(`未找到云配置 ${path}（先 pod cloud-setup 或手工写入 api_url/agent_id/sync_token）`);
   }
   const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<CloudConfig>;
-  if (!raw.api_url || !raw.agent_id || !raw.sync_token) {
-    throw new Error(`云配置 ${path} 缺少 api_url/agent_id/sync_token`);
+  if (!raw.api_url) {
+    throw new Error(`云配置 ${path} 缺少 api_url`);
+  }
+  if (raw.agents && raw.agents.length > 0) {
+    for (const b of raw.agents) {
+      if (!b.local_agent || !b.agent_id || !b.sync_token) {
+        throw new Error(`云配置 ${path} 的 agents 条目缺少 local_agent/agent_id/sync_token`);
+      }
+    }
+    return { api_url: raw.api_url.replace(/\/+$/, ''), agents: raw.agents };
+  }
+  if (!raw.agent_id || !raw.sync_token) {
+    throw new Error(`云配置 ${path} 缺少 agent_id/sync_token（或 agents 数组）`);
   }
   return { api_url: raw.api_url.replace(/\/+$/, ''), agent_id: raw.agent_id, sync_token: raw.sync_token };
 }
@@ -58,16 +79,36 @@ interface ServerEvents {
   events: Array<Record<string, unknown>>;
 }
 
-/** 读取审计目录，按 server 分组并过滤掉已同步（游标之后）的事件 */
-export function collectPendingEvents(auditDir: string, cursor: Record<string, string>): ServerEvents[] {
-  const files = readdirSync(auditDir).filter((f) => f.endsWith('.jsonl')).sort();
+/** 读取审计目录，按 server 分组并过滤掉已同步（游标之后）的事件；localAgent='*' 不过滤 */
+export function collectPendingEvents(
+  auditDir: string,
+  cursor: Record<string, string>,
+  localAgent: string = '*',
+): ServerEvents[] {
   const out: ServerEvents[] = [];
-  for (const file of files) {
+  // 顶层 *.jsonl（旧布局）+ 子目录 <agent>/*.jsonl（多网关布局）
+  const files: Array<{ dir: string; file: string }> = [];
+  if (existsSync(auditDir)) {
+    for (const f of readdirSync(auditDir).sort()) {
+      if (f.endsWith('.jsonl')) files.push({ dir: auditDir, file: f });
+      else if (!f.endsWith('.legacy')) {
+        const sub = join(auditDir, f);
+        if (existsSync(sub) && !existsSync(join(sub, '.skip'))) {
+          for (const sf of readdirSync(sub).filter((x) => x.endsWith('.jsonl')).sort()) {
+            files.push({ dir: sub, file: sf });
+          }
+        }
+      }
+    }
+  }
+  for (const { dir, file } of files) {
     const server = file.replace(/\.jsonl$/, '');
-    const log = AuditLog.fromJSONL(readFileSync(join(auditDir, file), 'utf8'), '');
+    const log = AuditLog.fromJSONL(readFileSync(join(dir, file), 'utf8'), '');
     if (log.entries.length === 0) continue;
     const lastHash = cursor[server];
-    let events = log.entries.map((e) => ({
+    let events = log.entries
+      .filter((e) => localAgent === '*' || e.agent === localAgent)
+      .map((e) => ({
       seq: e.seq,
       ts: e.ts,
       server: e.server,
@@ -98,7 +139,7 @@ export function collectPendingEvents(auditDir: string, cursor: Record<string, st
 }
 
 export async function pushBatch(
-  cfg: CloudConfig,
+  cfg: { api_url: string; sync_token: string },
   server: string,
   events: Array<Record<string, unknown>>,
 ): Promise<{ synced: number }> {
@@ -153,7 +194,7 @@ export async function pullPolicies(opts: {
   } as CloudConfig;
 
   const url = `${cfg.api_url}/api/v1/sync/policies`;
-  const resp = await fetch(url, { headers: { 'X-Sync-Token': cfg.sync_token } });
+  const resp = await fetch(url, { headers: { 'X-Sync-Token': cfg.sync_token ?? '' } });
   if (!resp.ok) {
     const body = (await resp.json().catch(() => ({}))) as { detail?: string };
     throw new Error(`拉取策略失败 HTTP ${resp.status}：${body.detail ?? ''}`);
@@ -189,24 +230,34 @@ export async function runSync(opts: {
     ...(opts.agentId ? { agent_id: opts.agentId } : {}),
     ...(opts.syncToken ? { sync_token: opts.syncToken } : {}),
   } as CloudConfig;
-  const cursor = loadSyncState(cfg.agent_id);
-  const pending = collectPendingEvents(opts.auditDir, cursor);
-  const newCursor = { ...cursor };
+
+  // 多 agent：每个 binding 用独立游标与令牌推送；旧格式视为单个 '*' binding
+  const bindings: CloudAgentBinding[] = cfg.agents ?? [
+    { local_agent: '*', agent_id: cfg.agent_id!, sync_token: cfg.sync_token! },
+  ];
+
   const servers: SyncResult['servers'] = [];
   let total = 0;
-  for (const { server, events } of pending) {
-    let synced = 0;
-    let skipped = 0;
-    // 分批（服务端上限 500/批）
-    for (let i = 0; i < events.length; i += 500) {
-      const batch = events.slice(i, i + 500);
-      const res = await pushBatch(cfg, server, batch);
-      synced += res.synced;
+  for (const b of bindings) {
+    const cursor = loadSyncState(b.agent_id);
+    const pending = collectPendingEvents(opts.auditDir, cursor, b.local_agent);
+    const newCursor = { ...cursor };
+    for (const { server, events } of pending) {
+      let synced = 0;
+      for (let i = 0; i < events.length; i += 500) {
+        const batch = events.slice(i, i + 500);
+        const res = await pushBatch(
+          { api_url: cfg.api_url, sync_token: b.sync_token },
+          server,
+          batch,
+        );
+        synced += res.synced;
+      }
+      newCursor[server] = events[events.length - 1]!.hash as string;
+      total += synced;
+      servers.push({ server, synced, skipped: 0 });
     }
-    newCursor[server] = events[events.length - 1]!.hash as string;
-    total += synced;
-    servers.push({ server, synced, skipped });
+    saveSyncState(b.agent_id, newCursor);
   }
-  saveSyncState(cfg.agent_id, newCursor);
-  return { agent_id: cfg.agent_id, servers, total_synced: total };
+  return { agent_id: bindings[0]!.agent_id, servers, total_synced: total };
 }
