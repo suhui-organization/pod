@@ -80,6 +80,9 @@ pod audit --tail 20
 | `pod serve` | 强制模式：三态策略 + 审批闸门 + 审计 |
 | `pod audit` | 查看审计（SHA-256 哈希链，可验证不可篡改） |
 | `pod approve / deny / pending` | 审批旁路通道 |
+| `pod timeline` | **时间线回放**：谁、何时、调了什么、谁批准的、当时策略版本 |
+| `pod verify-audit` | **一键自证**：完整哈希链校验 + 自检报告 |
+| `pod export-evidence` | **导出证据包**：审计 + 策略快照 + 顶层哈希（可验证） |
 | `pod sync` | 推送审计到 Pod Cloud（游标增量、幂等） |
 | `pod pull-policy` | 拉取云端策略到本地生效 |
 

@@ -24,6 +24,15 @@ import { scanMachine, renderMarkdown, checkBypass } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { runSync, pullPolicies } from './sync.js';
+import {
+  buildTimeline,
+  renderTimeline,
+  verifyAll,
+  renderVerifyReport,
+  exportEvidence,
+  verifyEvidenceBundle,
+  type TimelineOptions,
+} from './evidence.js';
 import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
 
 const POD_HOME = join(homedir(), '.pod');
@@ -393,6 +402,40 @@ function cmdDoctor(policyPath: string | undefined): void {
   log(existsSync(auditDir) ? `✅ 审计目录: ${auditDir}` : `ℹ️ 审计目录不存在（首次 record/serve 时创建）: ${auditDir}`);
 }
 
+function cmdTimeline(opts: TimelineOptions): void {
+  const { entries, broken } = buildTimeline(opts);
+  process.stdout.write(renderTimeline(entries, broken) + '\n');
+  if (broken.length > 0) process.exitCode = 1;
+}
+
+function cmdVerifyAudit(auditDir: string, out: string | undefined): void {
+  const results = verifyAll(auditDir);
+  const report = renderVerifyReport(results, auditDir);
+  if (out) {
+    writeFileSync(out, report, 'utf8');
+    log(`自检报告已写入: ${out}`);
+  }
+  process.stdout.write(report + '\n');
+  if (results.some((r) => !r.ok)) process.exitCode = 1;
+}
+
+function cmdExportEvidence(auditDir: string, policyDir: string, outPath: string): void {
+  const bundle = exportEvidence({ auditDir, policyDir, outPath });
+  log(`证据包已导出: ${outPath}`);
+  log(`  审计文件: ${Object.keys(bundle.audits).length} 个 | 策略快照: ${Object.keys(bundle.policies).length} 个`);
+  log(`  顶层哈希: ${bundle.top_level_hash.slice(0, 16)}…`);
+  log(`  验证: pod verify-evidence ${outPath}`);
+}
+
+function cmdVerifyEvidence(path: string): void {
+  const r = verifyEvidenceBundle(path);
+  if (r.ok) log(`✅ 证据包有效（顶层哈希匹配，未被修改）: ${path}`);
+  else {
+    log(`❌ 证据包校验失败: ${r.reason ?? ''}`);
+    process.exitCode = 1;
+  }
+}
+
 function cmdScan(json: boolean): void {
   const result = scanMachine({ home: homedir() });
   if (json) {
@@ -426,6 +469,11 @@ async function main(): Promise<void> {
       'sync-token': { type: 'string' },
       'out-dir': { type: 'string' },
       'alert-config': { type: 'string' },
+      tool: { type: 'string' },
+      since: { type: 'string' },
+      limit: { type: 'string' },
+      out: { type: 'string' },
+      'policy-dir': { type: 'string' },
       template: { type: 'string' },
       transport: { type: 'string' },
       port: { type: 'string' },
@@ -529,6 +577,41 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'timeline') {
+    cmdTimeline({
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+      server: values.server,
+      agent: values.agent,
+      tool: values.tool,
+      since: values.since,
+      limit: values.limit ? Number.parseInt(values.limit, 10) : undefined,
+    });
+    return;
+  }
+
+  if (cmd === 'verify-audit') {
+    cmdVerifyAudit(values['audit-dir'] ?? podPath('audit'), values.out);
+    return;
+  }
+
+  if (cmd === 'export-evidence') {
+    cmdExportEvidence(
+      values['audit-dir'] ?? podPath('audit'),
+      values['policy-dir'] ?? podPath('policies'),
+      values.out ?? podPath('evidence', `pod-evidence-${new Date().toISOString().slice(0, 10)}.json`),
+    );
+    return;
+  }
+
+  if (cmd === 'verify-evidence') {
+    if (!values.out) {
+      console.error('pod verify-evidence requires --out <bundle.json>');
+      process.exit(1);
+    }
+    cmdVerifyEvidence(values.out);
+    return;
+  }
+
   if (cmd === 'lint') {
     if (!values.policy) {
       console.error('pod lint requires --policy <file>');
@@ -602,6 +685,10 @@ Usage:
   pod deny --id <approval-id> [--reason <why>] [--approver <who>]
   pod pending [--pending-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
+  pod timeline [--server <name>] [--agent <name>] [--tool <name>] [--since 2h|24h|7d] [--limit <n>]
+  pod verify-audit [--audit-dir <dir>] [--out <report.md>]
+  pod export-evidence [--audit-dir <dir>] [--policy-dir <dir>] [--out <bundle.json>]
+  pod verify-evidence --out <bundle.json>
   pod lint --policy <file>
   pod doctor [--policy <file>]
   pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
