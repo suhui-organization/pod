@@ -2,7 +2,7 @@
 /**
  * pod CLI v0 骨架（Phase 0）。
  * 子命令：
- *   pod init                     初始化 ~/.pod（示例策略）
+ *   pod init [--template baseline|record]                     初始化 ~/.pod（示例策略）
  *   pod serve                    启动网关（MCP stdio 代理）
  *     --agent <name>              agent 身份
  *     --server <name>             server 名（策略求值用）
@@ -32,6 +32,49 @@ function podPath(...parts: string[]): string {
   return join(POD_HOME, ...parts);
 }
 
+/** 策略模板库：pod init --template <name> 一键生成 */
+const TEMPLATES: Record<string, { label: string; policy: Policy }> = {
+  baseline: {
+    label: '标准 OPC 基线（最小权限 + 敏感信息防线 + 审批闸门）',
+    policy: {
+      version: '0.1.0',
+      agent: 'openclaw-main',
+      defaultDecision: 'deny',
+      servers: {
+        filesystem: {
+          allow: ['read_file', 'list_directory', 'search_files'],
+          approve: ['write_file', 'edit_file'],
+          deny: ['delete_file'],
+          // T4：来源白名单——启动命令不匹配时拒绝启动
+          source: { command: 'mcp-server-filesystem' },
+        },
+      },
+      secrets: {
+        // P0（T2）：敏感路径参数直接拒绝
+        deny_input_paths: ['~/.ssh', '.env', 'credentials', 'id_rsa', 'id_ed25519', '.aws', 'known_hosts'],
+        // P0（T2）：工具响应命中密钥正则则阻断
+        deny_output_matching: [
+          'ghp_[A-Za-z0-9]{36}',
+          'github_pat_[A-Za-z0-9_]{22,}',
+          'sk-[A-Za-z0-9]{20,}',
+          'sk-ant-[A-Za-z0-9-]{20,}',
+          'AKIA[0-9A-Z]{16}',
+          'xox[baprs]-[A-Za-z0-9-]{10,}',
+          'AIza[0-9A-Za-z_-]{35}',
+        ],
+      },
+    },
+  },
+  record: {
+    label: '采集模式（只录不拦，配合 pod record）',
+    policy: {
+      version: '0.1.0',
+      agent: 'openclaw-main',
+      servers: { '*': { allow: ['*'] } },
+    },
+  },
+};
+
 const EXAMPLE_POLICY: Policy = {
   version: '0.1.0',
   agent: 'openclaw-main',
@@ -57,15 +100,24 @@ function log(message: string): void {
   console.error(`[pod] ${message}`);
 }
 
-async function cmdInit(): Promise<void> {
+async function cmdInit(template: string | undefined): Promise<void> {
   mkdirSync(podPath('policies'), { recursive: true });
   mkdirSync(podPath('audit'), { recursive: true });
-  const policyFile = podPath('policies', 'example.json');
+  const name = template ?? 'example';
+  const policyFile = podPath('policies', `${name}.json`);
   if (!existsSync(policyFile)) {
-    writeFileSync(policyFile, JSON.stringify(EXAMPLE_POLICY, null, 2) + '\n', 'utf8');
+    if (template && TEMPLATES[template]) {
+      writeFileSync(policyFile, JSON.stringify(TEMPLATES[template]!.policy, null, 2) + '\n', 'utf8');
+      log(`template "${template}": ${TEMPLATES[template]!.label}`);
+    } else if (template && !TEMPLATES[template]) {
+      log(`未知模板 "${template}"，可用: ${Object.keys(TEMPLATES).join(', ')}`);
+      return;
+    } else {
+      writeFileSync(policyFile, JSON.stringify(EXAMPLE_POLICY, null, 2) + '\n', 'utf8');
+    }
   }
   log(`initialized ${POD_HOME}`);
-  log(`example policy: ${policyFile}`);
+  log(`policy: ${policyFile}`);
 }
 
 interface ServeOptions {
@@ -355,6 +407,7 @@ async function main(): Promise<void> {
       'sync-token': { type: 'string' },
       'out-dir': { type: 'string' },
       'alert-config': { type: 'string' },
+      template: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -366,7 +419,7 @@ async function main(): Promise<void> {
   }
 
   if (cmd === 'init') {
-    await cmdInit();
+    await cmdInit(values.template);
     return;
   }
 
@@ -515,7 +568,7 @@ function usage(): string {
   return `pod — AI agent security pod (Phase 0 scaffold)
 
 Usage:
-  pod init
+  pod init [--template baseline|record]
   pod serve --agent <name> --server <name> --policy <file> \\
            --command <cmd> [--arg <value> ...] [--audit-dir <dir>] \\
            [--approval-timeout <sec>] [--pending-dir <dir>] [--alert-config <file>]
