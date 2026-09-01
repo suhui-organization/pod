@@ -181,3 +181,20 @@ describe('pod record restart continues the hash chain', () => {
     expect(log.entries[1]!.agent).toBe('restart-test');
   });
 });
+
+describe('pod lint / doctor (P1)', () => {
+  it('pod lint flags fail-open policy and invalid regex', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-lint-'));
+    const bad = join(dir, 'bad.json');
+    writeFileSync(bad, JSON.stringify({ version: '0.1.0', agent: 'a', defaultDecision: 'allow', servers: { s: { allow: ['*'] } }, secrets: { deny_output_matching: ['[unclosed'] } }), 'utf8');
+    const res = spawnSync(process.execPath, ['--import', 'tsx', CLI_INDEX, 'lint', '--policy', bad], { encoding: 'utf8' });
+    expect(res.stderr).toContain('[ERROR]');
+    expect(res.stderr).toContain('非法正则');
+    expect(res.status).toBe(1); // 有 error 时退出码 1
+  });
+
+  it('pod doctor reports bypass servers and cloud config', () => {
+    const res = spawnSync(process.execPath, ['--import', 'tsx', CLI_INDEX, 'doctor'], { encoding: 'utf8' });
+    expect(res.stderr).toContain('pod doctor');
+  });
+});

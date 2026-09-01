@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  checkBypass,
   maskSecret,
   parseNpxPackage,
   scanSecretsInText,
@@ -149,5 +150,36 @@ describe('scanMachine (mock home)', () => {
     writeFileSync(join(home, '.dsh/mcp-manager.json'), '{not json', 'utf8');
     const result = scanMachine({ home });
     expect(result.findings.some((f) => f.severity === 'high' && f.message.includes('不是合法 JSON'))).toBe(true);
+  });
+});
+
+describe('checkBypass (P1, trust boundary)', () => {
+  it('flags MCP servers not routed through pod', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-bypass-'));
+    mkdirSync(join(home, '.dsh'), { recursive: true });
+    writeFileSync(
+      join(home, '.dsh/mcp-manager.json'),
+      JSON.stringify({
+        servers: [
+          { name: 'filesystem', command: 'mcp-server-filesystem', args: ['/tmp'] },
+          { name: 'pod-filesystem', command: 'node', args: ['--import', 'tsx', '/x/pod', 'record', '--server', 'filesystem'] },
+        ],
+      }),
+      'utf8',
+    );
+    const findings = checkBypass(home);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.server).toBe('filesystem');
+  });
+
+  it('passes when every server goes through pod', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-bypass-ok-'));
+    mkdirSync(join(home, '.dsh'), { recursive: true });
+    writeFileSync(
+      join(home, '.dsh/mcp-manager.json'),
+      JSON.stringify({ servers: [{ name: 'fs', command: 'pod', args: ['record', '--server', 'filesystem'] }] }),
+      'utf8',
+    );
+    expect(checkBypass(home)).toHaveLength(0);
   });
 });

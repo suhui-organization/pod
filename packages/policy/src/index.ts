@@ -125,3 +125,66 @@ export function evaluate(policy: Policy, ctx: EvalContext): EvalResult {
     matched: 'default',
   };
 }
+
+// ---------- 策略 lint（P1：误配置防线，T9） ----------
+
+export interface LintIssue {
+  severity: 'error' | 'warn' | 'info';
+  /** 定位路径，如 servers.filesystem.allow */
+  where: string;
+  message: string;
+}
+
+/** 检查策略中的危险/可疑模式（纯函数，供 pod lint 与 CI 使用） */
+export function lintPolicy(policy: Policy): LintIssue[] {
+  const issues: LintIssue[] = [];
+
+  if (policy.defaultDecision === 'allow' || policy.defaultDecision === 'approve') {
+    issues.push({
+      severity: 'warn',
+      where: 'defaultDecision',
+      message: `defaultDecision="${policy.defaultDecision}" 是 fail-open，未登记 server 将被放行（建议 deny）`,
+    });
+  }
+
+  const servers = policy.servers ?? {};
+  if (Object.keys(servers).length === 0) {
+    issues.push({ severity: 'info', where: 'servers', message: '未配置任何 server 规则（空策略）' });
+  }
+
+  for (const [server, sp] of Object.entries(servers)) {
+    if (sp.deny && sp.deny.length === 0) {
+      issues.push({ severity: 'warn', where: `servers.${server}.deny`, message: 'deny 为空数组（无实际拒绝规则）' });
+    }
+    if (sp.allow && sp.allow.includes('*')) {
+      issues.push({
+        severity: 'warn',
+        where: `servers.${server}.allow`,
+        message: `allow 含 "*"（该 server 全部工具放行；建议最小授权）`,
+      });
+    }
+  }
+
+  const secrets = policy.secrets;
+  if (!secrets || (!secrets.deny_input_paths?.length && !secrets.deny_output_matching?.length)) {
+    issues.push({
+      severity: 'info',
+      where: 'secrets',
+      message: '未配置 secrets 规则（建议加 deny_input_paths 与 deny_output_matching，见 T2）',
+    });
+  } else {
+    for (const pattern of secrets?.deny_output_matching ?? []) {
+      try {
+        new RegExp(pattern);
+      } catch {
+        issues.push({
+          severity: 'error',
+          where: 'secrets.deny_output_matching',
+          message: `非法正则: ${pattern}`,
+        });
+      }
+    }
+  }
+
+  return issues;
+}

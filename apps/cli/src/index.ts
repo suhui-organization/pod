@@ -20,7 +20,8 @@ import { join } from 'node:path';
 import { AuditLog, appendToAuditFile, loadAuditFile } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createStdioProxy } from '@podsec/gateway';
-import { scanMachine, renderMarkdown } from '@podsec/scan';
+import { scanMachine, renderMarkdown, checkBypass } from '@podsec/scan';
+import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { runSync, pullPolicies } from './sync.js';
 
@@ -262,6 +263,56 @@ function cmdPending(pendingDir: string): void {
   }
 }
 
+function cmdLint(policyPath: string): void {
+  const policy = JSON.parse(readFileSync(policyPath, 'utf8')) as Policy;
+  const issues = lintPolicy(policy);
+  if (issues.length === 0) {
+    log(`✅ ${policyPath}: 策略检查通过（无问题）`);
+    return;
+  }
+  for (const i of issues) {
+    const tag = i.severity === 'error' ? '❌' : i.severity === 'warn' ? '⚠️' : 'ℹ️';
+    log(`${tag} [${i.severity.toUpperCase()}] ${i.where}: ${i.message}`);
+  }
+  log(`${issues.filter((x) => x.severity === 'error').length} error(s), ${issues.filter((x) => x.severity === 'warn').length} warning(s)`);
+  if (issues.some((x) => x.severity === 'error')) process.exitCode = 1;
+}
+
+function cmdDoctor(policyPath: string | undefined): void {
+  log('pod doctor — 环境与配置自检');
+  if (policyPath) {
+    try {
+      cmdLint(policyPath);
+    } catch (e) {
+      log(`❌ 策略文件不可读: ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 1;
+    }
+  }
+  // 防绕过检查（T 边界完整性）
+  const bypass = checkBypass(homedir());
+  if (bypass.length === 0) {
+    log('✅ 未发现绕过网关的 MCP server');
+  } else {
+    log(`⚠️ ${bypass.length} 个 MCP server 未经过 pod 网关（agent 可直连绕过策略/审计）:`);
+    for (const b of bypass) log(`   - ${b.file} → "${b.server}" (${b.command})`);
+  }
+  // 云配置
+  const cloudPath = join(homedir(), '.pod', 'cloud.json');
+  if (existsSync(cloudPath)) {
+    try {
+      const cfg = JSON.parse(readFileSync(cloudPath, 'utf8')) as { api_url?: string; agent_id?: number };
+      log(`✅ cloud.json: api=${cfg.api_url} agent=${cfg.agent_id}`);
+    } catch {
+      log('❌ cloud.json 解析失败');
+    }
+  } else {
+    log('ℹ️ 未配置 cloud.json（pod sync/pull-policy 不可用，本地功能不受影响）');
+  }
+  // 审计目录
+  const auditDir = podPath('audit');
+  log(existsSync(auditDir) ? `✅ 审计目录: ${auditDir}` : `ℹ️ 审计目录不存在（首次 record/serve 时创建）: ${auditDir}`);
+}
+
 function cmdScan(json: boolean): void {
   const result = scanMachine({ home: homedir() });
   if (json) {
@@ -391,6 +442,20 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'lint') {
+    if (!values.policy) {
+      console.error('pod lint requires --policy <file>');
+      process.exit(1);
+    }
+    cmdLint(values.policy);
+    return;
+  }
+
+  if (cmd === 'doctor') {
+    cmdDoctor(values.policy);
+    return;
+  }
+
   if (cmd === 'pull-policy') {
     const result = await pullPolicies({
       config: values.config,
@@ -449,6 +514,8 @@ Usage:
   pod deny --id <approval-id> [--reason <why>] [--approver <who>]
   pod pending [--pending-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
+  pod lint --policy <file>
+  pod doctor [--policy <file>]
   pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
   pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--out-dir <dir>]
   pod scan [--json]

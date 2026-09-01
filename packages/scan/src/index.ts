@@ -281,3 +281,61 @@ export function renderMarkdown(result: ScanResult): string {
   lines.push('pod scan 只读、不联网、不上传任何数据。');
   return lines.join('\n');
 }
+
+// ---------- 防绕过检查（P1，信任边界完整性） ----------
+
+export interface BypassFinding {
+  /** 配置文件路径 */
+  file: string;
+  server: string;
+  command: string;
+}
+
+/**
+ * 扫描常见 agent 配置，找出"未经过 pod 网关"的 MCP server。
+ * 这些 server 可被 agent 直连，绕过网关的策略/审计（T 边界完整性）。
+ * v0 覆盖：~/.claude.json（Claude Code）、~/.dsh/mcp-manager.json（DSH）。
+ */
+export function checkBypass(home: string): BypassFinding[] {
+  const out: BypassFinding[] = [];
+  const managerFile = join(home, '.dsh/mcp-manager.json');
+  const managerText = readTextIfExists(managerFile);
+  if (managerText) {
+    try {
+      const manager = JSON.parse(managerText) as {
+        servers?: Array<{ name?: string; command?: string; args?: string[] }>;
+      };
+      for (const s of manager.servers ?? []) {
+        if (!s.name || !s.command) continue;
+        if (!isPodCommand(s.command, s.args ?? [])) {
+          out.push({ file: '~/.dsh/mcp-manager.json', server: s.name, command: s.command });
+        }
+      }
+    } catch {
+      // 忽略解析失败
+    }
+  }
+  const claudeFile = join(home, '.claude.json');
+  const claudeText = readTextIfExists(claudeFile);
+  if (claudeText) {
+    try {
+      const claude = JSON.parse(claudeText) as {
+        mcpServers?: Record<string, { command?: string; args?: string[] }>;
+      };
+      for (const [name, cfg] of Object.entries(claude.mcpServers ?? {})) {
+        if (!cfg.command) continue;
+        if (!isPodCommand(cfg.command, cfg.args ?? [])) {
+          out.push({ file: '~/.claude.json', server: name, command: cfg.command });
+        }
+      }
+    } catch {
+      // 忽略解析失败
+    }
+  }
+  return out;
+}
+
+function isPodCommand(command: string, args: string[]): boolean {
+  const joined = [command, ...args].join(' ');
+  return joined.includes('pod ') || joined.endsWith('pod') || joined.includes('/pod');
+}

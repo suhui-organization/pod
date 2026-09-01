@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluate, type Policy } from './index.js';
+import { evaluate, lintPolicy, type Policy } from './index.js';
 
 const policy: Policy = {
   version: '0.1.0',
@@ -151,5 +151,45 @@ describe('secrets.deny_input_paths (T2 sensitive path gate)', () => {
     };
     const r = evaluate(p, { agent: 'a', server: 's', tool: 'write_file', args: { path: '/x/notes.md' } });
     expect(r.decision).toBe('approve');
+  });
+});
+
+describe('lintPolicy (P1, T9 misconfiguration)', () => {
+  it('flags fail-open default, wildcard allow and missing secrets', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'allow',
+      servers: { s: { allow: ['*'] } },
+    };
+    const issues = lintPolicy(p);
+    const sev = issues.map((i) => i.severity);
+    expect(sev).toContain('warn');
+    expect(issues.some((i) => i.message.includes('fail-open'))).toBe(true);
+    expect(issues.some((i) => i.message.includes('"*"'))).toBe(true);
+    expect(issues.some((i) => i.message.includes('secrets 规则'))).toBe(true);
+  });
+
+  it('flags invalid regex in deny_output_matching as error', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      servers: { s: { allow: ['x'] } },
+      secrets: { deny_output_matching: ['[unclosed'] },
+    };
+    const issues = lintPolicy(p);
+    expect(issues.some((i) => i.severity === 'error' && i.message.includes('非法正则'))).toBe(true);
+  });
+
+  it('passes a healthy baseline policy with no errors', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { filesystem: { allow: ['read_file'], approve: ['write_file'], deny: ['delete_file'] } },
+      secrets: { deny_input_paths: ['.env'], deny_output_matching: ['ghp_[A-Za-z0-9]{36}'] },
+    };
+    const issues = lintPolicy(p);
+    expect(issues.filter((i) => i.severity === 'error')).toHaveLength(0);
   });
 });

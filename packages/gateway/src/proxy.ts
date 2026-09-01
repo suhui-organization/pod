@@ -31,6 +31,20 @@ function extractResponseText(result: CallToolResult): string {
     .join('\n');
 }
 
+/** 轻量注入信号模式（P1，T1）：工具响应含"忽略之前指令"类文本时标记审计（不阻断）。 */
+const INJECTION_PATTERNS: RegExp[] = [
+  /ignore (all )?(previous|prior|above|earlier) (instructions|prompts|messages|text)/i,
+  /disregard (all )?(previous|prior|above) (instructions|prompts)/i,
+  /you are now (an? )?(autonomous|unrestricted|jailbroken)/i,
+];
+
+/** 检测注入信号；命中返回 true（审计标记用，不阻断） */
+export function matchInjectionSignal(result: CallToolResult): boolean {
+  const text = extractResponseText(result);
+  if (!text) return false;
+  return INJECTION_PATTERNS.some((re) => re.test(text));
+}
+
 /**
  * P0（T2）：工具响应命中 secrets.deny_output_matching 正则 → 返回命中的模式。
  * 非法正则跳过（策略来自用户，可能写错；lint 会在 P1 覆盖）。
@@ -164,6 +178,20 @@ export function createProxyServer(opts: ProxyOptions): Server {
           policyVersion: policy.version,
         });
         throw err;
+      }
+      const injection = matchInjectionSignal(result);
+      if (injection) {
+        audit.append({
+          ...ctx,
+          session: 'cli-v0',
+          argsHash: hashValue(args),
+          decision,
+          outcome: 'ok',
+          reason: 'injection_suspect: output contains prompt-override language (T1)',
+          approver: extra?.approver,
+          outputHash: hashValue(result.content),
+          policyVersion: policy.version,
+        });
       }
       const leak = matchSecretOutput(policy, result);
       if (leak !== null) {
