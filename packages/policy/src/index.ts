@@ -18,6 +18,16 @@ export interface ToolRule {
 
 export type ServerPolicy = ToolRule;
 
+/**
+ * 敏感信息规则（P0，威胁 T2）：
+ * - deny_input_paths：参数中的字符串命中这些模式（如 "~/.ssh"、".env"）→ 调用直接拒绝；
+ * - deny_output_matching：工具响应的文本命中这些正则 → 网关阻断该响应（在 gateway 层执行）。
+ */
+export interface SecretRules {
+  deny_input_paths?: string[];
+  deny_output_matching?: string[];
+}
+
 export interface Policy {
   version: string;
   /** 策略绑定的 agent 身份（Asset Registry 中一个 agent 一条策略） */
@@ -25,19 +35,46 @@ export interface Policy {
   servers?: Record<string, ServerPolicy>;
   /** 未登记 server 的默认决策（默认 deny，fail-closed） */
   defaultDecision?: Decision;
+  secrets?: SecretRules;
 }
 
 export interface EvalContext {
   agent: string;
   server: string;
   tool: string;
+  /** 工具参数（敏感路径检查用；递归收集字符串值） */
+  args?: unknown;
 }
 
 export interface EvalResult {
   decision: Decision;
   reason: string;
   /** 命中的规则位置，便于审计与调试 */
-  matched: 'agent' | 'server' | 'deny' | 'approve' | 'allow' | 'default';
+  matched: 'agent' | 'server' | 'deny' | 'secrets-input' | 'approve' | 'allow' | 'default';
+}
+
+/** 递归收集参数中的字符串值（数组/对象嵌套） */
+export function collectStrings(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') {
+    out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, out);
+  } else if (value !== null && typeof value === 'object') {
+    for (const v of Object.values(value)) collectStrings(v, out);
+  }
+  return out;
+}
+
+function hitSensitivePath(policy: Policy, args: unknown): string | null {
+  const patterns = policy.secrets?.deny_input_paths;
+  if (!patterns || patterns.length === 0) return null;
+  const strings = collectStrings(args);
+  for (const pattern of patterns) {
+    for (const str of strings) {
+      if (str.includes(pattern)) return pattern;
+    }
+  }
+  return null;
 }
 
 function matches(patterns: string[] | undefined, tool: string): boolean {
@@ -66,6 +103,15 @@ export function evaluate(policy: Policy, ctx: EvalContext): EvalResult {
 
   if (matches(serverPolicy.deny, ctx.tool)) {
     return { decision: 'deny', reason: `tool "${ctx.tool}" is denied on "${ctx.server}"`, matched: 'deny' };
+  }
+
+  const sensitive = hitSensitivePath(policy, ctx.args);
+  if (sensitive !== null) {
+    return {
+      decision: 'deny',
+      reason: `argument hits sensitive path pattern "${sensitive}" (secrets.deny_input_paths)`,
+      matched: 'secrets-input',
+    };
   }
   if (matches(serverPolicy.approve, ctx.tool)) {
     return { decision: 'approve', reason: `tool "${ctx.tool}" requires approval on "${ctx.server}"`, matched: 'approve' };

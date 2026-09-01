@@ -44,6 +44,11 @@ const EXAMPLE_POLICY: Policy = {
       allow: ['create_issue'],
     },
   },
+  secrets: {
+    // P0（T2）：敏感路径参数直接拒绝；工具响应命中正则则阻断
+    deny_input_paths: ['~/.ssh', '.env', 'credentials', 'id_rsa', '.aws'],
+    deny_output_matching: ['ghp_[A-Za-z0-9]{36}', 'sk-[A-Za-z0-9]{20,}', 'AKIA[0-9A-Z]{16}'],
+  },
 };
 
 function log(message: string): void {

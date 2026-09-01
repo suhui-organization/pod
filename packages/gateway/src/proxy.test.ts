@@ -249,3 +249,99 @@ describe('createProxyServer record-only mode', () => {
     expect(audit.verify()).toEqual({ ok: true });
   });
 });
+
+describe('secrets.deny_output_matching (P0, T2 output gate)', () => {
+  const secretPolicy: Policy = {
+    version: '0.1.0',
+    agent: 'test-agent',
+    servers: { demo: { allow: ['*'] } },
+    secrets: { deny_output_matching: ['ghp_[A-Za-z0-9]{36}', 'sk-[A-Za-z0-9]{20,}'] },
+  };
+
+  it('blocks a tool response containing a secret and audits secret_leak', async () => {
+    const audit = new AuditLog(secretPolicy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy: secretPolicy,
+      audit,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+
+    // echo 原样返回密钥 → 输出侧拦截
+    const result = await client.callTool({
+      name: 'echo',
+      arguments: { message: 'leak ghp_abcdefghijklmnopqrstuvwxyzABCDEF123456 here' },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('blocked');
+    expect(textOf(result)).toContain('secret pattern');
+
+    expect(audit.entries).toHaveLength(1);
+    const entry = audit.entries[0]!;
+    expect(entry.outcome).toBe('blocked');
+    expect(entry.reason).toContain('secret_leak');
+    expect(audit.verify()).toEqual({ ok: true });
+  });
+
+  it('passes through clean responses', async () => {
+    const audit = new AuditLog(secretPolicy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy: secretPolicy,
+      audit,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'plain text' } });
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toBe('plain text');
+    expect(audit.entries[0]!.outcome).toBe('ok');
+  });
+
+  it('skips output check in record-only mode (record = 只录不拦)', async () => {
+    const audit = new AuditLog(secretPolicy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy: secretPolicy,
+      audit,
+      recordOnly: true,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+
+    const result = await client.callTool({
+      name: 'echo',
+      arguments: { message: 'leak ghp_abcdefghijklmnopqrstuvwxyzABCDEF123456' },
+    });
+    expect(result.isError).toBeFalsy(); // record-only 放行
+  });
+});

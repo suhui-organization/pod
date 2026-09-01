@@ -22,6 +22,35 @@ import {
 import { AuditLog, hashValue } from '@podsec/audit';
 import { evaluate, type Policy } from '@podsec/policy';
 
+/** 从工具响应中提取全部文本内容（用于输出侧密钥扫描） */
+function extractResponseText(result: CallToolResult): string {
+  const content = result.content as Array<{ type?: string; text?: string }>;
+  return content
+    .filter((c) => c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text ?? '')
+    .join('\n');
+}
+
+/**
+ * P0（T2）：工具响应命中 secrets.deny_output_matching 正则 → 返回命中的模式。
+ * 非法正则跳过（策略来自用户，可能写错；lint 会在 P1 覆盖）。
+ */
+export function matchSecretOutput(policy: Policy, result: CallToolResult): string | null {
+  const rules = policy.secrets?.deny_output_matching;
+  if (!rules || rules.length === 0) return null;
+  const text = extractResponseText(result);
+  if (!text) return null;
+  for (const pattern of rules) {
+    try {
+      const re = new RegExp(pattern);
+      if (re.test(text)) return pattern;
+    } catch {
+      // 非法正则：跳过
+    }
+  }
+  return null;
+}
+
 export interface ApprovalRequest {
   /** 全局唯一 id（如 filesystem-1） */
   id: string;
@@ -89,7 +118,7 @@ export function createProxyServer(opts: ProxyOptions): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const ctx = { agent, server: serverName, tool: name };
+    const ctx = { agent, server: serverName, tool: name, args };
     const verdict = evaluate(policy, ctx);
 
     const blocked = (
@@ -135,6 +164,24 @@ export function createProxyServer(opts: ProxyOptions): Server {
           policyVersion: policy.version,
         });
         throw err;
+      }
+      const leak = matchSecretOutput(policy, result);
+      if (leak !== null) {
+        audit.append({
+          ...ctx,
+          session: 'cli-v0',
+          argsHash: hashValue(args),
+          decision,
+          outcome: 'blocked',
+          reason: `secret_leak: output matched pattern ${leak} (secrets.deny_output_matching)`,
+          approver: extra?.approver,
+          outputHash: hashValue(result.content),
+          policyVersion: policy.version,
+        });
+        return {
+          content: [{ type: 'text', text: `pod: blocked — tool output matched secret pattern (${leak})` }],
+          isError: true,
+        };
       }
       audit.append({
         ...ctx,

@@ -89,3 +89,67 @@ describe('evaluate', () => {
     expect(evaluate(p, { agent: 'a', server: 's', tool: 'x' }).decision).toBe('approve');
   });
 });
+
+describe('secrets.deny_input_paths (T2 sensitive path gate)', () => {
+  const secretPolicy: Policy = {
+    version: '0.1.0',
+    agent: 'openclaw-main',
+    servers: { filesystem: { allow: ['read_file', '*'] } },
+    secrets: { deny_input_paths: ['~/.ssh', '.env', 'credentials', 'id_rsa'] },
+  };
+
+  it('denies a read targeting a sensitive path even if the tool is allowed', () => {
+    const r = evaluate(secretPolicy, {
+      agent: 'openclaw-main',
+      server: 'filesystem',
+      tool: 'read_file',
+      args: { path: '/Users/walden/.ssh/id_rsa' },
+    });
+    expect(r.decision).toBe('deny');
+    expect(r.matched).toBe('secrets-input');
+    expect(r.reason).toContain('id_rsa');
+  });
+
+  it('denies when the path appears in nested args (array/object)', () => {
+    const r = evaluate(secretPolicy, {
+      agent: 'openclaw-main',
+      server: 'filesystem',
+      tool: 'search_files',
+      args: { dirs: ['/tmp', '/app/.env'], pattern: 'x' },
+    });
+    expect(r.decision).toBe('deny');
+  });
+
+  it('allows reads of non-sensitive paths', () => {
+    const r = evaluate(secretPolicy, {
+      agent: 'openclaw-main',
+      server: 'filesystem',
+      tool: 'read_file',
+      args: { path: '/Users/walden/Workspaces/project/README.md' },
+    });
+    expect(r.decision).toBe('allow');
+  });
+
+  it('explicit deny still wins over sensitive-path denial', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      servers: { s: { deny: ['read_file'] } },
+      secrets: { deny_input_paths: ['.env'] },
+    };
+    const r = evaluate(p, { agent: 'a', server: 's', tool: 'read_file', args: { path: '/x/.env' } });
+    expect(r.decision).toBe('deny');
+    expect(r.matched).toBe('deny');
+  });
+
+  it('approve rules still work when no sensitive path is hit', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      servers: { s: { approve: ['write_file'] } },
+      secrets: { deny_input_paths: ['.env'] },
+    };
+    const r = evaluate(p, { agent: 'a', server: 's', tool: 'write_file', args: { path: '/x/notes.md' } });
+    expect(r.decision).toBe('approve');
+  });
+});

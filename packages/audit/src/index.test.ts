@@ -134,3 +134,24 @@ describe('audit file helpers', () => {
     expect(() => loadAuditFile(path, '0.1.0')).toThrow(/audit chain broken/);
   });
 });
+
+describe('undefined optional fields never break the chain (regression)', () => {
+  it('append with undefined-valued keys round-trips and verifies', () => {
+    const log = new AuditLog('0.1.0');
+    log.append({
+      agent: 'a',
+      session: 's',
+      server: 'demo',
+      tool: 'echo',
+      argsHash: 'h',
+      decision: 'allow',
+      outcome: 'blocked',
+      reason: 'secret_leak',
+      approver: undefined as unknown as string, // 键存在但值为 undefined
+      policyVersion: '0.1.0',
+    });
+    const restored = AuditLog.fromJSONL(log.toJSONL(), '0.1.0');
+    expect(restored.verify()).toEqual({ ok: true });
+    expect(restored.entries[0]!.hash).toBe(log.entries[0]!.hash);
+  });
+});

@@ -84,9 +84,14 @@ export class AuditLog {
       prevHash: prev ? prev.hash : '',
       hash: '',
     };
-    // undefined 的 enforced 会被 JSON.stringify 省略，若不剔除会导致
-    // append 时哈希正文（含该键）与 verify 时正文（不含该键）不一致
-    if (entry.enforced === undefined) delete entry.enforced;
+    // 值为 undefined 的键会被 JSON.stringify 省略落盘，但 stableStringify
+    // 会输出 "key":undefined —— 若不剔除，append 与 verify 的哈希正文不一致。
+    // 必须删除所有 undefined 键（含 enforced 及可选字段如 approver/reason）。
+    for (const key of Object.keys(entry)) {
+      if ((entry as unknown as Record<string, unknown>)[key] === undefined) {
+        delete (entry as unknown as Record<string, unknown>)[key];
+      }
+    }
     entry.hash = hashEntryBody(entry);
     this.entries.push(entry);
     this.onAppend?.(entry);
