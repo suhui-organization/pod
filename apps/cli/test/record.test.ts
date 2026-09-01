@@ -143,3 +143,41 @@ describe('pod record (record-only, mock mcp-manager.json)', () => {
     expect(failed).toBe(true);
   });
 });
+
+describe('pod record restart continues the hash chain', () => {
+  it('appends to the existing chain with sequential seq across restarts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-record-restart-'));
+    const auditDir2 = join(dir, 'audit');
+    const configFile2 = join(dir, 'mcp-manager.json');
+    writeFileSync(
+      configFile2,
+      JSON.stringify({ servers: [{ name: 'demo', transport: 'stdio', command: process.execPath, args: ['--import', 'tsx', DEMO_SERVER] }] }),
+      'utf8',
+    );
+    const spawnRec = () =>
+      new StdioClientTransport({
+        command: process.execPath,
+        args: ['--import', 'tsx', CLI_INDEX, 'record', '--config', configFile2, '--server', 'demo', '--agent', 'restart-test', '--audit-dir', auditDir2],
+      });
+    const runOnce = async (tool: string, args: Record<string, unknown>) => {
+      const t = spawnRec();
+      const c = new Client({ name: 'restart-client', version: '0.1.0' }, { capabilities: {} });
+      await c.connect(t);
+      await c.callTool({ name: tool, arguments: args }, undefined);
+      await c.close();
+      await t.close();
+    };
+
+    // 第一次进程：echo
+    await runOnce('echo', { message: 'first' });
+    // 第二次进程（重启）：now —— 链必须续上，不能从 seq=1 重开
+    await runOnce('now', {});
+
+    const auditFile = join(auditDir2, 'demo.jsonl');
+    const log = AuditLog.fromJSONL(readFileSync(auditFile, 'utf8'), '0.1.0');
+    expect(log.verify()).toEqual({ ok: true });
+    expect(log.entries.map((e) => e.seq)).toEqual([1, 2]);
+    expect(log.entries[1]!.prevHash).toBe(log.entries[0]!.hash);
+    expect(log.entries[1]!.agent).toBe('restart-test');
+  });
+});

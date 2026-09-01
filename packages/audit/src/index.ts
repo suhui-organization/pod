@@ -98,8 +98,8 @@ export class AuditLog {
     return this.entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
   }
 
-  static fromJSONL(text: string, policyVersion: string): AuditLog {
-    const log = new AuditLog(policyVersion);
+  static fromJSONL(text: string, policyVersion: string, options?: AuditLogOptions): AuditLog {
+    const log = new AuditLog(policyVersion, options);
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -136,10 +136,10 @@ export function appendToAuditFile(path: string, entry: AuditEntry): void {
   appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
 }
 
-/** 从 JSONL 文件加载并校验（校验失败抛出） */
-export function loadAuditFile(path: string, policyVersion: string): AuditLog {
+/** 从 JSONL 文件加载并校验（校验失败抛出）；options 用于恢复 onAppend（续链场景） */
+export function loadAuditFile(path: string, policyVersion: string, options?: AuditLogOptions): AuditLog {
   const text = readFileSync(path, 'utf8');
-  const log = AuditLog.fromJSONL(text, policyVersion);
+  const log = AuditLog.fromJSONL(text, policyVersion, options);
   const check = log.verify();
   if (!check.ok) {
     throw new Error(`audit chain broken at seq ${check.firstBrokenSeq}: ${path}`);

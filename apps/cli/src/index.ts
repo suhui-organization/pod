@@ -22,6 +22,7 @@ import type { Policy } from '@podsec/policy';
 import { createStdioProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
+import { runSync } from './sync.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -77,9 +78,9 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
   const auditDir = opts.auditDir;
   mkdirSync(auditDir, { recursive: true });
   const auditPath = join(auditDir, `${opts.server}.jsonl`);
-  const audit = new AuditLog(policy.version, {
-    onAppend: (entry) => appendToAuditFile(auditPath, entry),
-  });
+  const audit = existsSync(auditPath)
+    ? loadAuditFile(auditPath, policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) })
+    : new AuditLog(policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) });
 
   const approval = createFileApprovalProvider({
     pendingDir: opts.pendingDir,
@@ -163,9 +164,9 @@ async function cmdRecord(opts: RecordOptions): Promise<void> {
   const auditDir = opts.auditDir;
   mkdirSync(auditDir, { recursive: true });
   const auditPath = join(auditDir, `${opts.server}.jsonl`);
-  const audit = new AuditLog(policy.version, {
-    onAppend: (entry) => appendToAuditFile(auditPath, entry),
-  });
+  const audit = existsSync(auditPath)
+    ? loadAuditFile(auditPath, policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) })
+    : new AuditLog(policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) });
 
   const server = await createStdioProxy({
     agent: opts.agent,
@@ -284,6 +285,9 @@ async function main(): Promise<void> {
       reason: { type: 'string' },
       tail: { type: 'string' },
       json: { type: 'boolean' },
+      'api-url': { type: 'string' },
+      'agent-id': { type: 'string' },
+      'sync-token': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -364,6 +368,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'sync') {
+    if (!values['api-url'] && !values['agent-id'] && !values['sync-token'] && !values.config) {
+      // 允许全部走默认 ~/.pod/cloud.json
+    }
+    const result = await runSync({
+      config: values.config,
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+      apiUrl: values['api-url'],
+      agentId: values['agent-id'] ? Number.parseInt(values['agent-id'], 10) : undefined,
+      syncToken: values['sync-token'],
+    });
+    if (result.total_synced === 0) log('nothing to sync');
+    for (const srv of result.servers) log(`synced ${srv.synced} events from "${srv.server}"`);
+    log(`total synced: ${result.total_synced} (agent #${result.agent_id})`);
+    return;
+  }
+
   if (cmd === 'scan') {
     cmdScan(values.json ?? false);
     return;
@@ -406,6 +427,7 @@ Usage:
   pod deny --id <approval-id> [--reason <why>] [--approver <who>]
   pod pending [--pending-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
+  pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
   pod scan [--json]
   pod --help
 
