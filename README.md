@@ -1,110 +1,134 @@
-# pod — AI Agent 安全舱
+# pod — AI Agent Security Gateway
 
-> **你的 Agent 每一步，都有不可篡改的证据。**
+> **Every step your agent takes, has immutable evidence.**
 
-AI 在替你动手之前，先回答三个问题：**它能碰什么？谁批准了？证据在哪？**
-pod 给每个工具调用装三道闸——策略闸门、人工审批、哈希链审计。
-最后一道是我们的核心：**每次调用写入 SHA-256 哈希链，改任何一条历史记录，校验立刻失败。**
+Before an AI agent touches your machine, pod answers three questions: **What can it touch? Who approved it? Where is the evidence?**
 
-```
-调用 ──▶ 策略求值（deny > approve > allow）──▶ 审批（高危挂起）──▶ 执行
-                                                              │
-                                                              ▼
-                                        ┌────────────────────────────┐
-                                        │ 哈希链审计：                │
-                                        │ #3 hash = sha256(#2 + 记录) │ ← 不可篡改
-                                        │ #2 hash = sha256(#1 + 记录) │ ← 每步留痕
-                                        │ #1 hash = sha256(首条)      │ ← 可验证
-                                        └────────────────────────────┘
-```
-
-三个支柱：
-
-- **🚪 闸门**：每个工具调用必经策略闸门，未授权默认拒绝（fail-closed），写操作需要人批准
-- **📜 证据**：每次调用写入 SHA-256 哈希链——防篡改、可验证，出事了能拿出完整时间线
-- **👁 视野**：OpenClaw、Claude Code、Cursor、DSH 各自管自己的权限——
-  pod 是唯一给你**跨 agent 统一视图**的层（云端可选，审计只存哈希，数据不出机器）
-
-> 你的 OpenClaw、Claude Code、Cursor、DSH 各自管自己的权限——但没有任何工具告诉你
-> "你所有的 agent 合起来能碰什么、每一步的证据在哪"。pod 补上这一层。
+pod sits between your agents and their tools over **MCP**, adding three gates to every tool call — a policy gate, human approval, and a SHA-256 hash-chain audit. The last one is the core promise: every call is appended to a tamper-evident chain; alter any historical record and verification fails immediately.
 
 ```
-Agent (OpenClaw / Claude Code / Cursor / DSH …)
-      │ MCP
+Tool call ──▶ Policy (deny > approve > allow) ──▶ Approval (high-risk suspends) ──▶ Execute
+                                                                                    │
+                                                                                    ▼
+                                              ┌────────────────────────────────────────┐
+                                              │ Hash-chain audit (append-only JSONL):  │
+                                              │ #3 hash = sha256(#2 + record)          │ ← tamper-evident
+                                              │ #2 hash = sha256(#1 + record)          │ ← every step logged
+                                              │ #1 hash = sha256(seed)                 │ ← verifiable
+                                              └────────────────────────────────────────┘
+```
+
+## Why pod
+
+OpenClaw, Claude Code, Cursor, Hermes and DSH each manage their own sandbox — but nothing tells you **what all your agents can touch together**, or gives you **evidence for what they did**. pod is the missing layer.
+
+- 🚪 **Gate** — every tool call passes a policy gate; unauthorized calls are rejected by default (fail-closed); writes require human approval
+- 📜 **Evidence** — every call lands in a SHA-256 hash chain: tamper-proof, independently verifiable (`pod verify-audit`), exportable as a signed evidence bundle
+- 👁 **Sight** — one audit view across heterogeneous agents; sensitive content is stored as hashes only; with the optional cloud plane your audit stays local-first
+
+```
+Agent (OpenClaw / Claude Code / Cursor / Hermes / DSH …)
+      │ MCP (stdio or Streamable HTTP)
       ▼
-┌─ pod gateway ──────────────┐    ┌────────────────┐
-│ 策略求值 deny>approve>allow │───▶│ 真实 MCP server │
-│ 审批挂起（fail-closed）      │    └────────────────┘
-│ 哈希链审计（只存哈希）        │
-└──────────┬─────────────────┘
-           │ pod sync（游标增量） / pod pull-policy（策略下发）
-           ▼
-      Pod Cloud（可选 SaaS 控制平面：跨 agent 视图 / 策略中心 / 合规报告）
+┌─ pod gateway ─────────────────┐      ┌───────────────────┐
+│ Policy  deny>approve>allow     │─────▶│ Real MCP server    │
+│ Approval suspend (fail-closed) │      │ (filesystem, etc.) │
+│ Hash-chain audit (hashes only) │      └───────────────────┘
+└───────────────┬────────────────┘
+                │ pod sync (cursor-based push) / pod pull-policy (policy distribution)
+                ▼
+        ┌────────────────────┐
+        │ Pod Cloud (optional)│  Dashboard · Alerts · Policy templates · AI digest
+        └────────────────────┘
 ```
 
-## 快速开始
+## Quick start
 
 ```bash
-# 安装（Node ≥ 20）
-npm i -g @podsec/cli     # 或 brew install podsec/tap/pod（发布后）
+# 1. install & scaffold (Node 18+ required)
+npm i -g @podsec/cli    # or: pnpm i -g @podsec/cli
+pod init --template baseline
 
-# ① 扫描风险面（免费，只读，不上传任何数据）
-pod scan
-# → 发现 N 个 agent 平台 / MCP server 版本锁定 / 明文密钥（掩码）
+# 2. serve a real MCP server behind the gateway
+pod serve --agent openclaw --server filesystem \
+  --policy policies/baseline.json \
+  --command mcp-server-filesystem --arg /path/to/workspace \
+  --transport stdio
 
-# ② 接一个真实 MCP server（先录后拦）
-pod record --config ~/.dsh/mcp-manager.json --server filesystem --agent openclaw-main
-# 把 agent 的 MCP 配置指向本进程，所有调用落审计（record 不阻断）
+# 3. point your agent at the gateway (OpenClaw example)
+#    openclaw config set mcp.servers.pod-filesystem.url http://127.0.0.1:8783/mcp
+#    Hermes:  mcp_servers.pod-filesystem.url = http://127.0.0.1:8784/mcp
+#    Codex:   codex mcp add pod-filesystem -- pod-serve-stdio.sh
 
-# ③ 升级为强制策略
-pod serve --agent openclaw-main --server filesystem --policy policy.json
-# policy.json 示例：
-# { "version": "0.1.0", "agent": "openclaw-main", "defaultDecision": "deny",
-#   "servers": { "filesystem": { "allow": ["read_file", "list_directory"],
-#                                 "approve": ["write_file"], "deny": ["delete_file"] } } }
-
-# ④ 高危操作触发审批（stdio 被 MCP 占用，交互在另一终端）
-# 网关提示: APPROVAL NEEDED #filesystem-3 ... approve: pod approve --id filesystem-3
-pod approve --id filesystem-3 --reason "我在改配置"   # 超时(默认300s)自动拒绝
-
-# ⑤ 审计查看（哈希链校验，篡改即报错）
-pod audit --tail 20
+# 4. see what happened
+pod timeline
+pod verify-audit            # tamper check over the whole chain
+pod export-evidence         # produce a verifiable evidence bundle
 ```
 
-## 命令一览
+**Policy example** (`policies/baseline.json`):
 
-| 命令 | 说明 |
-|------|------|
-| `pod scan` | 只读风险扫描：影子 agent / MCP 供应链 / 密钥暴露 |
-| `pod record` | 只录不拦：包装真实 MCP server，采集行为语料 |
-| `pod serve` | 强制模式：三态策略 + 审批闸门 + 审计 |
-| `pod audit` | 查看审计（SHA-256 哈希链，可验证不可篡改） |
-| `pod approve / deny / pending` | 审批旁路通道 |
-| `pod timeline` | **时间线回放**：谁、何时、调了什么、谁批准的、当时策略版本 |
-| `pod verify-audit` | **一键自证**：完整哈希链校验 + 自检报告 |
-| `pod export-evidence` | **导出证据包**：审计 + 策略快照 + 顶层哈希（可验证） |
-| `pod sync` | 推送审计到 Pod Cloud（游标增量、幂等） |
-| `pod pull-policy` | 拉取云端策略到本地生效 |
-
-## 威胁模型
-
-见 [docs/threat-model.md]（T1 提示注入 / T2 密钥外泄 / T3 破坏性操作 / T4 MCP 供应链 / T5 数据外泄 / T6 影子 agent / T7 审计篡改），对齐 [OWASP Top 10 for Agentic AI](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/)。
-
-**安全承诺**：本地优先（数据不出机器，Pod Cloud 同步需显式开启）；审计只存参数哈希不存原文；核心安全逻辑 100% 单测（`pnpm -r test`，67 用例）。
-
-## 开发
-
-```bash
-pnpm install
-pnpm -r build && pnpm -r test   # 67 测试全绿
+```json
+{
+  "version": "0.1.0",
+  "agent": "openclaw",
+  "defaultDecision": "deny",
+  "servers": {
+    "filesystem": {
+      "allow":   ["read_file", "list_directory", "search_files"],
+      "approve": ["write_file", "edit_file"],
+      "deny":    ["delete_file"]
+    }
+  },
+  "secrets": {
+    "deny_input_paths": ["~/.ssh", ".env", "credentials", "id_rsa", ".aws", "known_hosts"],
+    "deny_output_matching": ["ghp_[A-Za-z0-9]{36}", "sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
+  }
+}
 ```
 
-- `packages/audit`：哈希链审计存储（不可变、可验证）
-- `packages/policy`：三态策略求值器（deny > approve > allow，fail-closed）
-- `packages/gateway`：MCP 双向代理 + 审批/审计钩子
-- `packages/scan`：风险扫描器
-- `apps/cli`：pod CLI
+Decisions are evaluated `deny > secrets-input > approve > allow`, fail-closed. Gateway startup also validates the declared server source (`command`/`package`/`version`) — T4 supply-chain gate.
+
+## CLI
+
+```
+pod init            scaffold policy templates (baseline / record)
+pod serve           run the gateway (stdio / Streamable HTTP)
+pod approve|deny|pending   side-channel approvals
+pod timeline        audit timeline filtered by agent / tool / time
+pod verify-audit    verify the full hash chain, emit a report
+pod export-evidence / verify-evidence   export & verify signed evidence bundles
+pod lint | doctor   policy lint / environment health
+pod scan            free local security scan (config & bypass checks)
+pod sync            push audit to Pod Cloud (cursor-based)
+pod pull-policy     pull policies from Pod Cloud
+```
+
+## Pod Cloud (optional SaaS plane)
+
+Local-first core is free & open. Pod Cloud adds the control plane: one-step agent onboarding, cross-agent timeline, 11 alert rules with webhook/email delivery, policy templates (balanced / high-security / audit-only / locked-down), natural-language policy generation with human confirmation, and an AI daily digest. Audits are pushed as hashes only.
+
+## Supported agents
+
+| Agent | Transport | Status |
+| --- | --- | --- |
+| Hermes | Streamable HTTP | ✅ verified end-to-end |
+| OpenClaw | stdio wrapper | ✅ verified end-to-end |
+| Codex | stdio wrapper | ✅ ready (see docs) |
+| DSH / Claude Code / Cursor | MCP | pluggable via MCP |
+
+## Documentation
+
+- [Threat model](docs/threat-model.md)
+- [Egress defense](docs/egress-defense.md)
+- [Agent onboarding](docs/agent-onboarding.md)
+- [Automation (launchd/systemd/cron)](docs/automation.md)
+
+## Repository family
+
+- **pod** (this repo) — local gateway & CLI, open source
+- podcloud-server / podcloud-web — SaaS control plane (private)
 
 ## License
 
-Apache-2.0。安全相关报告见 [SECURITY.md](SECURITY.md)。
+MIT — see [LICENSE](LICENSE). Security notes: [SECURITY.md](SECURITY.md)
