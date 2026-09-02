@@ -186,11 +186,21 @@ export async function pullPolicies(opts: {
   outDir: string;
 }): Promise<PullPoliciesResult> {
   const needFile = opts.config !== undefined || !(opts.apiUrl && opts.agentId && opts.syncToken);
+  const loaded = needFile ? loadCloudConfig(opts.config) : ({} as CloudConfig);
+  // agents 数组格式：按 agentId（或首条）解析出扁平 token，否则直接取扁平字段
+  let syncToken = opts.syncToken;
+  let agentId = opts.agentId;
+  if (!syncToken && loaded.agents && loaded.agents.length > 0) {
+    const target = loaded.agents.find((b) => b.agent_id === agentId) ?? loaded.agents[0];
+    if (target) {
+      syncToken = target.sync_token;
+      agentId = target.agent_id;
+    }
+  }
   const cfg = {
-    ...(needFile ? loadCloudConfig(opts.config) : {}),
-    ...(opts.apiUrl ? { api_url: opts.apiUrl } : {}),
-    ...(opts.agentId ? { agent_id: opts.agentId } : {}),
-    ...(opts.syncToken ? { sync_token: opts.syncToken } : {}),
+    api_url: (opts.apiUrl ?? loaded.api_url ?? '').replace(/\/+$/, ''),
+    agent_id: agentId,
+    sync_token: syncToken,
   } as CloudConfig;
 
   const url = `${cfg.api_url}/api/v1/sync/policies`;
