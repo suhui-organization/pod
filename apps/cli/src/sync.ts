@@ -33,6 +33,8 @@ export interface SyncResult {
   agent_id: number;
   servers: Array<{ server: string; synced: number; skipped: number }>;
   total_synced: number;
+  /** 每个绑定本次推送数（多 agent 时用于正确标注归属，不再笼统显示首个绑定） */
+  bindings: Array<{ agent_id: number; synced: number }>;
 }
 
 export function loadCloudConfig(configPath?: string): CloudConfig {
@@ -247,11 +249,13 @@ export async function runSync(opts: {
   ];
 
   const servers: SyncResult['servers'] = [];
+  const perBinding: Array<{ agent_id: number; synced: number }> = [];
   let total = 0;
   for (const b of bindings) {
     const cursor = loadSyncState(b.agent_id);
     const pending = collectPendingEvents(opts.auditDir, cursor, b.local_agent);
     const newCursor = { ...cursor };
+    let boundTotal = 0;
     for (const { server, events } of pending) {
       let synced = 0;
       for (let i = 0; i < events.length; i += 500) {
@@ -265,9 +269,11 @@ export async function runSync(opts: {
       }
       newCursor[server] = events[events.length - 1]!.hash as string;
       total += synced;
+      boundTotal += synced;
       servers.push({ server, synced, skipped: 0 });
     }
     saveSyncState(b.agent_id, newCursor);
+    perBinding.push({ agent_id: b.agent_id, synced: boundTotal });
   }
-  return { agent_id: bindings[0]!.agent_id, servers, total_synced: total };
+  return { agent_id: bindings[0]!.agent_id, servers, total_synced: total, bindings: perBinding };
 }

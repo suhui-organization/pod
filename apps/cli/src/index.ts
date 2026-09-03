@@ -573,7 +573,7 @@ async function main(): Promise<void> {
     });
     if (result.total_synced === 0) log('nothing to sync');
     for (const srv of result.servers) log(`synced ${srv.synced} events from "${srv.server}"`);
-    log(`total synced: ${result.total_synced} (agent #${result.agent_id})`);
+    for (const b of result.bindings) log(`total synced: ${b.synced} (agent #${b.agent_id})`);
     return;
   }
 

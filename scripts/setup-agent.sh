@@ -42,8 +42,12 @@ GATEWAY_PORT="${GATEWAY_PORT:-8787}"
 ROOT_DIR="${ROOT_DIR:-$HOME/Workspaces}"
 UPSTREAM_CMD="${UPSTREAM_CMD:-npx}"
 UPSTREAM_PACKAGE="${UPSTREAM_PACKAGE:-@modelcontextprotocol/server-filesystem}"
-GW_PID_FILE="$POD_HOME/gateway-${SERVER_KEY}.pid"
-GW_LOG="$POD_HOME/gateway-${SERVER_KEY}.log"
+# 同机多 agent 时每个 agent 独立网关进程/审计目录/配置文件:
+AUDIT_DIR="${AUDIT_DIR:-}"                                  # 空 = CLI 默认 ~/.pod/audit(单 agent 旧布局)
+GW_PID_FILE="$POD_HOME/gateway-${AGENT_NAME}-${SERVER_KEY}.pid"
+GW_LOG="$POD_HOME/gateway-${AGENT_NAME}-${SERVER_KEY}.log"
+CONFIG_TARGET="${CONFIG_TARGET:-${HERMES_CONFIG:-}}"       # 目标 agent 配置文件(.yaml 合并 / .toml 走 codex mcp)
+CODEX_BIN="${CODEX_BIN:-/usr/lib/chatgpt/resources/codex}"
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'
 ok()  { echo -e "${GREEN}[ok]${NC}   $*"; }
@@ -135,8 +139,13 @@ fi
 step "3/7 策略: $POLICY_FILE"
 if [ ! -f "$POLICY_FILE" ]; then
   mkdir -p "$(dirname "$POLICY_FILE")"
-  pod init --template baseline >/dev/null 2>&1 || fail "pod init 失败"
-  ok "策略已从 baseline 模板生成"
+  if [ -f "$POD_HOME/policies/baseline.json" ]; then
+    cp "$POD_HOME/policies/baseline.json" "$POLICY_FILE"   # 复用已有 baseline 再对齐
+  else
+    pod init --template baseline >/dev/null 2>&1 || fail "pod init 失败"
+    cp "$POD_HOME/policies/baseline.json" "$POLICY_FILE"
+  fi
+  ok "策略已创建: $POLICY_FILE"
 fi
 python3 - "$POLICY_FILE" "$AGENT_NAME" "$SERVER_KEY" "$UPSTREAM_CMD" "$UPSTREAM_PACKAGE" <<'EOF'
 import json, sys
@@ -176,7 +185,10 @@ elif [ -n "$(gw_probe)" ]; then
   ok "接管已在运行的网关 (pid $(cat "$GW_PID_FILE"))"
 else
   [ -f "$GW_PID_FILE" ] && kill "$(cat "$GW_PID_FILE")" 2>/dev/null || true
+  AUDIT_ARGS=()
+  [ -n "$AUDIT_DIR" ] && AUDIT_ARGS=(--audit-dir "$AUDIT_DIR")
   nohup pod serve --agent "$AGENT_NAME" --server "$SERVER_KEY" --policy "$POLICY_FILE" \
+    "${AUDIT_ARGS[@]}" \
     --command "$UPSTREAM_CMD" --arg -y --arg "$UPSTREAM_PACKAGE" --arg "$ROOT_DIR" \
     --transport http --port "$GATEWAY_PORT" >"$GW_LOG" 2>&1 &
   echo "$!" > "$GW_PID_FILE"
@@ -186,25 +198,27 @@ else
   ok "网关已启动 (pid $(cat "$GW_PID_FILE"), 日志 $GW_LOG)"
 fi
 
-# ── 5. Hermes MCP 配置（幂等追加；不存在则提示手工命令）──────────────────
-step "5/7 Hermes MCP 配置 (key=$MCP_KEY)"
-HERMES_CONFIG="${HERMES_CONFIG:-}"
-if [ -z "$HERMES_CONFIG" ]; then
+# ── 5. agent 的 MCP 配置（yaml → 直接合并; toml → codex mcp add; 均幂等）──
+step "5/7 agent MCP 配置 (key=$MCP_KEY)"
+if [ -z "$CONFIG_TARGET" ]; then
+  # 未显式指定:按已知布局探测(Hermes yaml 优先)
   for cand in "${HERMES_HOME:-}/config.yaml" "$HOME/Applications/hermes/config.yaml" "$HOME/.config/hermes/config.yaml"; do
-    if [ -n "$cand" ] && [ -f "$cand" ]; then HERMES_CONFIG="$cand"; break; fi
+    if [ -n "$cand" ] && [ -f "$cand" ]; then CONFIG_TARGET="$cand"; break; fi
   done
 fi
-if [ -n "$HERMES_CONFIG" ] && [ -f "$HERMES_CONFIG" ]; then
-  python3 - "$HERMES_CONFIG" "$MCP_KEY" "$GATEWAY_PORT" <<'EOF'
-import json, os, sys, time
+case "${CONFIG_TARGET##*.}" in
+  yml|yaml)
+    if [ -f "$CONFIG_TARGET" ]; then
+      python3 - "$CONFIG_TARGET" "$MCP_KEY" "$GATEWAY_PORT" <<'EOF'
+import sys, time
 p, key, port = sys.argv[1:]
 try:
     import yaml
 except ImportError:
     print("SKIP: 无 pyyaml，跳过自动写入（手工: hermes mcp add %s --url http://127.0.0.1:%s/mcp）" % (key, port))
     sys.exit(0)
-bak = p + ".podcloud.bak-%d" % int(time.time())
-shutil_backup = __import__("shutil"); shutil_backup.copy2(p, bak)
+import shutil
+shutil.copy2(p, p + ".podcloud.bak-%d" % int(time.time()))
 d = yaml.safe_load(open(p)) or {}
 servers = d.setdefault("mcp_servers", {})
 if key in servers:
@@ -212,18 +226,29 @@ if key in servers:
 else:
     servers[key] = {"url": "http://127.0.0.1:%s/mcp" % port, "enabled": True}
     yaml.safe_dump(d, open(p, "w"), allow_unicode=True, sort_keys=False)
-    print("已写入 MCP 配置:", key, "(备份 %s)" % bak)
+    print("已写入 MCP 配置:", key)
 EOF
-  ok "Hermes 配置就绪: $HERMES_CONFIG"
-  if command -v hermes >/dev/null 2>&1 && hermes mcp list 2>/dev/null | grep -q "$MCP_KEY"; then
-    ok "hermes mcp list 已识别 $MCP_KEY"
-  else
-    warn "本机未见 hermes 命令或列表未含 $MCP_KEY（在 Hermes 所在机器确认; 新会话生效）"
-  fi
-else
-  warn "未找到 Hermes config.yaml，跳过自动配置；在 Hermes 所在机器执行:"
-  warn "  hermes mcp add $MCP_KEY --url http://127.0.0.1:$GATEWAY_PORT/mcp"
-fi
+      ok "yaml 配置就绪: $CONFIG_TARGET"
+    else
+      warn "目标配置文件不存在: $CONFIG_TARGET（用 CONFIG_TARGET 指定）"
+    fi
+    ;;
+  toml)
+    if [ -x "$CODEX_BIN" ]; then
+      if "$CODEX_BIN" mcp list 2>/dev/null | grep -q "$MCP_KEY"; then
+        ok "codex 已配置 $MCP_KEY（$CODEX_BIN mcp list 确认）"
+      else
+        "$CODEX_BIN" mcp add "$MCP_KEY" --url "http://127.0.0.1:$GATEWAY_PORT/mcp" \
+          && ok "codex mcp add $MCP_KEY --url http://127.0.0.1:$GATEWAY_PORT/mcp"
+      fi
+    else
+      warn "未找到 codex CLI($CODEX_BIN)，手工执行: codex mcp add $MCP_KEY --url http://127.0.0.1:$GATEWAY_PORT/mcp"
+    fi
+    ;;
+  *)
+    warn "未识别 CONFIG_TARGET($CONFIG_TARGET) 类型，跳过自动配置；手工: hermes/codex mcp add $MCP_KEY --url http://127.0.0.1:$GATEWAY_PORT/mcp"
+    ;;
+esac
 
 # ── 6. 首次同步（401 = token 失配: 有管理员凭据自动轮换，否则给指引）──────
 step "6/7 同步审计"
