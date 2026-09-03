@@ -51,7 +51,7 @@ const TEMPLATES: Record<string, { label: string; policy: Policy }> = {
       defaultDecision: 'deny',
       servers: {
         filesystem: {
-          allow: ['read_file', 'list_directory', 'search_files'],
+          allow: ['read_file', 'list_directory', 'search_files', 'get_file_info'],
           approve: ['write_file', 'edit_file'],
           deny: ['delete_file'],
           // T4：来源白名单——启动命令不匹配时拒绝启动
@@ -90,7 +90,7 @@ const EXAMPLE_POLICY: Policy = {
   defaultDecision: 'deny',
   servers: {
     filesystem: {
-      allow: ['read_file', 'list_directory', 'search_files'],
+      allow: ['read_file', 'list_directory', 'search_files', 'get_file_info'],
       approve: ['write_file', 'edit_file'],
       deny: ['delete_file'],
     },

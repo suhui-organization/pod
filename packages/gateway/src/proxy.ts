@@ -267,7 +267,9 @@ export function createProxyServer(opts: ProxyOptions): Server {
       if (!approval) {
         return blocked('approve', `approval flow not configured (fail-closed): ${verdict.reason}`);
       }
-      const req: ApprovalRequest = { id: `${serverName}-${++approvalSeq}`, agent, server: serverName, tool: name, args };
+      // id 唯一化: 同机多网关(多 agent)共享 pending 目录,仅 server-序号会在
+      // 各进程间碰撞(都从 1 开始)并互相"蹭"审批;加 pid 后跨进程不重复
+      const req: ApprovalRequest = { id: `${serverName}-${process.pid}-${++approvalSeq}`, agent, server: serverName, tool: name, args };
       let decision: ApprovalDecision;
       try {
         decision = await approval(req);

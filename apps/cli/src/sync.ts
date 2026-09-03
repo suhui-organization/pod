@@ -274,13 +274,14 @@ export async function runSync(opts: {
     }
     saveSyncState(b.agent_id, newCursor);
     // 心跳:即使 0 条新事件也刷新在线状态(规模化后 agent 在线不依赖新审计)
-    try {
-      await fetch(`${cfg.api_url}/api/v1/sync/ping`, {
-        method: 'POST',
-        headers: { 'X-Sync-Token': b.sync_token },
-      });
-    } catch {
-      /* 心跳失败静默(网络抖动),事件推送错误在上方已显式抛出 */
+    // 401 = token 失效(轮换过),必须显式抛出,否则 0 事件场景会静默掉线,
+    // setup-agent 的 401 自愈分支也就无从触发。
+    const ping = await fetch(`${cfg.api_url}/api/v1/sync/ping`, {
+      method: 'POST',
+      headers: { 'X-Sync-Token': b.sync_token },
+    }).catch(() => null);
+    if (ping && ping.status === 401) {
+      throw new Error(`同步失败 HTTP 401：sync token 无效 (agent #${b.agent_id})`);
     }
     perBinding.push({ agent_id: b.agent_id, synced: boundTotal });
   }

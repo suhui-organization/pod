@@ -43,6 +43,7 @@ export function createFileApprovalProvider(opts: FileApprovalOptions): ApprovalP
       if (existsSync(decisionFile)) {
         const raw = JSON.parse(readFileSync(decisionFile, 'utf8')) as FileApprovalDecision;
         rmSync(pendingFile, { force: true });
+        rmSync(decisionFile, { force: true }); // 用后即焚,防止残留决定"毒化"同 id 的未来请求
         return {
           approved: raw.approved,
           approver: raw.approver,

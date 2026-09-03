@@ -42,8 +42,17 @@ GATEWAY_PORT="${GATEWAY_PORT:-8787}"
 ROOT_DIR="${ROOT_DIR:-$HOME/Workspaces}"
 UPSTREAM_CMD="${UPSTREAM_CMD:-npx}"
 UPSTREAM_PACKAGE="${UPSTREAM_PACKAGE:-@modelcontextprotocol/server-filesystem}"
-# 同机多 agent 时每个 agent 独立网关进程/审计目录/配置文件:
-AUDIT_DIR="${AUDIT_DIR:-}"                                  # 空 = CLI 默认 ~/.pod/audit(单 agent 旧布局)
+# 同机多 agent 时每个 agent 独立网关进程/审计目录/配置文件。
+# 审计目录规范: audit/<名称净化>/ ——名称(如含空格)统一转 '-',保证同一 agent 永远
+# 落到同一条链(否则 sync 扫描到同 server 多文件会重复推,触发 409)。
+SAFE_NAME="$(printf '%s' "$AGENT_NAME" | tr -c 'A-Za-z0-9' '-')"
+if [ -n "${AUDIT_DIR:-}" ]; then
+  : # 显式指定优先(迁移/兼容场景)
+elif [ "$AGENT_NAME" = "hermes" ]; then
+  AUDIT_DIR="" # hermes 为单 agent 旧布局(顶层 ~/.pod/audit),保持兼容
+else
+  AUDIT_DIR="$POD_HOME/audit/$SAFE_NAME"
+fi
 GW_PID_FILE="$POD_HOME/gateway-${AGENT_NAME}-${SERVER_KEY}.pid"
 GW_LOG="$POD_HOME/gateway-${AGENT_NAME}-${SERVER_KEY}.log"
 CONFIG_TARGET="${CONFIG_TARGET:-${HERMES_CONFIG:-}}"       # 目标 agent 配置文件(.yaml 合并 / .toml 走 codex mcp)
@@ -84,7 +93,8 @@ EOF
       codex*|*codex) PORT=8788; KEY="pod-codex"; AUD="$POD_HOME/audit/codex"; CT="$HOME/.codex/config.toml" ;;
       *)
         # 其余平台: 网关照常起; MCP 写入按平台适配(见下)——未知平台给出手工指引
-        PORT=$((PORT_BASE + N)); KEY="pod-$name"; AUD="$POD_HOME/audit/$name"
+        PORT=$((PORT_BASE + N)); KEY="pod-$name"
+        AUD="$POD_HOME/audit/$(printf '%s' "$name" | tr -c 'A-Za-z0-9' '-')"
         case "$name" in
           claude*|claude-code*) CT="$HOME/.claude.json" ;;
           cursor*)             CT="$HOME/.cursor/mcp.json" ;;
@@ -202,12 +212,18 @@ d = json.load(open(p))
 d.setdefault("version", "0.1.0")
 d["agent"] = agent
 sv = d.setdefault("servers", {}).setdefault(server, {})
-sv.setdefault("allow", ["read_file", "list_directory", "search_files"])
+# 幂等归一化: 缺省只读操作补齐(新加 get_file_info: 只读元数据应放行,非 fail-closed 目标)
+DEFAULT_ALLOW = ["read_file", "list_directory", "search_files", "get_file_info"]
+allow = [x for x in sv.get("allow", []) if isinstance(x, str)]
+for op in DEFAULT_ALLOW:
+    if op not in allow:
+        allow.append(op)
+sv["allow"] = allow
 sv.setdefault("approve", ["write_file", "edit_file"])
 sv.setdefault("deny", ["delete_file"])
 sv["source"] = {"command": cmd, "package": pkg}
 json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
-print("策略已对齐: agent=%s server=%s source=%s/%s" % (agent, server, cmd, pkg))
+print("策略已对齐: agent=%s server=%s source=%s/%s allow=%s" % (agent, server, cmd, pkg, ",".join(sv["allow"])))
 EOF
 
 # ── 4. 网关进程（已在跑且健康则复用）───────────────────────────────────────
