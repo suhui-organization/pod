@@ -62,6 +62,54 @@ admin_token() { # → echo access_token（依赖 ADMIN_EMAIL/ADMIN_PASSWORD）
     -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"client\":\"web\"}" | jget "['access_token']"
 }
 
+# ── all 模式: 处理 cloud.json 里这台机器的全部 agent（每 agent 一个网关）──
+MODE="${1:-}"
+if [ "$MODE" = "all" ] && [ "${SETUP_ALL_CHILD:-0}" != "1" ]; then
+  [ -f "$CLOUD_JSON" ] || fail "缺少 $CLOUD_JSON（先在目标机器执行 agent-setup 一键脚本注册）"
+  NAMES="$(python3 - "$CLOUD_JSON" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("\n".join(b["local_agent"] for b in d.get("agents", [])))
+EOF
+)"
+  [ -n "$NAMES" ] || fail "cloud.json 无任何绑定"
+  echo -e "${GREEN}── all 模式: 处理 $(printf '%s\n' "$NAMES" | wc -l) 个本地绑定 ──${NC}"
+  PORT_BASE=8786
+  N=0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    N=$((N+1))
+    case "$name" in
+      hermes*) PORT=8787; KEY="pod-filesystem"; AUD=""; CT="" ;;
+      codex*|*codex) PORT=8788; KEY="pod-codex"; AUD="$POD_HOME/audit/codex"; CT="$HOME/.codex/config.toml" ;;
+      *)
+        # 其余平台: 网关照常起; MCP 写入按平台适配(见下)——未知平台给出手工指引
+        PORT=$((PORT_BASE + N)); KEY="pod-$name"; AUD="$POD_HOME/audit/$name"
+        case "$name" in
+          claude*|claude-code*) CT="$HOME/.claude.json" ;;
+          cursor*)             CT="$HOME/.cursor/mcp.json" ;;
+          openclaw*)           CT="$HOME/.config/openclaw/config.json" ;;
+          dsh*)                CT="" ;;
+          *)                   CT="" ;;
+        esac
+        ;;
+    esac
+    PF="$POD_HOME/policies/baseline-$name.json"
+    [ "$name" = "hermes" ] && PF="$POLICY_FILE"
+    echo; echo -e "${GREEN}===== [$N] agent: $name (port $PORT, key $KEY) =====${NC}"
+    AGENT_NAME="$name" GATEWAY_PORT="$PORT" MCP_KEY="$KEY" AUDIT_DIR="$AUD" \
+    CONFIG_TARGET="$CT" POLICY_FILE="$PF" SETUP_ALL_CHILD=1 \
+    ADMIN_EMAIL="${ADMIN_EMAIL:-}" ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
+      bash "$0" || { warn "agent '$name' 接入失败，继续处理下一个"; }
+  done <<< "$NAMES"
+  echo
+  echo -e "${GREEN}════════ all 完成: $N 个 agent ════════════${NC}"
+  echo "  定时保活(建议每台机器 cron 每 5 分钟):  */5 * * * *  pod sync"
+  echo "  未自动接 MCP 的平台: 按其配置格式手工把 agent 指向 http://127.0.0.1:<port>/mcp"
+  echo "  (适配器按『平台』写一次即可覆盖该平台全部 agent，非按 agent)"
+  exit 0
+fi
+
 # ── 0. 服务可达 ─────────────────────────────────────────────────────────────
 step "0/7 服务端可达性: $POD_API"
 curl -fsS --max-time 8 "$POD_API/api/v1/auth/config" >/dev/null \
@@ -201,10 +249,15 @@ fi
 # ── 5. agent 的 MCP 配置（yaml → 直接合并; toml → codex mcp add; 均幂等）──
 step "5/7 agent MCP 配置 (key=$MCP_KEY)"
 if [ -z "$CONFIG_TARGET" ]; then
-  # 未显式指定:按已知布局探测(Hermes yaml 优先)
-  for cand in "${HERMES_HOME:-}/config.yaml" "$HOME/Applications/hermes/config.yaml" "$HOME/.config/hermes/config.yaml"; do
-    if [ -n "$cand" ] && [ -f "$cand" ]; then CONFIG_TARGET="$cand"; break; fi
-  done
+  # 未显式指定:仅 hermes 走已知 yaml 布局探测;其余平台须显式传 CONFIG_TARGET
+  # (多平台适配器按“平台”写一次，覆盖该平台全部 agent)
+  case "$AGENT_NAME" in
+    hermes*)
+      for cand in "${HERMES_HOME:-}/config.yaml" "$HOME/Applications/hermes/config.yaml" "$HOME/.config/hermes/config.yaml"; do
+        if [ -n "$cand" ] && [ -f "$cand" ]; then CONFIG_TARGET="$cand"; break; fi
+      done
+      ;;
+  esac
 fi
 case "${CONFIG_TARGET##*.}" in
   yml|yaml)

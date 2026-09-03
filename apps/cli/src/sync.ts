@@ -273,6 +273,15 @@ export async function runSync(opts: {
       servers.push({ server, synced, skipped: 0 });
     }
     saveSyncState(b.agent_id, newCursor);
+    // 心跳:即使 0 条新事件也刷新在线状态(规模化后 agent 在线不依赖新审计)
+    try {
+      await fetch(`${cfg.api_url}/api/v1/sync/ping`, {
+        method: 'POST',
+        headers: { 'X-Sync-Token': b.sync_token },
+      });
+    } catch {
+      /* 心跳失败静默(网络抖动),事件推送错误在上方已显式抛出 */
+    }
     perBinding.push({ agent_id: b.agent_id, synced: boundTotal });
   }
   return { agent_id: bindings[0]!.agent_id, servers, total_synced: total, bindings: perBinding };
