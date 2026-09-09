@@ -1,72 +1,122 @@
-# pod — AI Agent Security Gateway
+# pod — least-privilege compiler for AI agents
 
-> **Every step your agent takes, has immutable evidence.**
+[![CI](https://github.com/suhui-organization/pod/actions/workflows/ci.yml/badge.svg)](https://github.com/suhui-organization/pod/actions/workflows/ci.yml)
 
-Before an AI agent touches your machine, pod answers three questions: **What can it touch? Who approved it? Where is the evidence?**
+> Your agent ran for a week. pod compiles what it actually did into the smallest policy it needs.
+>
+> 让 AI Agent 只拥有它真正需要的权限——从真实行为编译最小权限策略。
 
-pod sits between your agents and their tools over **MCP**, adding three gates to every tool call — a policy gate, human approval, and a SHA-256 hash-chain audit. The last one is the core promise: every call is appended to a tamper-evident chain; alter any historical record and verification fails immediately.
+**Record → compile → enforce → prove.**
 
-```
-Tool call ──▶ Policy (deny > approve > allow) ──▶ Approval (high-risk suspends) ──▶ Execute
-                                                                                    │
-                                                                                    ▼
-                                              ┌────────────────────────────────────────┐
-                                              │ Hash-chain audit (append-only JSONL):  │
-                                              │ #3 hash = sha256(#2 + record)          │ ← tamper-evident
-                                              │ #2 hash = sha256(#1 + record)          │ ← every step logged
-                                              │ #1 hash = sha256(seed)                 │ ← verifiable
-                                              └────────────────────────────────────────┘
-```
+Most agent security tools stop at one of two places: a scanner that tells you what your agent *could* touch, or a gateway that asks you to *hand-write* a policy. pod closes the loop — run your agent in record-only mode for a few days, compile a least-privilege policy from its real tool calls, enforce it, and keep tamper-evident evidence for everything that ran.
 
-## Why pod
-
-OpenClaw, Claude Code, Cursor, Hermes and DSH each manage their own sandbox — but nothing tells you **what all your agents can touch together**, or gives you **evidence for what they did**. pod is the missing layer.
-
-- 🚪 **Gate** — every tool call passes a policy gate; unauthorized calls are rejected by default (fail-closed); writes require human approval
-- 📜 **Evidence** — every call lands in a SHA-256 hash chain: tamper-proof, independently verifiable (`pod verify-audit`), exportable as a signed evidence bundle
-- 👁 **Sight** — one audit view across heterogeneous agents; sensitive content is stored as hashes only; with the optional cloud plane your audit stays local-first
-
-```
-Agent (OpenClaw / Claude Code / Cursor / Hermes / DSH …)
-      │ MCP (stdio or Streamable HTTP)
-      ▼
-┌─ pod gateway ─────────────────┐      ┌───────────────────┐
-│ Policy  deny>approve>allow     │─────▶│ Real MCP server    │
-│ Approval suspend (fail-closed) │      │ (filesystem, etc.) │
-│ Hash-chain audit (hashes only) │      └───────────────────┘
-└───────────────┬────────────────┘
-                │ pod sync (cursor-based push) / pod pull-policy (policy distribution)
-                ▼
-        ┌────────────────────┐
-        │ Pod Cloud (optional)│  Dashboard · Alerts · Policy templates · AI digest
-        └────────────────────┘
+```text
+record real calls ──▶ compile least-privilege policy ──▶ enforce (deny > approve > allow)
+       │                        │                                  │
+       │                        │                                  ▼
+       │                        │                    ┌──────────────────────────┐
+       └── SHA-256 hash chain ───┴───────────────────▶│ tamper-evident audit     │
+          (every call, hashes only)                  │ verify / export evidence │
+                                                     └──────────────────────────┘
 ```
 
-## Quick start
+## 中文速览
+
+- **不是又一个 MCP 网关**：网关让你手写策略；pod 从 agent 的真实行为里**编译**出最小权限策略。
+- **闭环**：`pod record`（只录不拦）→ `pod policy draft`（生成策略 + 与基线 diff）→ 人工复核 → `pod serve`（执法）。
+- **证据**：每一次工具调用进入 SHA-256 哈希链，可校验、可导出为证据包（敏感内容只存哈希）。
+- **本地优先**：策略、审计、密钥不出你的机器；Pod Cloud 是可选控制平面。
+
+## See it in 5 minutes
+
+No agent, no account, no data leaves your machine — everything runs in a temp directory:
 
 ```bash
-# 1. install & scaffold (Node 18+ required)
-npm i -g @podsec/cli    # or: pnpm i -g @podsec/cli
-pod init --template baseline
-
-# 2. serve a real MCP server behind the gateway
-pod serve --agent openclaw --server filesystem \
-  --policy policies/baseline.json \
-  --command mcp-server-filesystem --arg /path/to/workspace \
-  --transport stdio
-
-# 3. point your agent at the gateway (OpenClaw example)
-#    openclaw config set mcp.servers.pod-filesystem.url http://127.0.0.1:8783/mcp
-#    Hermes:  mcp_servers.pod-filesystem.url = http://127.0.0.1:8784/mcp
-#    Codex:   codex mcp add pod-filesystem -- pod-serve-stdio.sh
-
-# 4. see what happened
-pod timeline
-pod verify-audit            # tamper check over the whole chain
-pod export-evidence         # produce a verifiable evidence bundle
+git clone https://gitee.com/suhuisoftwares/pod.git && cd pod
+pnpm install && pnpm build
+bash scripts/demo-least-privilege.sh
 ```
 
-**Policy example** (`policies/baseline.json`):
+It seeds a realistic week of tool calls (reads, writes, a delete, and one `.env` access), then compiles a policy from that corpus and diffs it against a permissive baseline:
+
+```text
+## 策略 diff（baseline → draft）
+
+| server     | tool                 | baseline | draft      | 变化     |
+|------------|----------------------|----------|------------|----------|
+| *          | *                    | allow    | deny       | 默认决策 |
+| filesystem | read_file            | allow    | deny       | 收紧     |
+| filesystem | write_file           | allow    | approve    | 收紧     |
+| filesystem | delete_file          | allow    | deny       | 收紧     |
+| github     | create_pull_request  | allow    | approve    | 收紧     |
+| shell      | execute_command      | allow    | approve    | 收紧     |
+| filesystem | get_file_info        | allow    | (unlisted) | 移除     |
+
+**汇总**：收紧 8 · 新增 0 · 移除 1 · 放宽 0
+```
+
+Two details matter here: `read_file` is locked down because it touched `.env` **once** (observation beats guessing), and `get_file_info` is removed because it never appeared in the corpus (least privilege = don't grant what you didn't observe).
+
+## Install
+
+```bash
+# macOS / Linux — builds from source, no npm account needed
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/main/scripts/install.sh | sh
+pod --help
+```
+
+The installer clones to `~/.pod/src`, builds, and puts `pod` in `~/.local/bin`. Override with `POD_SRC`, `POD_BIN_DIR`, `POD_REPO_URL`, `POD_VERSION`.
+
+From source:
+
+```bash
+git clone https://gitee.com/suhuisoftwares/pod.git && cd pod
+pnpm install && pnpm build
+node apps/cli/dist/index.js --help
+```
+
+> `npm i -g @podsec/cli` is **not live yet** — use the installer above until the package is published.
+
+## From zero to enforcement
+
+```bash
+pod scan                              # 1. see what is exposed (read-only)
+pod onboard                           # 2. preview the takeover plan (dry-run)
+pod onboard --yes                     #    wrap agents in record-only mode (backups kept)
+# ... use your agents normally for a day or two ...
+pod policy draft --diff <baseline>    # 3. compile least-privilege policy + show the diff
+pod lint --policy ~/.pod/policies/draft.json
+pod serve --agent <name> --server <name> --policy ~/.pod/policies/draft.json \
+  --command <cmd> --arg <value>       # 4. switch to enforcement
+pod watch                             # 5. approve high-risk calls from a second terminal
+pod verify-audit                      #    tamper check over the whole chain
+pod export-evidence                   #    verifiable evidence bundle
+```
+
+## What pod is / is not
+
+| pod is | pod is not |
+| --- | --- |
+| A **policy compiler**: turns real tool-call corpora into least-privilege rules | A sandbox or a container runtime |
+| A **policy enforcement point** on the MCP boundary (fail-closed) | A replacement for your agent's own sandbox |
+| A **tamper-evident audit + evidence layer** across agents | An LLM content-moderation firewall |
+| **Local-first**: policies, audits and secrets stay on your machine | A cloud service that needs your logs |
+
+Compared with the rest of the market: platform-native sandboxes (Claude Code, Codex, Gemini CLI) protect **one agent**; MCP gateways (agentgateway, ToolHive, ContextForge, Docker) give you a **place to enforce hand-written rules**; scanners (Snyk Agent Scan, mcp-guard) tell you **what is exposed**. pod is the missing step between "what is exposed" and "what is allowed": it **writes the policy for you from observed behavior**, then proves what happened.
+
+## Core capabilities
+
+- **`pod policy draft`** — compile a least-privilege policy from recorded calls. Read-only tools → `allow`, write/exec → `approve`, destructive → `deny`; any observed sensitive-path or secret hit forces `deny`. `--diff <baseline.json>` prints exactly what got tightened, added, removed or loosened.
+- **Policy gate** — evaluated `deny > secrets-input > approve > allow`, fail-closed by default; unlisted servers/tools are denied.
+- **Approval gate** — high-risk calls suspend and wait for a human; timeout fails closed; approvals are recorded with approver + reason.
+- **Tamper-evident audit** — append-only SHA-256 hash chain; `pod verify-audit` detects any historical edit; sensitive content is stored as hashes only.
+- **Evidence bundles** — `pod export-evidence` / `pod verify-evidence` produce and verify a portable evidence bundle plus a one-page report.
+- **Secret gates** — sensitive input paths (`.env`, `.ssh`, `.aws`, …), known-format output regexes, and high-entropy fallback detection for unknown secret formats.
+- **Rollback points** — `pod serve --snapshot` captures write operations; `pod rollback` restores files.
+- **Coverage + drift** — `pod coverage --strict` exits non-zero when an MCP server is bypassing the gateway.
+- **Supply-chain gate (T4)** — the gateway validates the declared server source (`command` / `package` / `version`) before startup.
+
+## Policy example
 
 ```json
 {
@@ -88,61 +138,27 @@ pod export-evidence         # produce a verifiable evidence bundle
 }
 ```
 
-Decisions are evaluated `deny > secrets-input > approve > allow`, fail-closed. Gateway startup also validates the declared server source (`command`/`package`/`version`) — T4 supply-chain gate.
-
-Outputs are checked twice: known-format regexes (`deny_output_matching`) and high-entropy
-detection (`secrets.entropy`) for unknown secret formats. Hex hashes cap at 4.0 bits/char,
-so the default 4.5 threshold does not flag commit SHAs.
-
 ## CLI
 
-```
+```text
 pod init            scaffold policy templates (baseline / record)
 pod onboard         discover local MCP servers and wrap them behind pod (dry-run by default)
 pod serve           run the gateway (stdio / Streamable HTTP)
 pod record          record-only mode: log every call without blocking (corpus collection)
+pod policy draft    compile a least-privilege policy from real calls (+ --diff baseline)
 pod approve|deny|pending   side-channel approvals
-pod watch           resident approval queue: prompt on new requests (TTY) or print commands
+pod watch           resident approval queue
 pod snapshots       list write-operation snapshots (rollback points)
 pod rollback        restore files from a snapshot (serve --snapshot enables capture)
-pod policy draft    turn recorded corpus into a least-privilege policy draft
 pod timeline        audit timeline filtered by agent / tool / time
 pod verify-audit    verify the full hash chain, emit a report
 pod digest          local weekly security digest (no network)
 pod coverage        managed vs. unmanaged MCP servers; --strict exits 1 on drift
-pod export-evidence / verify-evidence   export & verify evidence bundles (+ one-page report)
+pod export-evidence / verify-evidence   export & verify evidence bundles
 pod lint | doctor   policy lint / environment health
 pod scan            free local security scan (config & bypass checks)
-pod sync            push audit to Pod Cloud (cursor-based)
-pod pull-policy     pull policies from Pod Cloud
+pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 ```
-
-### From zero to enforcement
-
-```bash
-pod scan                              # 1. see what is exposed
-pod onboard                           # 2. preview the takeover plan (dry-run)
-pod onboard --yes                     #    wrap agents in record-only mode (backups kept)
-# ... use your agents normally for a day or two ...
-pod policy draft                      # 3. generate a least-privilege policy from real calls
-pod lint --policy ~/.pod/policies/draft.json
-pod serve --agent <name> --server <name> --policy ~/.pod/policies/draft.json \
-  --command <cmd> --arg <value>       # 4. switch to enforcement
-pod watch                             # 5. approve high-risk calls from a second terminal
-pod snapshots                         # 6. list rollback points (serve --snapshot)
-pod rollback --id <snapshot-id>       #    undo a write operation
-```
-
-For a resident HTTP gateway, set `--auth-token` (or `POD_AUTH_TOKEN`) so other local
-processes cannot connect and impersonate the agent:
-
-```bash
-pod serve --transport http --port 8786 --auth-token "$POD_AUTH_TOKEN" ...
-```
-
-## Pod Cloud (optional SaaS plane)
-
-Local-first core is free & open. Pod Cloud adds the control plane: one-step agent onboarding, cross-agent timeline, 11 alert rules with webhook/email delivery, policy templates (balanced / high-security / audit-only / locked-down), natural-language policy generation with human confirmation, and an AI daily digest. Audits are pushed as hashes only.
 
 ## Supported agents
 
@@ -150,21 +166,21 @@ Local-first core is free & open. Pod Cloud adds the control plane: one-step agen
 | --- | --- | --- |
 | Hermes | Streamable HTTP | ✅ verified end-to-end |
 | OpenClaw | stdio wrapper | ✅ verified end-to-end |
-| Codex | stdio wrapper | ✅ ready (see docs) |
+| Codex | stdio wrapper + PostToolUse hook | ✅ ready (see docs) |
 | DSH / Claude Code / Cursor | MCP | pluggable via MCP |
 
 ## Documentation
 
+- [Positioning & wedge](docs/positioning.md)
 - [Threat model](docs/threat-model.md)
 - [Egress defense](docs/egress-defense.md)
 - [Agent onboarding](docs/agent-onboarding.md)
 - [Automation (launchd/systemd/cron)](docs/automation.md)
 
-## Repository family
+## Pod Cloud (optional)
 
-- **pod** (this repo) — local gateway & CLI, open source
-- podcloud-server / podcloud-web — SaaS control plane (private)
+Local-first core is free & open. Pod Cloud adds a control plane: cross-agent/cross-machine timeline, alert rules, policy templates, and a weekly digest. Audits are pushed as hashes only — the local core never requires it.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Security notes: [SECURITY.md](SECURITY.md)
+Apache-2.0 — see [LICENSE](LICENSE). Security notes: [SECURITY.md](SECURITY.md).
