@@ -3,12 +3,18 @@
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AuditLog, writeAuditFile, type NewAuditEntry } from '@podsec/audit';
-import { classifyTool, draftPolicyFromEntries, tokenizeToolName } from '../src/policy-draft.js';
+import {
+  classifyTool,
+  diffPolicies,
+  draftPolicyFromEntries,
+  renderPolicyDiff,
+  tokenizeToolName,
+} from '../src/policy-draft.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_INDEX = join(HERE, '../src/index.ts');
@@ -137,5 +143,99 @@ describe('pod policy draft (CLI)', () => {
     );
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('no audit records');
+  });
+
+  it('renders a baseline→draft diff with tightened permissions', () => {
+    const baseline = {
+      version: '0.1.0',
+      agent: 'demo',
+      defaultDecision: 'allow' as const,
+      servers: {
+        filesystem: { allow: ['read_file', 'write_file', 'delete_file'] },
+      },
+    };
+    const draft = {
+      version: '0.1.0',
+      agent: 'demo',
+      defaultDecision: 'deny' as const,
+      servers: {
+        filesystem: { allow: ['read_file'], approve: ['write_file'], deny: ['delete_file'] },
+      },
+    };
+
+    const diff = diffPolicies(baseline, draft);
+    expect(diff.tightened).toBe(2);
+    expect(diff.entries.some((e) => e.kind === 'default-changed')).toBe(true);
+    expect(diff.entries.find((e) => e.tool === 'delete_file')).toMatchObject({
+      from: 'allow',
+      to: 'deny',
+      kind: 'tightened',
+    });
+
+    const rendered = renderPolicyDiff(diff);
+    expect(rendered).toContain('策略 diff');
+    expect(rendered).toContain('收紧 2');
+    expect(rendered).toContain('默认决策');
+  });
+
+  it('prints the diff when --diff is passed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-draft-diff-'));
+    const auditDir = join(dir, 'audit');
+    const out = join(dir, 'draft.json');
+    const baselineFile = join(dir, 'baseline.json');
+    const log = new AuditLog('0.1.0');
+    log.append(entry('read_file'));
+    log.append(entry('write_file'));
+    log.append(entry('delete_file'));
+    writeAuditFile(join(auditDir, 'demo.jsonl'), log);
+    const baseline = {
+      version: '0.1.0',
+      agent: 'test-agent',
+      defaultDecision: 'allow',
+      servers: { demo: { allow: ['read_file', 'write_file', 'delete_file'] } },
+    };
+    writeFileSync(baselineFile, JSON.stringify(baseline));
+
+    const res = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        CLI_INDEX,
+        'policy',
+        'draft',
+        '--audit-dir',
+        auditDir,
+        '--agent',
+        'test-agent',
+        '--out',
+        out,
+        '--diff',
+        baselineFile,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('策略 diff');
+    expect(res.stdout).toContain('收紧 2');
+  });
+
+  it('uses the entry server name for nested ingest layout (<agent>/<server>.jsonl)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-draft-nested-'));
+    const auditDir = join(dir, 'audit');
+    const out = join(dir, 'draft.json');
+    const log = new AuditLog('0.1.0');
+    log.append(entry('read_file'));
+    writeAuditFile(join(auditDir, 'some-agent', 'demo.jsonl'), log);
+
+    const res = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI_INDEX, 'policy', 'draft', '--audit-dir', auditDir, '--agent', 'some-agent', '--out', out],
+      { encoding: 'utf8' },
+    );
+    expect(res.status).toBe(0);
+    const policy = JSON.parse(readFileSync(out, 'utf8'));
+    expect(Object.keys(policy.servers)).toEqual(['demo']);
+    expect(policy.servers.demo.allow).toEqual(['read_file']);
   });
 });

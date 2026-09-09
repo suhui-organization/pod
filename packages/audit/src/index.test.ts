@@ -53,6 +53,10 @@ describe('hashValue', () => {
     expect(hashValue({ a: 1, b: 2 })).toBe(hashValue({ b: 2, a: 1 }));
     expect(hashValue({ a: 1, b: 2 })).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('handles undefined (pod ingest without --args)', () => {
+    expect(hashValue(undefined)).toBe(hashValue(null));
+  });
 });
 
 describe('AuditLog', () => {

@@ -24,7 +24,7 @@ import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
-import { draftPolicy } from './policy-draft.js';
+import { diffPolicies, draftPolicy, renderPolicyDiff } from './policy-draft.js';
 import { applyOnboard, computeCoverage, discoverTargets, revertOnboard } from './onboard.js';
 import { notifyApproval } from './notify.js';
 import { watchPending } from './watch.js';
@@ -673,13 +673,26 @@ interface PolicyDraftOptions {
   server?: string;
   out: string;
   version?: string;
+  /** 可选：与基线策略对比，输出"草稿到底改了什么" */
+  diff?: string;
 }
 
 /** pod policy draft：从录制语料生成最小权限策略草稿（不自动启用） */
 function cmdPolicyDraft(opts: PolicyDraftOptions): void {
-  const files = loadAllAuditFiles(opts.auditDir).filter((f) => !opts.server || f.server === opts.server);
-  const input = files.map((f) => ({ server: f.server, entries: f.log.entries }));
-  if (input.length === 0 || input.every((i) => i.entries.length === 0)) {
+  // server 名必须取审计条目里的 e.server，而不是文件路径 key：
+  // pod ingest 的目录布局是 <auditDir>/<agent>/<server>.jsonl，
+  // 用路径 key 会生成 "agent/server" 这种错误的策略 server 名。
+  const byServer = new Map<string, AuditEntry[]>();
+  for (const file of loadAllAuditFiles(opts.auditDir)) {
+    for (const e of file.log.entries) {
+      if (opts.server && e.server !== opts.server) continue;
+      const list = byServer.get(e.server);
+      if (list) list.push(e);
+      else byServer.set(e.server, [e]);
+    }
+  }
+  const input = [...byServer.entries()].map(([server, entries]) => ({ server, entries }));
+  if (input.length === 0) {
     log(`no audit records in ${opts.auditDir}${opts.server ? ` for server "${opts.server}"` : ''}`);
     log('先采集语料: pod record --config <mcp-manager.json> --server <name>');
     process.exitCode = 1;
@@ -690,6 +703,20 @@ function cmdPolicyDraft(opts: PolicyDraftOptions): void {
   mkdirSync(dirname(opts.out), { recursive: true });
   writeFileSync(opts.out, JSON.stringify(summary.policy, null, 2) + '\n', 'utf8');
   process.stdout.write(summary.report + '\n');
+  if (opts.diff) {
+    if (!existsSync(opts.diff)) {
+      log(`diff baseline not found: ${opts.diff}`);
+      process.exitCode = 1;
+    } else {
+      try {
+        const baseline = JSON.parse(readFileSync(opts.diff, 'utf8')) as Policy;
+        process.stdout.write('\n' + renderPolicyDiff(diffPolicies(baseline, summary.policy)) + '\n');
+      } catch (err) {
+        log(`diff baseline parse error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+      }
+    }
+  }
   log(`草稿已写入: ${opts.out}`);
   if (summary.issues.length > 0) {
     log('lint 提示:');
@@ -784,6 +811,7 @@ async function main(): Promise<void> {
       out: { type: 'string' },
       report: { type: 'string' },
       'policy-dir': { type: 'string' },
+      diff: { type: 'string' },
       template: { type: 'string' },
       version: { type: 'string' },
       transport: { type: 'string' },
@@ -1050,6 +1078,7 @@ async function main(): Promise<void> {
         server: values.server,
         out: values.out ?? podPath('policies', 'draft.json'),
         version: values.version,
+        diff: values.diff,
       });
       return;
     }
@@ -1124,7 +1153,7 @@ Usage:
   pod doctor [--policy <file>]
   pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
   pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--out-dir <dir>]
-  pod policy draft [--audit-dir <dir>] [--agent <name>] [--server <name>] [--out <file>]
+  pod policy draft [--audit-dir <dir>] [--agent <name>] [--server <name>] [--out <file>] [--diff <baseline.json>]
   pod onboard [--config <path>] [--agent <name>] [--policy-dir <dir>] [--pod-bin <path>] [--yes] [--revert]
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
@@ -1132,7 +1161,7 @@ Usage:
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
-policy draft: 从录制语料生成最小权限策略草稿（只读审计，不自动启用）。
+policy draft: 从录制语料生成最小权限策略草稿（只读审计，不自动启用）；--diff 对比基线策略，输出收紧/放宽清单。
 onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--revert 回滚）。
 digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
 coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。

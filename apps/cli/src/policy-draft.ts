@@ -209,6 +209,120 @@ export function renderDraftReport(result: DraftResult): string {
   return lines.join('\n');
 }
 
+/* ---------- 策略 diff：把"草稿到底改了什么"讲清楚 ---------- */
+
+export type DiffKind = 'added' | 'tightened' | 'loosened' | 'removed' | 'default-changed';
+
+export interface PolicyDiffEntry {
+  server: string;
+  tool: string;
+  from: Proposed | '(unlisted)';
+  to: Proposed | '(unlisted)';
+  kind: DiffKind;
+}
+
+export interface PolicyDiff {
+  entries: PolicyDiffEntry[];
+  added: number;
+  tightened: number;
+  loosened: number;
+  removed: number;
+}
+
+const DECISION_RANK: Record<Proposed, number> = { allow: 0, approve: 1, deny: 2 };
+
+/** 把策略摊平成 (server, tool) → 显式决策；未登记的工具不在表里 */
+function explicitDecisions(policy: Policy): Map<string, Proposed> {
+  const out = new Map<string, Proposed>();
+  for (const [server, sp] of Object.entries(policy.servers ?? {})) {
+    const lists: Array<[Proposed, string[] | undefined]> = [
+      ['allow', sp.allow],
+      ['approve', sp.approve],
+      ['deny', sp.deny],
+    ];
+    for (const [decision, tools] of lists) {
+      for (const tool of tools ?? []) out.set(`${server}\u0000${tool}`, decision);
+    }
+  }
+  return out;
+}
+
+/**
+ * 纯函数：对比 baseline 与 draft，输出人类可读的策略变化。
+ * 只关心"显式规则"的增删改 + defaultDecision 的变化；
+ * 收紧（allow→approve→deny）是路线 A 的核心价值，单独计数。
+ */
+export function diffPolicies(baseline: Policy, draft: Policy): PolicyDiff {
+  const entries: PolicyDiffEntry[] = [];
+  const base = explicitDecisions(baseline);
+  const next = explicitDecisions(draft);
+
+  const baseDefault = baseline.defaultDecision ?? '(unlisted)';
+  const nextDefault = draft.defaultDecision ?? '(unlisted)';
+  if (baseDefault !== nextDefault) {
+    entries.push({
+      server: '*',
+      tool: '*',
+      from: baseDefault,
+      to: nextDefault,
+      kind: 'default-changed',
+    });
+  }
+
+  const keys = [...new Set([...base.keys(), ...next.keys()])].sort();
+  for (const key of keys) {
+    const [server, tool] = key.split('\u0000') as [string, string];
+    const from = base.get(key);
+    const to = next.get(key);
+    if (from === to) continue;
+
+    let kind: DiffKind;
+    if (from === undefined) kind = 'added';
+    else if (to === undefined) kind = 'removed';
+    else kind = DECISION_RANK[to] > DECISION_RANK[from] ? 'tightened' : 'loosened';
+
+    entries.push({ server, tool, from: from ?? '(unlisted)', to: to ?? '(unlisted)', kind });
+  }
+
+  return {
+    entries,
+    added: entries.filter((e) => e.kind === 'added').length,
+    tightened: entries.filter((e) => e.kind === 'tightened').length,
+    loosened: entries.filter((e) => e.kind === 'loosened').length,
+    removed: entries.filter((e) => e.kind === 'removed').length,
+  };
+}
+
+/** 把 diff 渲染成 Markdown（可直接贴进 PR / 截图传播） */
+export function renderPolicyDiff(diff: PolicyDiff): string {
+  const label: Record<DiffKind, string> = {
+    added: '新增',
+    tightened: '收紧',
+    loosened: '放宽',
+    removed: '移除',
+    'default-changed': '默认决策',
+  };
+  const lines: string[] = ['## 策略 diff（baseline → draft）', ''];
+  if (diff.entries.length === 0) {
+    lines.push('（无差异）');
+    return lines.join('\n');
+  }
+
+  lines.push('| server | tool | baseline | draft | 变化 |');
+  lines.push('|--------|------|----------|-------|------|');
+  for (const e of diff.entries) {
+    lines.push(`| ${e.server} | ${e.tool} | ${e.from} | ${e.to} | ${label[e.kind]} |`);
+  }
+  lines.push('');
+  lines.push(
+    `**汇总**：收紧 ${diff.tightened} · 新增 ${diff.added} · 移除 ${diff.removed} · 放宽 ${diff.loosened}`,
+  );
+  if (diff.loosened > 0) {
+    lines.push('', '> ⚠️ 有放宽项，启用前必须人工复核。');
+  }
+  return lines.join('\n');
+}
+
 export interface DraftSummary {
   policy: Policy;
   report: string;

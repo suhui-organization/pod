@@ -51,7 +51,7 @@ export function hashValue(value: unknown): string {
 
 /** 键排序的稳定 JSON 序列化；数组保序。 */
 export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
