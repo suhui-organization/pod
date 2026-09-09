@@ -5,3 +5,4 @@ dist/
 coverage/
 .pod/
 __pycache__/
+.worktrees/
