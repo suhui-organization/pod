@@ -32,6 +32,9 @@ importers:
       '@podsec/gateway':
         specifier: workspace:*
         version: link:../../packages/gateway
+      '@podsec/graph':
+        specifier: workspace:*
+        version: link:../../packages/graph
       '@podsec/policy':
         specifier: workspace:*
         version: link:../../packages/policy
