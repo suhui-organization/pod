@@ -4,3 +4,4 @@ export * from './classify.js';
 export * from './toxic.js';
 export * from './diff.js';
 export * from './report.js';
+export * from './score.js';

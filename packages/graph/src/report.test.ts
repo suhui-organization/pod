@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToxicReport } from './report.js';
-import type { ToxicGroup } from './toxic.js';
+import type { ScoredToxicGroup } from './score.js';
 import type { CapabilityGraph, ToxicPath } from './types.js';
 
 const graph: CapabilityGraph = {
@@ -40,7 +40,7 @@ describe('renderToxicReport', () => {
   });
 
   it('renders aggregated chains when groups are provided', () => {
-    const groups: ToxicGroup[] = [
+    const groups: ScoredToxicGroup[] = [
       {
         rule: 'exfiltration',
         severity: 'high',
@@ -52,10 +52,13 @@ describe('renderToxicReport', () => {
         sourceTools: ['a.read_file'],
         sinkTools: ['a.send_email'],
         sample: path,
+        score: 92,
+        risk: 'high',
+        score_reasons: ['rule exfiltration +40', 'cross-agent 1/3 +15'],
       },
     ];
     const text = renderToxicReport({ graph, paths: [path], total: 3, maxPaths: 20, minConfidence: 0.5, groups });
-    expect(text).toContain('聚合链');
-    expect(text).toContain('read-secret');
+    expect(text).toContain('风险排序');
+    expect(text).toContain('92');
   });
 });

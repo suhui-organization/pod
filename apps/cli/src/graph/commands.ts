@@ -4,6 +4,7 @@ import {
   findToxicPaths,
   renderGraphSummary,
   renderToxicReport,
+  scoreToxicGroups,
   suggestDiff,
   type ToxicPath,
 } from '@podsec/graph';
@@ -83,6 +84,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     minConfidence: opts.minConfidence,
     maxPaths: opts.maxPaths,
   });
+  const scoredGroups = scoreToxicGroups(groups);
   let policy: Policy | null = null;
   if (opts.baselinePath) {
     try {
@@ -97,7 +99,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     suggested_diff: policy ? suggestDiff(path, policy) : null,
   }));
   writePaths(join(opts.outDir, 'paths.json'), withDiff);
-  writeFileAtomic(join(opts.outDir, 'chains.json'), JSON.stringify(groups, null, 2) + '\n');
+  writeFileAtomic(join(opts.outDir, 'chains.json'), JSON.stringify(scoredGroups, null, 2) + '\n');
   writeFileAtomic(
     join(opts.outDir, 'report.md'),
     renderToxicReport({
@@ -106,7 +108,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
       total,
       maxPaths: opts.maxPaths,
       minConfidence: opts.minConfidence,
-      groups,
+      groups: scoredGroups,
     }) + '\n',
   );
   if (policy) {
@@ -118,7 +120,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
   }
   if (opts.json) {
     process.stdout.write(
-      JSON.stringify({ total, groups, paths: withDiff, warnings: graph.meta.warnings }, null, 2) + '\n',
+      JSON.stringify({ total, groups: scoredGroups, paths: withDiff, warnings: graph.meta.warnings }, null, 2) + '\n',
     );
   } else {
     process.stdout.write(
@@ -128,7 +130,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
         total,
         maxPaths: opts.maxPaths,
         minConfidence: opts.minConfidence,
-        groups,
+        groups: scoredGroups,
       }) + '\n',
     );
   }

@@ -4,6 +4,7 @@ import type {
   CapabilityGraph,
   PathEndpoint,
   ToolRef,
+  ToxicGroup,
   ToxicPath,
 } from './types.js';
 
@@ -50,19 +51,6 @@ export interface FindToxicOptions {
   crossAgent?: boolean;
   minConfidence?: number;
   maxPaths?: number;
-}
-
-export interface ToxicGroup {
-  rule: string;
-  severity: ToxicPath['severity'];
-  sourceCapability: Capability;
-  sinkCapability: Capability;
-  count: number;
-  intraAgent: number;
-  crossAgent: number;
-  sourceTools: string[];
-  sinkTools: string[];
-  sample: ToxicPath;
 }
 
 /** 按 (rule, source capability, sink capability) 聚合，把笛卡尔积压成可读的链类型。 */

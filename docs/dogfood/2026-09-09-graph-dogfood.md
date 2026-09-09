@@ -103,3 +103,16 @@ dsh.firecrawl_scrape → dsh.supabase.execute_sql    (exec 0.9)
 **剩余 11 个未分类**：memory 的写工具（`create_entities/create_relations/add_observations`，只有 write context）、`sequentialthinking`（无 source/sink）、`pod-filesystem.move_file`、`kubectl_reconnect`。
 
 **下一步**：给 4 条链类型打分/排序（优先跨 agent 且高置信的链），而不是继续枚举工具对。
+
+## 链打分（2026-09-10）
+
+评分模型：`rule + severity + cross-agent 比例 + source 敏感度 + sink 危险度 + 置信度 + 出现频次`，满分约 155，分档 critical ≥130 / high ≥100 / medium ≥70。
+
+| score | 风险 | 链 | 路径数 | 跨 agent |
+|---:|---|---|---:|---:|
+| **139** | critical | `exfiltration: read-private-data → external-communication` | 14,723 | 7,365 |
+| **139** | critical | `injection-exec: read-untrusted-input → exec` | 3,500 | 1,752 |
+| **114** | high | `injection-exfil: read-untrusted-input → external-communication` | 11,794 | 5,913 |
+| **73** | medium | `destruction: destructive-write → destructive-write` | 30 | 0 |
+
+排序结果符合直觉：**读私有数据 + 外发**与**读不可信内容 + 执行**并列最高，破坏性写最低（不跨 agent、无外发）。用户第一眼看到的是这 4 条链，而不是 30,047 条明细。

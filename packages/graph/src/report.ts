@@ -1,5 +1,5 @@
 import type { CapabilityGraph, ToxicPath } from './types.js';
-import type { ToxicGroup } from './toxic.js';
+import type { ScoredToxicGroup } from './score.js';
 
 export interface ToxicReportInput {
   graph: CapabilityGraph;
@@ -7,7 +7,7 @@ export interface ToxicReportInput {
   total: number;
   maxPaths: number;
   minConfidence: number;
-  groups?: ToxicGroup[];
+  groups?: ScoredToxicGroup[];
 }
 
 export function renderGraphSummary(graph: CapabilityGraph): string {
@@ -44,14 +44,14 @@ export function renderToxicReport(input: ToxicReportInput): string {
     lines.push('');
   }
   if (groups && groups.length > 0) {
-    lines.push('## 聚合链（按 source → sink 能力）');
+    lines.push('## 风险排序（按 score）');
     lines.push('');
-    lines.push('| 规则 | source | sink | 路径数 | 跨 agent | 示例 |');
-    lines.push('|------|--------|------|-------:|---------:|------|');
+    lines.push('| score | 风险 | 规则 | source → sink | 路径数 | 跨 agent | 主要理由 |');
+    lines.push('|------:|------|------|---------------|-------:|---------:|----------|');
     for (const group of groups) {
       lines.push(
-        `| ${group.rule} | ${group.sourceCapability} | ${group.sinkCapability} | ${group.count} | ${group.crossAgent} | ` +
-          `${group.sample.source.agent}.${group.sample.source.tool} → ${group.sample.sink.agent}.${group.sample.sink.tool} |`,
+        `| **${group.score}** | ${group.risk} | ${group.rule} | ${group.sourceCapability} → ${group.sinkCapability} | ${group.count} | ${group.crossAgent} | ` +
+          `${group.score_reasons.slice(0, 3).join('；')} |`,
       );
     }
     lines.push('');

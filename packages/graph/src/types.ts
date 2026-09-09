@@ -110,3 +110,16 @@ export interface ToxicPath {
   explain: string;
   suggested_diff: PolicyDiffHint | null;
 }
+
+export interface ToxicGroup {
+  rule: string;
+  severity: ToxicPath['severity'];
+  sourceCapability: Capability;
+  sinkCapability: Capability;
+  count: number;
+  intraAgent: number;
+  crossAgent: number;
+  sourceTools: string[];
+  sinkTools: string[];
+  sample: ToxicPath;
+}
