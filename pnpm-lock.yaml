@@ -56,6 +56,12 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
 
+  packages/graph:
+    dependencies:
+      '@podsec/policy':
+        specifier: workspace:*
+        version: link:../policy
+
   packages/policy: {}
 
   packages/scan: {}
