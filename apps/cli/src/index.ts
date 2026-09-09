@@ -62,7 +62,7 @@ const TEMPLATES: Record<string, { label: string; policy: Policy }> = {
       defaultDecision: 'deny',
       servers: {
         filesystem: {
-          allow: ['read_file', 'list_directory', 'search_files'],
+          allow: ['read_file', 'list_directory', 'search_files', 'get_file_info'],
           approve: ['write_file', 'edit_file'],
           deny: ['delete_file'],
           // T4：来源白名单——启动命令不匹配时拒绝启动
@@ -103,7 +103,7 @@ const EXAMPLE_POLICY: Policy = {
   defaultDecision: 'deny',
   servers: {
     filesystem: {
-      allow: ['read_file', 'list_directory', 'search_files'],
+      allow: ['read_file', 'list_directory', 'search_files', 'get_file_info'],
       approve: ['write_file', 'edit_file'],
       deny: ['delete_file'],
     },
@@ -883,7 +883,7 @@ async function main(): Promise<void> {
     });
     if (result.total_synced === 0) log('nothing to sync');
     for (const srv of result.servers) log(`synced ${srv.synced} events from "${srv.server}"`);
-    log(`total synced: ${result.total_synced} (agent #${result.agent_id})`);
+    for (const b of result.bindings) log(`total synced: ${b.synced} (agent #${b.agent_id})`);
     return;
   }
 

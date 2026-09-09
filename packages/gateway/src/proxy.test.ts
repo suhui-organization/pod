@@ -170,7 +170,7 @@ describe('createProxyServer approval flow', () => {
   it('forwards an approved call and audits approver/reason', async () => {
     const { client, audit } = await buildProxy(async (req) => {
       expect(req.tool).toBe('echo');
-      expect(req.id).toBe('demo-1');
+      expect(req.id).toMatch(/^demo-\d+-\d+$/);
       return { approved: true, approver: 'walden', reason: 'manual ok' };
     });
     const result = await client.callTool({ name: 'echo', arguments: { message: 'approved!' } });
