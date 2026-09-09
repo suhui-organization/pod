@@ -313,6 +313,19 @@ EOF
     else
       warn "未找到 codex CLI($CODEX_BIN)，手工执行: codex mcp add $MCP_KEY --url http://127.0.0.1:$GATEWAY_PORT/mcp"
     fi
+    # Codex 内置 shell/exec 工具不走 MCP；装 PostToolUse hook 才能上报活跃度。
+    # 只写 hooks.json 不够——Codex 有 trust gate，必须走 app-server 自动信任。
+    if [ -f "$SCRIPT_DIR/install-codex-hook.py" ]; then
+      if [ -x "$CODEX_BIN" ]; then
+        CODEX_BIN="$CODEX_BIN" python3 "$SCRIPT_DIR/install-codex-hook.py" \
+          && ok "codex PostToolUse hook 已安装并信任" \
+          || warn "codex hook 信任失败；重试: python3 $SCRIPT_DIR/install-codex-hook.py"
+      else
+        python3 "$SCRIPT_DIR/install-codex-hook.py" \
+          && ok "codex PostToolUse hook 已安装并信任" \
+          || warn "codex hook 信任失败；重试: python3 $SCRIPT_DIR/install-codex-hook.py"
+      fi
+    fi
     ;;
   *)
     warn "未识别 CONFIG_TARGET($CONFIG_TARGET) 类型，跳过自动配置；手工: hermes/codex mcp add $MCP_KEY --url http://127.0.0.1:$GATEWAY_PORT/mcp"

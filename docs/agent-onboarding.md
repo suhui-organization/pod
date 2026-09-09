@@ -104,3 +104,25 @@ pod audit --server filesystem --tail 5
 - 只支持 stdio transport（13 个 server 全部是 stdio，够用）
 - 每进程包装一个 server；多 server 同时录制需多开 `pod record`
 - 审批流未实现（`approve` 规则在 serve 模式下 fail-closed 阻断，record 模式不阻断）
+
+## 6. Codex 内置工具（不走 MCP）的审计
+
+Codex 的内置 `shell`/`exec`/`apply_patch` 工具不经过 MCP 网关，也不加载 MCP server
+（例如 deepseek provider + exec 模式）。这类调用网关看不到，Pod Cloud 里会表现为
+「agent online 但活跃度一直是 0」。
+
+用 PostToolUse hook 补上：每次工具调用经 `pod ingest` 追加进同一条哈希链
+（`~/.pod/audit/codex/codex-tools.jsonl`），再由 `pod sync` 上云。
+
+```bash
+python3 scripts/install-codex-hook.py           # 安装 + 信任（幂等，可重复跑）
+python3 scripts/install-codex-hook.py --status  # 只查信任状态
+```
+
+> **关键点**：Codex 对非托管 hook 有 trust gate。只把命令写进 `~/.codex/hooks.json`
+> 会被静默跳过。`trusted_hash` 绑定的是 hook 命令字符串，命令一变（脚本路径、参数）
+> 信任即失效、活动又会归零——所以脚本路径变动后重跑一次安装器即可。
+
+安装器通过 Codex 官方 app-server JSON-RPC（`hooks/list` + `config/batchWrite`）读写信任，
+不自己复刻内部哈希算法。安装后可用 `pod audit --audit-dir ~/.pod/audit --server codex-tools`
+确认事件已落链。

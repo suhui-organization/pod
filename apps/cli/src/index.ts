@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { AuditLog, appendToAuditFile, loadAuditFile, type AuditEntry } from '@podsec/audit';
+import { AuditLog, appendToAuditFile, hashValue, loadAuditFile, type AuditEntry } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
@@ -606,6 +606,51 @@ function cmdRollback(dir: string, id: string): void {
   if (restored.length === 0) process.exitCode = 1;
 }
 
+interface IngestOptions {
+  agent: string;
+  server: string;
+  tool: string;
+  decision: 'allow' | 'deny' | 'approve';
+  outcome: 'ok' | 'error' | 'blocked';
+  reason?: string;
+  args?: string;
+  session?: string;
+  auditDir: string;
+}
+
+/**
+ * pod ingest：把外部 agent 的事件（如 Codex PostToolUse hook）追加进本地哈希链。
+ * 用于无法走 MCP 网关的 agent（Codex 内置 shell/exec 工具），让它们的活动也能上云。
+ */
+function cmdIngest(opts: IngestOptions): void {
+  let args: unknown;
+  if (opts.args) {
+    try {
+      args = JSON.parse(opts.args);
+    } catch {
+      args = opts.args;
+    }
+  }
+  const path = join(opts.auditDir, opts.agent, `${opts.server}.jsonl`);
+  mkdirSync(dirname(path), { recursive: true });
+  const onAppend = (entry: AuditEntry): void => appendToAuditFile(path, entry);
+  const auditLog = existsSync(path)
+    ? loadAuditFile(path, 'external', { onAppend })
+    : new AuditLog('external', { onAppend });
+  const entry = auditLog.append({
+    agent: opts.agent,
+    session: opts.session ?? 'external',
+    server: opts.server,
+    tool: opts.tool,
+    argsHash: hashValue(args),
+    decision: opts.decision,
+    outcome: opts.outcome,
+    reason: opts.reason,
+    policyVersion: 'external',
+  });
+  log(`ingested #${entry.seq} ${opts.agent}/${opts.server}.${opts.tool} (${opts.decision}/${opts.outcome})`);
+}
+
 function mostCommonAgent(input: Array<{ entries: AuditEntry[] }>): string | undefined {
   const counts = new Map<string, number>();
   for (const { entries } of input) {
@@ -730,6 +775,10 @@ async function main(): Promise<void> {
       'out-dir': { type: 'string' },
       'alert-config': { type: 'string' },
       tool: { type: 'string' },
+      decision: { type: 'string' },
+      outcome: { type: 'string' },
+      args: { type: 'string' },
+      session: { type: 'string' },
       since: { type: 'string' },
       limit: { type: 'string' },
       out: { type: 'string' },
@@ -832,6 +881,25 @@ async function main(): Promise<void> {
       values['snapshot-dir'] ?? podPath('snapshots'),
       values.limit ? Number.parseInt(values.limit, 10) : 20,
     );
+    return;
+  }
+
+  if (cmd === 'ingest') {
+    if (!values.agent || !values.server || !values.tool) {
+      console.error('pod ingest requires --agent --server --tool');
+      process.exit(1);
+    }
+    cmdIngest({
+      agent: values.agent,
+      server: values.server,
+      tool: values.tool,
+      decision: (values.decision as 'allow' | 'deny' | 'approve') ?? 'allow',
+      outcome: (values.outcome as 'ok' | 'error' | 'blocked') ?? 'ok',
+      reason: values.reason,
+      args: values.args,
+      session: values.session,
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+    });
     return;
   }
 
@@ -1044,6 +1112,9 @@ Usage:
   pod watch [--pending-dir <dir>] [--interval <ms>] [--once] [--approver <who>]
   pod snapshots [--snapshot-dir <dir>] [--limit <n>]
   pod rollback --id <snapshot-id> [--snapshot-dir <dir>]
+  pod ingest --agent <name> --server <name> --tool <name> \\
+             [--decision allow|deny|approve] [--outcome ok|error|blocked] \\
+             [--args <json>] [--reason <text>] [--session <id>] [--audit-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
   pod timeline [--server <name>] [--agent <name>] [--tool <name>] [--since 2h|24h|7d] [--limit <n>]
   pod verify-audit [--audit-dir <dir>] [--out <report.md>]
@@ -1068,6 +1139,7 @@ coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server �
 approve/deny/pending: 审批旁路通道（stdio 被 MCP 占用，交互在另一个终端进行）。
 watch:  长驻审批队列：新请求立即提示，TTY 下可直接批准/拒绝。
 snapshots/rollback: 高危写操作的快照与回滚（serve --snapshot 开启）。
+ingest: 把外部 agent 事件（如 Codex PostToolUse hook）追加进本地哈希链。
 audit:  查看审计（含哈希链校验）。
 `;
 }
