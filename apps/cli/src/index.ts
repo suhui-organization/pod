@@ -45,6 +45,8 @@ import {
   type TimelineOptions,
 } from './evidence.js';
 import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
+import { cmdGraphBuild, cmdGraphExplain, cmdGraphToxic } from './graph/commands.js';
+import { graphDir } from './graph/io.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -800,6 +802,13 @@ async function main(): Promise<void> {
       'agent-id': { type: 'string' },
       'sync-token': { type: 'string' },
       'out-dir': { type: 'string' },
+      home: { type: 'string' },
+      'no-exec': { type: 'boolean' },
+      timeout: { type: 'string' },
+      graph: { type: 'string' },
+      'cross-agent': { type: 'boolean' },
+      'min-confidence': { type: 'string' },
+      'max-paths': { type: 'string' },
       'alert-config': { type: 'string' },
       tool: { type: 'string' },
       decision: { type: 'string' },
@@ -1091,6 +1100,46 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  if (cmd === 'graph') {
+    const sub = positionals[1];
+    const home = values.home ?? homedir();
+    const outDir = values['out-dir'] ?? graphDir(home);
+    if (sub === 'build') {
+      const code = await cmdGraphBuild({
+        home,
+        config: values.config,
+        noExec: values['no-exec'] === true,
+        timeoutMs: Number.parseInt(values.timeout ?? '10000', 10),
+        out: values.out ?? join(outDir, 'potential.json'),
+        policyPath: values.policy,
+        json: values.json === true,
+      });
+      process.exit(code);
+    }
+    if (sub === 'toxic') {
+      const code = cmdGraphToxic({
+        graphPath: values.graph ?? join(outDir, 'potential.json'),
+        outDir,
+        crossAgent: values['cross-agent'] === true,
+        minConfidence: Number.parseFloat(values['min-confidence'] ?? '0.5'),
+        maxPaths: Number.parseInt(values['max-paths'] ?? '20', 10),
+        baselinePath: values.diff,
+        json: values.json === true,
+      });
+      process.exit(code);
+    }
+    if (sub === 'explain') {
+      const id = positionals[2];
+      if (!id) {
+        console.error('pod graph explain requires <path-id>');
+        process.exit(1);
+      }
+      process.exit(cmdGraphExplain({ pathsPath: join(outDir, 'paths.json'), id, json: values.json === true }));
+    }
+    console.error(`unknown graph subcommand: ${sub ?? '(none)'} (available: build, toxic, explain)`);
+    process.exit(1);
+  }
+
   if (cmd === 'onboard') {
     cmdOnboard({
       home: homedir(),
@@ -1162,6 +1211,9 @@ Usage:
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
   pod scan [--json]
+  pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
+  pod graph toxic [--graph <file>] [--out-dir <dir>] [--cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
+  pod graph explain <path-id> [--out-dir <dir>] [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
