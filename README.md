@@ -159,6 +159,9 @@ pod coverage        managed vs. unmanaged MCP servers; --strict exits 1 on drift
 pod export-evidence / verify-evidence   export & verify evidence bundles
 pod lint | doctor   policy lint / environment health
 pod scan            free local security scan (config & bypass checks)
+pod graph build     static capability graph from agent configs + tool schemas
+pod graph toxic     source→sink toxic paths + targeted policy diff
+pod graph explain   trace a path back to evidence
 pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 ```
 

@@ -105,7 +105,8 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     const diff = withDiff
       .map((p) => p.suggested_diff)
       .filter((d): d is NonNullable<typeof d> => d !== null);
-    writeFileAtomic(join(opts.outDir, 'policy-diff.json'), JSON.stringify(diff, null, 2) + '\n');
+    const unique = [...new Map(diff.map((d) => [`${d.target}|${d.from}|${d.to}`, d])).values()];
+    writeFileAtomic(join(opts.outDir, 'policy-diff.json'), JSON.stringify(unique, null, 2) + '\n');
   }
   if (opts.json) {
     process.stdout.write(
