@@ -833,9 +833,13 @@ async function main(): Promise<void> {
   });
 
   const cmd = positionals[0];
-  if (values.help || !cmd) {
+  if (values.help) {
     console.error(usage());
-    process.exit(cmd ? 0 : 1);
+    process.exit(0);
+  }
+  if (!cmd) {
+    console.error(usage());
+    process.exit(1);
   }
 
   if (cmd === 'init') {
