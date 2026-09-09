@@ -110,6 +110,19 @@ describe('serveHttp Accept 兼容层', () => {
     });
     expect(res.status).toBe(406);
   });
+
+  it('浏览器导航（Accept: text/html）→ 200 友好纯文本，而不是 JSON-RPC 错误', async () => {
+    await start();
+    const res = await fetch(base, {
+      method: 'GET',
+      headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    const text = await res.text();
+    expect(text).toContain('MCP');
+    expect(text).toContain('18088');
+  });
 });
 
 describe('serveHttp auth token (P2)', () => {

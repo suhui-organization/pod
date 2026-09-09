@@ -47,6 +47,23 @@ export function serveHttp(opts: ServeHttpOptions): Promise<HttpServeResult> {
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
+    // 浏览器导航（Accept: text/html）友好提示：/mcp 是 MCP 协议端点，不是网页。
+    // 不影响任何 MCP 客户端（它们不会发 text/html）。
+    const navAccept = (req.headers.accept as string | undefined) ?? '';
+    if (
+      req.method === 'GET' &&
+      navAccept.includes('text/html') &&
+      !navAccept.includes('text/event-stream')
+    ) {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(
+        'pod MCP gateway\n\n' +
+          'This is an MCP (Model Context Protocol) endpoint, not a web page.\n' +
+          'Connect your MCP client to this URL with: Accept: application/json, text/event-stream\n' +
+          'Human console: http://127.0.0.1:18088\n',
+      );
+      return;
+    }
     res.on('finish', () => log(`http ${req.method} ${url} -> ${res.statusCode}`));
     try {
       const sessionId = (req.headers['mcp-session-id'] as string | undefined) ?? undefined;
