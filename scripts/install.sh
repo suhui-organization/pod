@@ -26,10 +26,11 @@ POD_BIN_DIR="${POD_BIN_DIR:-$HOME/.local/bin}"
 fail() { printf 'pod install: %s\n' "$*" >&2; exit 1; }
 info() { printf '  %s\n' "$*"; }
 
-command -v node >/dev/null 2>&1 || fail "需要 Node.js >= 20（未找到 node）"
+command -v node >/dev/null 2>&1 || fail "需要 Node.js >= 22.13（未找到 node）"
 command -v git  >/dev/null 2>&1 || fail "需要 git"
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$NODE_MAJOR" -ge 20 ] || fail "需要 Node.js >= 20，当前 $(node -v)"
+NODE_VERSION="$(node -p 'process.versions.node')"
+node -e "const [maj,min]=process.versions.node.split('.').map(Number); process.exit(maj>22 || (maj===22 && min>=13) ? 0 : 1)" \
+  || fail "需要 Node.js >= 22.13（pnpm 11 要求），当前 v$NODE_VERSION"
 
 if command -v pnpm >/dev/null 2>&1; then
   PNPM=(pnpm)

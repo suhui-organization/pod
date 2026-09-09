@@ -67,6 +67,8 @@ pod --help
 
 The installer clones to `~/.pod/src`, builds, and puts `pod` in `~/.local/bin`. Override with `POD_SRC`, `POD_BIN_DIR`, `POD_REPO_URL`, `POD_VERSION`.
 
+Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
+
 From source:
 
 ```bash
