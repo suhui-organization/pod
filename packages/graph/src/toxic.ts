@@ -52,6 +52,53 @@ export interface FindToxicOptions {
   maxPaths?: number;
 }
 
+export interface ToxicGroup {
+  rule: string;
+  severity: ToxicPath['severity'];
+  sourceCapability: Capability;
+  sinkCapability: Capability;
+  count: number;
+  intraAgent: number;
+  crossAgent: number;
+  sourceTools: string[];
+  sinkTools: string[];
+  sample: ToxicPath;
+}
+
+/** 按 (rule, source capability, sink capability) 聚合，把笛卡尔积压成可读的链类型。 */
+export function groupToxicPaths(paths: ToxicPath[]): ToxicGroup[] {
+  const groups = new Map<string, ToxicGroup>();
+  for (const path of paths) {
+    const key = `${path.rule}|${path.source.capability}|${path.sink.capability}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        rule: path.rule,
+        severity: path.severity,
+        sourceCapability: path.source.capability,
+        sinkCapability: path.sink.capability,
+        count: 0,
+        intraAgent: 0,
+        crossAgent: 0,
+        sourceTools: [],
+        sinkTools: [],
+        sample: path,
+      };
+      groups.set(key, group);
+    }
+    group.count += 1;
+    if (path.kind === 'cross-agent') group.crossAgent += 1;
+    else group.intraAgent += 1;
+    const sourceTool = `${path.source.agent}.${path.source.tool}`;
+    const sinkTool = `${path.sink.agent}.${path.sink.tool}`;
+    if (!group.sourceTools.includes(sourceTool)) group.sourceTools.push(sourceTool);
+    if (!group.sinkTools.includes(sinkTool)) group.sinkTools.push(sinkTool);
+  }
+  return [...groups.values()].sort(
+    (a, b) => b.count - a.count || a.rule.localeCompare(b.rule) || a.sourceCapability.localeCompare(b.sourceCapability),
+  );
+}
+
 export function buildToolRefs(graph: CapabilityGraph): ToolRef[] {
   const agentsByServer = new Map<string, string[]>();
   for (const edge of graph.edges) {
@@ -123,7 +170,7 @@ function assertionsFor(ref: ToolRef, capabilities: Capability[]): CapabilityAsse
 export function findToxicPaths(
   graph: CapabilityGraph,
   opts: FindToxicOptions = {},
-): { paths: ToxicPath[]; total: number } {
+): { paths: ToxicPath[]; total: number; groups: ToxicGroup[] } {
   const minConfidence = opts.minConfidence ?? 0.5;
   const maxPaths = opts.maxPaths ?? 20;
   const refs = buildToolRefs(graph);
@@ -247,5 +294,5 @@ export function findToxicPaths(
       a.id.localeCompare(b.id),
   );
   const total = deduped.length;
-  return { paths: deduped.slice(0, maxPaths), total };
+  return { paths: deduped.slice(0, maxPaths), total, groups: groupToxicPaths(deduped) };
 }

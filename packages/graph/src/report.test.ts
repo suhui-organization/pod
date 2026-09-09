@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToxicReport } from './report.js';
+import type { ToxicGroup } from './toxic.js';
 import type { CapabilityGraph, ToxicPath } from './types.js';
 
 const graph: CapabilityGraph = {
@@ -36,5 +37,25 @@ describe('renderToxicReport', () => {
   it('renders a clear no-path message', () => {
     const text = renderToxicReport({ graph, paths: [], total: 0, maxPaths: 20, minConfidence: 0.5 });
     expect(text).toContain('未发现毒性路径');
+  });
+
+  it('renders aggregated chains when groups are provided', () => {
+    const groups: ToxicGroup[] = [
+      {
+        rule: 'exfiltration',
+        severity: 'high',
+        sourceCapability: 'read-secret',
+        sinkCapability: 'external-communication',
+        count: 3,
+        intraAgent: 2,
+        crossAgent: 1,
+        sourceTools: ['a.read_file'],
+        sinkTools: ['a.send_email'],
+        sample: path,
+      },
+    ];
+    const text = renderToxicReport({ graph, paths: [path], total: 3, maxPaths: 20, minConfidence: 0.5, groups });
+    expect(text).toContain('聚合链');
+    expect(text).toContain('read-secret');
   });
 });

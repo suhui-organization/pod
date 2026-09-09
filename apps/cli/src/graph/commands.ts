@@ -78,7 +78,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
       message: `graph 生成于 ${graph.generated_at}，超过 7 天，结论仅供参考`,
     });
   }
-  const { paths, total } = findToxicPaths(graph, {
+  const { paths, total, groups } = findToxicPaths(graph, {
     crossAgent: opts.crossAgent,
     minConfidence: opts.minConfidence,
     maxPaths: opts.maxPaths,
@@ -97,9 +97,17 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     suggested_diff: policy ? suggestDiff(path, policy) : null,
   }));
   writePaths(join(opts.outDir, 'paths.json'), withDiff);
+  writeFileAtomic(join(opts.outDir, 'chains.json'), JSON.stringify(groups, null, 2) + '\n');
   writeFileAtomic(
     join(opts.outDir, 'report.md'),
-    renderToxicReport({ graph, paths: withDiff, total, maxPaths: opts.maxPaths, minConfidence: opts.minConfidence }) + '\n',
+    renderToxicReport({
+      graph,
+      paths: withDiff,
+      total,
+      maxPaths: opts.maxPaths,
+      minConfidence: opts.minConfidence,
+      groups,
+    }) + '\n',
   );
   if (policy) {
     const diff = withDiff
@@ -110,11 +118,18 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
   }
   if (opts.json) {
     process.stdout.write(
-      JSON.stringify({ total, paths: withDiff, warnings: graph.meta.warnings }, null, 2) + '\n',
+      JSON.stringify({ total, groups, paths: withDiff, warnings: graph.meta.warnings }, null, 2) + '\n',
     );
   } else {
     process.stdout.write(
-      renderToxicReport({ graph, paths: withDiff, total, maxPaths: opts.maxPaths, minConfidence: opts.minConfidence }) + '\n',
+      renderToxicReport({
+        graph,
+        paths: withDiff,
+        total,
+        maxPaths: opts.maxPaths,
+        minConfidence: opts.minConfidence,
+        groups,
+      }) + '\n',
     );
   }
   return withDiff.some((p) => p.severity === 'high') ? 1 : 0;

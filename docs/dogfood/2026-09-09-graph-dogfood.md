@@ -78,3 +78,28 @@ dsh.firecrawl_scrape → dsh.supabase.execute_sql    (exec 0.9)
 2. 由用户补 D2 工具名映射表（5-10 行），优先覆盖 docker / kubernetes / supabase / chrome-devtools / firecrawl。
 3. 补 Claude Code MCP 配置发现（`~/.claude/settings.json`、项目 `.mcp.json`）。
 4. 评估把 `--cross-agent` 设为默认：本次最有价值的发现来自跨 agent 组合。
+
+## 映射收敛后（2026-09-10，同一台机器）
+
+按 dogfood 结果补了 D2 工具映射（chrome-devtools / kubernetes / docker / firecrawl / amap / memory / supabase），并实现按 `(rule, source capability, sink capability)` 聚合：
+
+| 指标 | 映射前 | 映射后 |
+|---|---:|---:|
+| 未分类工具 | 133 | **11** |
+| 总路径数 | 15,621 | 30,047 |
+| 聚合后的链类型 | — | **4** |
+
+路径数上升是因为 `click/fill/type_text` 等被正确识别为 `external-communication`（新增 sink），这是分类更准确的结果；可读性由聚合解决：
+
+| 链类型 | source → sink | 路径数 | 跨 agent |
+|---|---|---:|---:|
+| exfiltration | `read-private-data → external-communication` | 14,723 | 7,365 |
+| injection-exfil | `read-untrusted-input → external-communication` | 11,794 | 5,913 |
+| injection-exec | `read-untrusted-input → exec` | 3,500 | 1,752 |
+| destruction | `destructive-write → destructive-write` | 30 | 0 |
+
+**映射裁定**：`browser click/fill/type_text` = 外发 + 读不可信；`firecrawl_interact/monitor_run` 改回读不可信（修正误报的 exec）；docker 构建/启动/停止/拉取 = exec + write；kubectl 变更 = destructive；`supabase.execute_sql` 保持 exec（SQL 可能写库）。
+
+**剩余 11 个未分类**：memory 的写工具（`create_entities/create_relations/add_observations`，只有 write context）、`sequentialthinking`（无 source/sink）、`pod-filesystem.move_file`、`kubectl_reconnect`。
+
+**下一步**：给 4 条链类型打分/排序（优先跨 agent 且高置信的链），而不是继续枚举工具对。

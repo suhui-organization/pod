@@ -51,3 +51,35 @@ describe('classifyTool', () => {
     expect(classifyTool(tool('write_file')).writeContext).toBe(true);
   });
 });
+
+describe('curated tool overrides', () => {
+  it('fixes the firecrawl_interact false-positive exec', () => {
+    expect(classifyTool(tool('firecrawl_interact')).assertions.map((a) => a.capability)).toEqual([
+      'read-untrusted-input',
+    ]);
+  });
+
+  it('classifies browser click as external + untrusted', () => {
+    expect(
+      classifyTool(tool('click')).assertions.map((a) => a.capability).sort(),
+    ).toEqual(['external-communication', 'read-untrusted-input']);
+  });
+
+  it('classifies docker_build as exec with write context', () => {
+    const result = classifyTool(tool('docker_build'));
+    expect(result.assertions.map((a) => a.capability)).toEqual(['exec']);
+    expect(result.writeContext).toBe(true);
+  });
+
+  it('classifies kubectl_patch as destructive-write', () => {
+    expect(classifyTool(tool('kubectl_patch')).assertions.map((a) => a.capability)).toEqual([
+      'destructive-write',
+    ]);
+  });
+
+  it('keeps memory writes unclassified but marks write context', () => {
+    const result = classifyTool(tool('create_entities'));
+    expect(result.unclassified).toBe(true);
+    expect(result.writeContext).toBe(true);
+  });
+});

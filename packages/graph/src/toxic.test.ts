@@ -59,4 +59,11 @@ describe('findToxicPaths', () => {
     expect(paths).toHaveLength(1);
     expect(total).toBeGreaterThan(1);
   });
+
+  it('groups paths by source→sink capability and counts every path', () => {
+    const { groups, total } = findToxicPaths(graphWithAgents(), { minConfidence: 0.4, crossAgent: true });
+    expect(groups.length).toBeGreaterThan(0);
+    expect(groups.some((g) => g.rule === 'exfiltration')).toBe(true);
+    expect(groups.reduce((sum, g) => sum + g.count, 0)).toBe(total);
+  });
 });
