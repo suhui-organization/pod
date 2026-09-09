@@ -1244,6 +1244,7 @@ git commit -m "feat(policy): 支持能力覆盖字段"
 ## Task 6: 图文件 IO 与 schema 缓存
 
 **Files:**
+- Create: `apps/cli/src/graph/types.ts`
 - Create: `apps/cli/src/graph/io.ts`
 - Create: `apps/cli/src/graph/schema-cache.ts`
 - Create: `apps/cli/test/graph-io.test.ts`
@@ -1304,6 +1305,16 @@ Expected: FAIL。
 
 - [ ] **Step 3: 实现**
 
+`apps/cli/src/graph/types.ts`：
+
+```ts
+export interface ToolDescriptor {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+}
+```
+
 `apps/cli/src/graph/io.ts`：
 
 ```ts
@@ -1346,7 +1357,7 @@ export function readPaths(path: string): ToxicPath[] {
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ToolDescriptor } from './introspect.js';
+import type { ToolDescriptor } from './types.js';
 
 export function cacheKey(command: string, args: string[]): string {
   return createHash('sha256').update(JSON.stringify({ command, args })).digest('hex').slice(0, 16);
@@ -1447,12 +1458,9 @@ Expected: FAIL。
 ```ts
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { ToolDescriptor } from './types.js';
 
-export interface ToolDescriptor {
-  name: string;
-  description?: string;
-  inputSchema?: unknown;
-}
+export type { ToolDescriptor };
 
 export const ENV_ALLOWLIST = [
   'PATH', 'HOME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'USER', 'LOGNAME', 'TMPDIR',
