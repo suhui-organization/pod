@@ -10,7 +10,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm build && vitest run",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm build && pnpm -r typecheck"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
