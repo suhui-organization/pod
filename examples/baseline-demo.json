@@ -1,0 +1,27 @@
+{
+  "version": "0.1.0",
+  "agent": "demo-agent",
+  "defaultDecision": "allow",
+  "servers": {
+    "filesystem": {
+      "allow": [
+        "read_file",
+        "list_directory",
+        "search_files",
+        "get_file_info",
+        "write_file",
+        "edit_file",
+        "delete_file"
+      ]
+    },
+    "github": {
+      "allow": ["create_issue", "create_pull_request"]
+    },
+    "shell": {
+      "allow": ["execute_command"]
+    },
+    "email": {
+      "allow": ["send_email"]
+    }
+  }
+}
