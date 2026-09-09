@@ -124,6 +124,8 @@ export interface DiscoverOptions {
   config?: string;
   /** 覆盖 agent 名（默认按平台推断） */
   agent?: string;
+  /** 配置不可读/不可解析时上报（pod graph build 用于产出 config_unreadable 警告） */
+  onWarning?: (warning: { path: string; message: string }) => void;
 }
 
 /** 发现本机可接管的 MCP server（只读，不改任何文件） */
@@ -137,7 +139,11 @@ export function discoverTargets(opts: DiscoverOptions): OnboardTarget[] {
     let raw: unknown;
     try {
       raw = JSON.parse(readFileSync(c.path, 'utf8'));
-    } catch {
+    } catch (err) {
+      opts.onWarning?.({
+        path: c.path,
+        message: `无法解析 ${c.path}：${err instanceof Error ? err.message : String(err)}`,
+      });
       continue;
     }
     let format = c.format;
