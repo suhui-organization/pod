@@ -71,6 +71,13 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     process.stderr.write(`graph unreadable: ${err instanceof Error ? err.message : String(err)}\n`);
     return 2;
   }
+  const ageMs = Date.now() - new Date(graph.generated_at).getTime();
+  if (Number.isFinite(ageMs) && ageMs > 7 * 24 * 60 * 60 * 1000) {
+    graph.meta.warnings.push({
+      code: 'stale_graph',
+      message: `graph 生成于 ${graph.generated_at}，超过 7 天，结论仅供参考`,
+    });
+  }
   const { paths, total } = findToxicPaths(graph, {
     crossAgent: opts.crossAgent,
     minConfidence: opts.minConfidence,
