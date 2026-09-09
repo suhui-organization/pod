@@ -122,6 +122,11 @@ export interface Policy {
   servers?: Record<string, ServerPolicy>;
   /** 未登记 server 的默认决策（默认 deny，fail-closed） */
   defaultDecision?: Decision;
+  /**
+   * 能力覆盖（由 @podsec/graph 消费）：键为 "server.tool" 或 "tool"，
+   * 值为 D2 能力标签。policy 引擎本身不解释该字段。
+   */
+  capabilities?: Record<string, string[]>;
   secrets?: SecretRules;
 }
 

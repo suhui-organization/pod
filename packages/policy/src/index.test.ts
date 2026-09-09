@@ -315,3 +315,17 @@ describe('findHighEntropySecrets (P2 output entropy)', () => {
     expect(lintPolicy(p).some((i) => i.where === 'secrets.entropy' && i.message.includes('熵检测'))).toBe(true);
   });
 });
+
+describe('capability overrides', () => {
+  it('accepts and preserves capabilities without affecting evaluation', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { allow: ['acme_sync'] } },
+      capabilities: { 's.acme_sync': ['external-communication'] },
+    };
+    expect(evaluate(policy, { agent: 'a', server: 's', tool: 'acme_sync' }).decision).toBe('allow');
+    expect(lintPolicy(policy).filter((i) => i.severity === 'error')).toEqual([]);
+  });
+});
