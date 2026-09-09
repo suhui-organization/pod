@@ -80,7 +80,7 @@ afterAll(async () => {
 describe('pod record (record-only, mock mcp-manager.json)', () => {
   it('exposes the upstream tool list', async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['danger_delete', 'echo', 'now']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['danger_delete', 'echo', 'now', 'write_file']);
   });
 
   it('forwards a denied tool instead of blocking, and marks audit enforced=false', async () => {

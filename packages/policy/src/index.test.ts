@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { checkServerSource, evaluate, lintPolicy, type Policy } from './index.js';
+import {
+  checkServerSource,
+  evaluate,
+  findHighEntropySecrets,
+  lintPolicy,
+  matchesSensitivePath,
+  shannonEntropy,
+  type Policy,
+} from './index.js';
 
 const policy: Policy = {
   version: '0.1.0',
@@ -107,7 +115,19 @@ describe('secrets.deny_input_paths (T2 sensitive path gate)', () => {
     });
     expect(r.decision).toBe('deny');
     expect(r.matched).toBe('secrets-input');
-    expect(r.reason).toContain('id_rsa');
+    expect(r.reason).toContain('sensitive path pattern');
+  });
+
+  it('normalizes "~/.ssh" so it matches an absolute .ssh path (方案 C)', () => {
+    const r = evaluate(secretPolicy, {
+      agent: 'openclaw-main',
+      server: 'filesystem',
+      tool: 'read_file',
+      args: { path: '/Users/walden/.ssh/config' },
+    });
+    expect(r.decision).toBe('deny');
+    expect(r.matched).toBe('secrets-input');
+    expect(r.reason).toContain('.ssh');
   });
 
   it('denies when the path appears in nested args (array/object)', () => {
@@ -152,6 +172,18 @@ describe('secrets.deny_input_paths (T2 sensitive path gate)', () => {
     const r = evaluate(p, { agent: 'a', server: 's', tool: 'write_file', args: { path: '/x/notes.md' } });
     expect(r.decision).toBe('approve');
   });
+
+  it('matches a dotfile variant (".env" hits ".env.local")', () => {
+    expect(matchesSensitivePath('/app/.env.local', '.env')).toBe(true);
+  });
+
+  it('does not match a segment prefix (".ssh" must not hit ".ssh-backup")', () => {
+    expect(matchesSensitivePath('/tmp/.ssh-backup/notes.txt', '.ssh')).toBe(false);
+  });
+
+  it('matches a multi-segment pattern anywhere in the path', () => {
+    expect(matchesSensitivePath('/srv/app/config/credentials.json', 'config/credentials')).toBe(true);
+  });
 });
 
 describe('lintPolicy (P1, T9 misconfiguration)', () => {
@@ -191,6 +223,17 @@ describe('lintPolicy (P1, T9 misconfiguration)', () => {
     };
     const issues = lintPolicy(p);
     expect(issues.filter((i) => i.severity === 'error')).toHaveLength(0);
+  });
+
+  it('hints that "~/" prefixes are normalized when matching', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      servers: { s: { allow: ['x'] } },
+      secrets: { deny_input_paths: ['~/.ssh'] },
+    };
+    const issues = lintPolicy(p);
+    expect(issues.some((i) => i.where === 'secrets.deny_input_paths' && i.message.includes('归一化'))).toBe(true);
   });
 });
 
@@ -233,5 +276,42 @@ describe('checkServerSource (T4 supply-chain whitelist)', () => {
     const p: Policy = { version: '0.1.0', agent: 'a', servers: { s: { allow: ['x'] } } };
     const issues = lintPolicy(p);
     expect(issues.some((i) => i.message.includes('来源白名单'))).toBe(true);
+  });
+});
+
+describe('findHighEntropySecrets (P2 output entropy)', () => {
+  const SECRET = 'aB3xK9mQ2pR7sT4vW8yZ1nC6';
+
+  it('computes shannon entropy', () => {
+    expect(shannonEntropy('aaaa')).toBe(0);
+    expect(shannonEntropy('abcd')).toBe(2);
+  });
+
+  it('detects a base64-like secret', () => {
+    const hits = findHighEntropySecrets(`token ${SECRET}`, { enabled: true });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.length).toBe(SECRET.length);
+    expect(hits[0]!.entropy).toBeGreaterThan(4);
+    expect(hits[0]!.sample).not.toBe(SECRET);
+  });
+
+  it('does not flag hex hashes (entropy ceiling 4.0)', () => {
+    const hex = 'a3f9c2e1b7d4086f5a2c9e1d3b7f0a4c8e2d6b1f';
+    expect(findHighEntropySecrets(hex, { enabled: true })).toHaveLength(0);
+  });
+
+  it('is off by default and honors allow_patterns', () => {
+    expect(findHighEntropySecrets(SECRET)).toHaveLength(0);
+    expect(findHighEntropySecrets(SECRET, { enabled: true, allow_patterns: ['^aB3'] })).toHaveLength(0);
+  });
+
+  it('lint recommends enabling entropy detection', () => {
+    const p: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      servers: { s: { allow: ['x'] } },
+      secrets: { deny_input_paths: ['.env'], deny_output_matching: ['sk-[A-Za-z0-9]{20,}'] },
+    };
+    expect(lintPolicy(p).some((i) => i.where === 'secrets.entropy' && i.message.includes('熵检测'))).toBe(true);
   });
 });

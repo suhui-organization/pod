@@ -120,6 +120,7 @@ export function collectPendingEvents(
       reason: e.reason ?? '',
       policy_version: e.policyVersion,
       enforced: e.enforced ?? true,
+      snapshot: e.snapshot ?? '',
       prev_hash: e.prevHash,
       hash: e.hash,
     }));

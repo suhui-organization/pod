@@ -101,7 +101,10 @@ export function createAlertChecker(
   return (entry) => {
     const reason = entry.reason ?? '';
 
-    if (rules.secret_leak !== false && reason.includes('secret_leak')) {
+    if (
+      rules.secret_leak !== false &&
+      (reason.includes('secret_leak') || reason.includes('secret_entropy'))
+    ) {
       fire('high', 'secret_leak', entry, `工具输出被密钥拦截（${entry.server}.${entry.tool}）`);
     }
     if (rules.injection_suspect !== false && reason.includes('injection_suspect')) {

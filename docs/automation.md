@@ -9,6 +9,8 @@
 | `com.podcloud.serve` | 常驻 HTTP 网关（Streamable MCP）`http://127.0.0.1:8786/mcp`，baseline 策略 + 真实 filesystem server | 常驻（KeepAlive）|
 | `com.podcloud.serve-hermes` | Hermes 网关 `http://127.0.0.1:8784/mcp`（agent=hermes） | 常驻（KeepAlive）|
 | `com.podcloud.serve-openclaw` | OpenClaw 网关 `http://127.0.0.1:8783/mcp`（agent=openclaw） | 常驻（KeepAlive）|
+| `com.podcloud.coverage` | `pod coverage --strict` 配置漂移检查（有未受管 server 时退出码 1） | 每小时 |
+| `com.podcloud.digest` | `pod digest --out ~/.pod/digest/weekly.md` 本地安全周报 | 每周一 09:00 |
 
 > Codex 曾配 HTTP 网关 8785，因其 rmcp 客户端只发纯 JSON Accept（被 SDK 强制
 > JSON+SSE 拒绝），已切换为 stdio wrapper（`~/.pod/pod-serve-codex-stdio.sh`，
@@ -17,6 +19,20 @@
 
 serve 的 agent 接入：任何支持 Streamable HTTP 的 agent 把 MCP server 配置为
 `http://127.0.0.1:8786/mcp` 即可共用网关（策略/审批/审计/告警全在网关侧）。
+
+## 漂移检查与周报
+
+```bash
+# 配置漂移：未受管 MCP server（agent 可绕过网关）会以退出码 1 告警
+pod coverage --strict
+
+# 本地安全周报（只读审计，不联网）：写入 Markdown
+pod digest --since 7d --out ~/.pod/digest/weekly.md
+pod digest --since 7d --json          # 机器可读
+```
+
+`pod coverage --strict` 适合挂 launchd/cron：退出码非 0 即触发告警（邮件/webhook 由你的调度器负责）。
+`pod digest` 无网络依赖，报告里包含调用量、拦截、审批、敏感命中、未受管 server 与哈希链健康。
 
 ## 管理命令
 

@@ -82,26 +82,62 @@ pod export-evidence         # produce a verifiable evidence bundle
   },
   "secrets": {
     "deny_input_paths": ["~/.ssh", ".env", "credentials", "id_rsa", ".aws", "known_hosts"],
-    "deny_output_matching": ["ghp_[A-Za-z0-9]{36}", "sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
+    "deny_output_matching": ["ghp_[A-Za-z0-9]{36}", "sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"],
+    "entropy": { "enabled": true, "min_length": 24, "threshold": 4.5, "block": true }
   }
 }
 ```
 
 Decisions are evaluated `deny > secrets-input > approve > allow`, fail-closed. Gateway startup also validates the declared server source (`command`/`package`/`version`) — T4 supply-chain gate.
 
+Outputs are checked twice: known-format regexes (`deny_output_matching`) and high-entropy
+detection (`secrets.entropy`) for unknown secret formats. Hex hashes cap at 4.0 bits/char,
+so the default 4.5 threshold does not flag commit SHAs.
+
 ## CLI
 
 ```
 pod init            scaffold policy templates (baseline / record)
+pod onboard         discover local MCP servers and wrap them behind pod (dry-run by default)
 pod serve           run the gateway (stdio / Streamable HTTP)
+pod record          record-only mode: log every call without blocking (corpus collection)
 pod approve|deny|pending   side-channel approvals
+pod watch           resident approval queue: prompt on new requests (TTY) or print commands
+pod snapshots       list write-operation snapshots (rollback points)
+pod rollback        restore files from a snapshot (serve --snapshot enables capture)
+pod policy draft    turn recorded corpus into a least-privilege policy draft
 pod timeline        audit timeline filtered by agent / tool / time
 pod verify-audit    verify the full hash chain, emit a report
-pod export-evidence / verify-evidence   export & verify signed evidence bundles
+pod digest          local weekly security digest (no network)
+pod coverage        managed vs. unmanaged MCP servers; --strict exits 1 on drift
+pod export-evidence / verify-evidence   export & verify evidence bundles (+ one-page report)
 pod lint | doctor   policy lint / environment health
 pod scan            free local security scan (config & bypass checks)
 pod sync            push audit to Pod Cloud (cursor-based)
 pod pull-policy     pull policies from Pod Cloud
+```
+
+### From zero to enforcement
+
+```bash
+pod scan                              # 1. see what is exposed
+pod onboard                           # 2. preview the takeover plan (dry-run)
+pod onboard --yes                     #    wrap agents in record-only mode (backups kept)
+# ... use your agents normally for a day or two ...
+pod policy draft                      # 3. generate a least-privilege policy from real calls
+pod lint --policy ~/.pod/policies/draft.json
+pod serve --agent <name> --server <name> --policy ~/.pod/policies/draft.json \
+  --command <cmd> --arg <value>       # 4. switch to enforcement
+pod watch                             # 5. approve high-risk calls from a second terminal
+pod snapshots                         # 6. list rollback points (serve --snapshot)
+pod rollback --id <snapshot-id>       #    undo a write operation
+```
+
+For a resident HTTP gateway, set `--auth-token` (or `POD_AUTH_TOKEN`) so other local
+processes cannot connect and impersonate the agent:
+
+```bash
+pod serve --transport http --port 8786 --auth-token "$POD_AUTH_TOKEN" ...
 ```
 
 ## Pod Cloud (optional SaaS plane)

@@ -26,6 +26,8 @@ export interface AuditEntry {
   reason?: string;
   approver?: string;
   outputHash?: string;
+  /** P2 快照：本次调用前保存的回滚点 id（可用 pod rollback --id 恢复） */
+  snapshot?: string;
   policyVersion: string;
   /** false = 仅记录未强制执行（pod record 模式）；缺省视为 true */
   enforced?: boolean;

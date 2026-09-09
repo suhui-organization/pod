@@ -36,12 +36,83 @@ export interface ServerPolicy extends ToolRule {
 
 /**
  * 敏感信息规则（P0，威胁 T2）：
- * - deny_input_paths：参数中的字符串命中这些模式（如 "~/.ssh"、".env"）→ 调用直接拒绝；
+ * - deny_input_paths：参数中的字符串命中这些路径模式（如 "~/.ssh"、".env"）→ 调用直接拒绝；
+ *   匹配前先归一化（展开 ~ / ./ / 多余分隔符），再按路径段匹配：
+ *   "~/.ssh" 命中任意位置的 ".ssh" 段，".env" 命中 ".env" / ".env.local"；
  * - deny_output_matching：工具响应的文本命中这些正则 → 网关阻断该响应（在 gateway 层执行）。
  */
 export interface SecretRules {
   deny_input_paths?: string[];
   deny_output_matching?: string[];
+  /** 输出侧熵检测（P2）：正则之外的未知格式密钥兜底 */
+  entropy?: EntropyRules;
+}
+
+export interface EntropyRules {
+  enabled?: boolean;
+  /** 候选串最小长度，默认 24 */
+  min_length?: number;
+  /** 香农熵阈值（bits/char），默认 4.5；hex 哈希上限 4.0，不会被误伤 */
+  threshold?: number;
+  /** true（默认）= 命中即阻断；false = 仅审计标记 */
+  block?: boolean;
+  /** 命中这些正则的候选串跳过（如 UUID、已知哈希格式） */
+  allow_patterns?: string[];
+}
+
+export interface EntropyFinding {
+  /** 掩码样本（不暴露原文） */
+  sample: string;
+  length: number;
+  entropy: number;
+}
+
+/** 香农熵（bits/char） */
+export function shannonEntropy(s: string): number {
+  if (s.length === 0) return 0;
+  const counts = new Map<string, number>();
+  for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let h = 0;
+  for (const c of counts.values()) {
+    const p = c / s.length;
+    h -= p * Math.log2(p);
+  }
+  return h;
+}
+
+function maskToken(t: string): string {
+  if (t.length <= 8) return '***';
+  return `${t.slice(0, 4)}…${t.slice(-2)}`;
+}
+
+/**
+ * 在文本中找高熵候选串（P2，T2 未知格式密钥兜底）。
+ * 保守策略：长度 ≥ min_length、含字母+数字、字符种类 ≥ 12、熵 ≥ threshold。
+ * hex 哈希熵上限约 4.0，因此默认阈值 4.5 不会误伤 commit hash / SHA。
+ */
+export function findHighEntropySecrets(text: string, rules: EntropyRules = {}): EntropyFinding[] {
+  if (rules.enabled !== true || !text) return [];
+  const minLength = rules.min_length ?? 24;
+  const threshold = rules.threshold ?? 4.5;
+  const allow = (rules.allow_patterns ?? []).flatMap((p) => {
+    try {
+      return [new RegExp(p)];
+    } catch {
+      return [];
+    }
+  });
+  const re = new RegExp(`[A-Za-z0-9+/=_-]{${minLength},}`, 'g');
+  const out: EntropyFinding[] = [];
+  for (const m of text.matchAll(re)) {
+    const token = m[0]!;
+    if (allow.some((a) => a.test(token))) continue;
+    if (!/[A-Za-z]/.test(token) || !/[0-9]/.test(token)) continue;
+    if (new Set(token).size < 12) continue;
+    const entropy = shannonEntropy(token);
+    if (entropy < threshold) continue;
+    out.push({ sample: maskToken(token), length: token.length, entropy: Number(entropy.toFixed(2)) });
+  }
+  return out;
 }
 
 export interface Policy {
@@ -122,13 +193,57 @@ export function checkServerSource(
   return null;
 }
 
+/**
+ * 把路径字符串拆成归一化后的路径段：
+ * 统一分隔符、丢弃空段与 "."、丢弃开头的 "~"（home 前缀对匹配无意义）。
+ * 例："/Users/x/.ssh/id_rsa" → ["Users","x",".ssh","id_rsa"]；"~/.aws" → [".aws"]。
+ */
+function pathSegments(input: string): string[] {
+  return input
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .split('/')
+    .filter((s) => s !== '' && s !== '.' && s !== '~');
+}
+
+/** 段匹配：完全相等，或末段允许 ".env" 命中 ".env.local" 这类同前缀变体 */
+function segmentMatches(candidate: string, pattern: string): boolean {
+  return candidate === pattern || candidate.startsWith(`${pattern}.`);
+}
+
+/**
+ * 敏感路径匹配（方案 C）：归一化后按"连续路径段"匹配。
+ * - "~/.ssh" 与绝对路径 "/Users/x/.ssh/config" 都能命中；
+ * - 只匹配完整段，避免 ".ssh" 误伤 ".ssh-backup"。
+ * 导出以便单测直接覆盖匹配语义。
+ */
+export function matchesSensitivePath(value: string, pattern: string): boolean {
+  const candidate = pathSegments(value);
+  const target = pathSegments(pattern);
+  if (target.length === 0 || target.length > candidate.length) return false;
+  for (let i = 0; i <= candidate.length - target.length; i++) {
+    let hit = true;
+    for (let j = 0; j < target.length; j++) {
+      const seg = candidate[i + j]!;
+      const pat = target[j]!;
+      const ok = j === target.length - 1 ? segmentMatches(seg, pat) : seg === pat;
+      if (!ok) {
+        hit = false;
+        break;
+      }
+    }
+    if (hit) return true;
+  }
+  return false;
+}
+
 function hitSensitivePath(policy: Policy, args: unknown): string | null {
   const patterns = policy.secrets?.deny_input_paths;
   if (!patterns || patterns.length === 0) return null;
   const strings = collectStrings(args);
   for (const pattern of patterns) {
     for (const str of strings) {
-      if (str.includes(pattern)) return pattern;
+      if (matchesSensitivePath(str, pattern)) return pattern;
     }
   }
   return null;
@@ -237,6 +352,15 @@ export function lintPolicy(policy: Policy): LintIssue[] {
       message: '未配置 secrets 规则（建议加 deny_input_paths 与 deny_output_matching，见 T2）',
     });
   } else {
+    for (const pattern of secrets?.deny_input_paths ?? []) {
+      if (pattern.startsWith('~/') || pattern.startsWith('./')) {
+        issues.push({
+          severity: 'info',
+          where: 'secrets.deny_input_paths',
+          message: `"${pattern}" 的前缀会被归一化，按路径段匹配任意位置；若只想限制当前用户目录，请写绝对路径`,
+        });
+      }
+    }
     for (const pattern of secrets?.deny_output_matching ?? []) {
       try {
         new RegExp(pattern);
@@ -246,6 +370,33 @@ export function lintPolicy(policy: Policy): LintIssue[] {
           where: 'secrets.deny_output_matching',
           message: `非法正则: ${pattern}`,
         });
+      }
+    }
+    const entropy = secrets?.entropy;
+    if (!entropy?.enabled) {
+      issues.push({
+        severity: 'info',
+        where: 'secrets.entropy',
+        message: '未启用输出侧熵检测（建议 enabled=true，兜底未知格式密钥，见 T2）',
+      });
+    } else {
+      if ((entropy.threshold ?? 4.5) < 3.5) {
+        issues.push({
+          severity: 'warn',
+          where: 'secrets.entropy.threshold',
+          message: `threshold=${entropy.threshold} 偏低，可能误伤正常文本（建议 ≥4.0）`,
+        });
+      }
+      for (const pattern of entropy.allow_patterns ?? []) {
+        try {
+          new RegExp(pattern);
+        } catch {
+          issues.push({
+            severity: 'error',
+            where: 'secrets.entropy.allow_patterns',
+            message: `非法正则: ${pattern}`,
+          });
+        }
       }
     }
   }

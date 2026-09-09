@@ -111,3 +111,40 @@ describe('serveHttp Accept 兼容层', () => {
     expect(res.status).toBe(406);
   });
 });
+
+describe('serveHttp auth token (P2)', () => {
+  let server: Server;
+
+  afterEach(async () => {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  });
+
+  it('rejects requests without the token and accepts with it', async () => {
+    const result = await serveHttp({
+      port: 0,
+      createServer: () => createDemoServer(),
+      authToken: 'secret',
+      log: () => {},
+    });
+    server = result.server;
+
+    const unauthorized = await fetch(result.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: initializeBody(),
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const ok = await fetch(result.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: 'Bearer secret',
+      },
+      body: initializeBody(),
+    });
+    expect(ok.status).toBe(200);
+  });
+});

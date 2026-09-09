@@ -14,15 +14,22 @@
  * 注意：网关进程的 stdout 被 MCP 协议占用，所有日志必须走 stderr。
  */
 import { parseArgs } from 'node:util';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { AuditLog, appendToAuditFile, loadAuditFile } from '@podsec/audit';
+import { dirname, join } from 'node:path';
+import { AuditLog, appendToAuditFile, loadAuditFile, type AuditEntry } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
-import { scanMachine, renderMarkdown, checkBypass } from '@podsec/scan';
+import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
+import { draftPolicy } from './policy-draft.js';
+import { applyOnboard, computeCoverage, discoverTargets, revertOnboard } from './onboard.js';
+import { notifyApproval } from './notify.js';
+import { watchPending } from './watch.js';
+import { buildDigest, renderDigest } from './digest.js';
+import { collectPathCandidates, createSnapshot, listSnapshots, restoreSnapshot } from './snapshot.js';
 import { runSync, pullPolicies } from './sync.js';
 import {
   buildTimeline,
@@ -30,7 +37,11 @@ import {
   verifyAll,
   renderVerifyReport,
   exportEvidence,
+  renderEvidenceReport,
   verifyEvidenceBundle,
+  loadAllAuditFiles,
+  listAuditFiles,
+  parseSince,
   type TimelineOptions,
 } from './evidence.js';
 import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
@@ -71,6 +82,8 @@ const TEMPLATES: Record<string, { label: string; policy: Policy }> = {
           'xox[baprs]-[A-Za-z0-9-]{10,}',
           'AIza[0-9A-Za-z_-]{35}',
         ],
+        // P2：未知格式密钥兜底（hex 哈希熵上限 4.0，不会被误伤）
+        entropy: { enabled: true, min_length: 24, threshold: 4.5, block: true },
       },
     },
   },
@@ -102,6 +115,7 @@ const EXAMPLE_POLICY: Policy = {
     // P0（T2）：敏感路径参数直接拒绝；工具响应命中正则则阻断
     deny_input_paths: ['~/.ssh', '.env', 'credentials', 'id_rsa', '.aws'],
     deny_output_matching: ['ghp_[A-Za-z0-9]{36}', 'sk-[A-Za-z0-9]{20,}', 'AKIA[0-9A-Z]{16}'],
+    entropy: { enabled: true, min_length: 24, threshold: 4.5, block: true },
   },
 };
 
@@ -141,6 +155,17 @@ interface ServeOptions {
   alertConfig?: string;
   transport: 'stdio' | 'http';
   port: number;
+  /** record-only：策略照常求值并写审计（enforced:false），但一律放行（Phase 0 采集） */
+  recordOnly?: boolean;
+  /** 会话内记忆：同一 (server, tool) 批准过一次后本进程免重复审批 */
+  rememberApprovals?: boolean;
+  /** P2：approve 决策转发前对参数中的路径做快照 */
+  snapshot?: boolean;
+  /** P2：对 allow 决策也做快照（默认只快照 approve） */
+  snapshotAll?: boolean;
+  snapshotDir?: string;
+  /** P2：HTTP 网关身份令牌（防止本机其他进程冒充 agent 连接） */
+  authToken?: string;
 }
 
 async function cmdServe(opts: ServeOptions): Promise<void> {
@@ -167,8 +192,26 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
       log(`APPROVAL NEEDED #${req.id}: server=${req.server} tool=${req.tool}`);
       log(`  approve: pod approve --id ${req.id} [--reason <why>]`);
       log(`  deny:    pod deny --id ${req.id} [--reason <why>]`);
+      notifyApproval({ id: req.id, server: req.server, tool: req.tool, agent: req.agent });
     },
   });
+
+  const snapshotDir = opts.snapshotDir ?? podPath('snapshots');
+  const onBeforeForward = opts.snapshot
+    ? async ({ tool, args, decision }: { tool: string; args: unknown; decision: 'allow' | 'approve' }) => {
+        if (!opts.snapshotAll && decision !== 'approve') return;
+        const paths = collectPathCandidates(args);
+        if (paths.length === 0) return;
+        const id = `${opts.server}-${Date.now()}-${randomUUID().slice(0, 6)}`;
+        const manifest = createSnapshot(paths, { dir: snapshotDir, id, server: opts.server, tool });
+        log(
+          `SNAPSHOT #${id}: ${manifest.entries.length} 个路径已保存` +
+            `${manifest.skipped.length > 0 ? `（跳过 ${manifest.skipped.length} 个）` : ''}`,
+        );
+        log(`  回滚: pod rollback --id ${id} --snapshot-dir ${snapshotDir}`);
+        return { snapshotId: id };
+      }
+    : undefined;
 
   const server = await createStdioProxy({
     agent: opts.agent,
@@ -176,8 +219,14 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
     policy,
     audit,
     approval,
+    recordOnly: opts.recordOnly,
+    rememberApprovals: opts.rememberApprovals,
+    onBeforeForward,
     command: opts.command,
     args: opts.args,
+    // 透传网关进程环境：onboard 包装后，原 server 的 env 由 agent 传给 pod，
+    // 再由这里传给真实 upstream（否则自定义 API key 会丢）。
+    env: { ...process.env } as Record<string, string>,
   });
 
   log(`serving "${opts.server}" for agent "${opts.agent}" (audit: ${auditPath})`);
@@ -191,12 +240,20 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
       policy,
       audit,
       approval,
+      recordOnly: opts.recordOnly,
+      rememberApprovals: opts.rememberApprovals,
+      onBeforeForward,
       command: opts.command,
       args: opts.args,
+      env: { ...process.env } as Record<string, string>,
       port: opts.port,
       host: '127.0.0.1',
+      authToken: opts.authToken,
       log,
     });
+    if (!opts.authToken) {
+      log('⚠️ HTTP 网关未设置 --auth-token：本机任意进程都可连接（建议设置）');
+    }
     log(`gateway ready on ${result.url} (HTTP, resident)`);
     log('agent-side config: point your agent\'s MCP server at the URL above');
     return;
@@ -291,25 +348,22 @@ interface AuditOptions {
 }
 
 async function cmdAudit(opts: AuditOptions): Promise<void> {
-  const files = readdirSync(opts.auditDir)
-    .filter((f) => f.endsWith('.jsonl'))
-    .sort();
+  const files = listAuditFiles(opts.auditDir);
   if (files.length === 0) {
     log(`no audit files in ${opts.auditDir}`);
     return;
   }
   const matched = opts.server
-    ? files.filter((f) => f === `${opts.server}.jsonl`)
+    ? files.filter((f) => f.key === opts.server || f.key.endsWith(`/${opts.server}`))
     : files;
   if (opts.server && matched.length === 0) {
-    log(`no audit file for server "${opts.server}" in ${opts.auditDir} (have: ${files.join(', ')})`);
+    log(`no audit file for server "${opts.server}" in ${opts.auditDir} (have: ${files.map((f) => f.key).join(', ')})`);
     return;
   }
-  for (const file of matched) {
-    const path = join(opts.auditDir, file);
+  for (const { key, path } of matched) {
     const log_ = loadAuditFile(path, ''); // 校验链（policyVersion 仅用于构造，不影响校验）
     const entries = log_.entries.slice(-opts.tail);
-    log(`${file}: ${log_.entries.length} entries (chain verified, last ${entries.length})`);
+    log(`${key}.jsonl: ${log_.entries.length} entries (chain verified, last ${entries.length})`);
     for (const e of entries) {
       const enforced = e.enforced === false ? 'rec' : 'enf';
       log(
@@ -377,13 +431,17 @@ function cmdDoctor(policyPath: string | undefined): void {
       process.exitCode = 1;
     }
   }
-  // 防绕过检查（T 边界完整性）
-  const bypass = checkBypass(homedir());
-  if (bypass.length === 0) {
-    log('✅ 未发现绕过网关的 MCP server');
+  // 防绕过检查（T 边界完整性）：用 onboard 的精确解析替代 scan 的启发式字符串匹配
+  const coverage = computeCoverage(discoverTargets({ home: homedir() }));
+  if (coverage.unmanaged.length === 0) {
+    log(`✅ 未发现绕过网关的 MCP server（受管 ${coverage.managed.length} 个）`);
   } else {
-    log(`⚠️ ${bypass.length} 个 MCP server 未经过 pod 网关（agent 可直连绕过策略/审计）:`);
-    for (const b of bypass) log(`   - ${b.file} → "${b.server}" (${b.command})`);
+    log(`⚠️ ${coverage.unmanaged.length} 个 MCP server 未经过 pod 网关（agent 可直连绕过策略/审计）:`);
+    for (const b of coverage.unmanaged) log(`   - ${b.configPath} → "${b.server}" (${b.command})`);
+    log('   修复: pod onboard --yes（或先 pod onboard 看计划）');
+  }
+  if (coverage.unsupported.length > 0) {
+    log(`ℹ️ ${coverage.unsupported.length} 个 server 因非 stdio transport 暂不支持包装`);
   }
   // 云配置
   const cloudPath = join(homedir(), '.pod', 'cloud.json');
@@ -419,11 +477,15 @@ function cmdVerifyAudit(auditDir: string, out: string | undefined): void {
   if (results.some((r) => !r.ok)) process.exitCode = 1;
 }
 
-function cmdExportEvidence(auditDir: string, policyDir: string, outPath: string): void {
+function cmdExportEvidence(auditDir: string, policyDir: string, outPath: string, reportPath?: string): void {
   const bundle = exportEvidence({ auditDir, policyDir, outPath });
   log(`证据包已导出: ${outPath}`);
   log(`  审计文件: ${Object.keys(bundle.audits).length} 个 | 策略快照: ${Object.keys(bundle.policies).length} 个`);
   log(`  顶层哈希: ${bundle.top_level_hash.slice(0, 16)}…`);
+  const report = reportPath ?? `${outPath}.md`;
+  mkdirSync(dirname(report), { recursive: true });
+  writeFileSync(report, renderEvidenceReport(bundle), 'utf8');
+  log(`  一页式报告: ${report}`);
   log(`  验证: pod verify-evidence ${outPath}`);
 }
 
@@ -442,6 +504,204 @@ function cmdScan(json: boolean): void {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   } else {
     process.stdout.write(renderMarkdown(result) + '\n');
+  }
+}
+
+interface DigestCliOptions {
+  auditDir: string;
+  since: string;
+  out?: string;
+  json: boolean;
+}
+
+/** pod digest：本地安全周报（只读审计 + 覆盖率 + 哈希链健康） */
+function cmdDigest(opts: DigestCliOptions): void {
+  const files = loadAllAuditFiles(opts.auditDir);
+  const input = files.map((f) => ({ server: f.server, entries: f.log.entries }));
+  const from = parseSince(opts.since) ?? parseSince('7d')!;
+  const to = new Date().toISOString();
+  const chain = verifyAll(opts.auditDir).map((r) => ({ server: r.server, ok: r.ok, entries: r.entries }));
+  const coverage = computeCoverage(discoverTargets({ home: homedir() }));
+  const digest = buildDigest(input, {
+    from,
+    to,
+    chain,
+    coverage: {
+      managed: coverage.managed.map((m) => m.server),
+      unmanaged: coverage.unmanaged.map((m) => m.server),
+    },
+  });
+  const text = opts.json ? JSON.stringify(digest, null, 2) : renderDigest(digest);
+  if (opts.out) {
+    mkdirSync(dirname(opts.out), { recursive: true });
+    writeFileSync(opts.out, text + '\n', 'utf8');
+    log(`周报已写入: ${opts.out}`);
+  }
+  process.stdout.write(text + '\n');
+}
+
+interface CoverageCliOptions {
+  home: string;
+  json: boolean;
+  strict: boolean;
+}
+
+/** pod coverage：受管覆盖率 + 漂移检查（可配 launchd/cron 定时跑，--strict 用退出码告警） */
+function cmdCoverage(opts: CoverageCliOptions): void {
+  const coverage = computeCoverage(discoverTargets({ home: opts.home }));
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(coverage, null, 2) + '\n');
+  } else {
+    const lines: string[] = ['# pod 受管覆盖率', ''];
+    lines.push(`- 已受管：${coverage.managed.length} 个`);
+    lines.push(`- 未受管：${coverage.unmanaged.length} 个（可绕过策略/审计）`);
+    lines.push(`- 不支持包装：${coverage.unsupported.length} 个（非 stdio transport）`);
+    lines.push('');
+    if (coverage.unmanaged.length > 0) {
+      lines.push('## 未受管 MCP server');
+      lines.push('');
+      lines.push('| server | agent | 命令 | 配置 |');
+      lines.push('|--------|-------|------|------|');
+      for (const u of coverage.unmanaged) {
+        lines.push(`| ${u.server} | ${u.agent} | ${u.command} | ${u.configPath} |`);
+      }
+      lines.push('');
+      lines.push('修复：`pod onboard --yes` 接管，或 `pod onboard` 先看计划。');
+      lines.push('');
+    }
+    if (coverage.unsupported.length > 0) {
+      lines.push('## 无法包装（v0 只支持 stdio）');
+      lines.push('');
+      for (const u of coverage.unsupported) lines.push(`- ${u.server}（${u.transport}）→ ${u.configPath}`);
+      lines.push('');
+    }
+    lines.push('---');
+    lines.push('pod coverage 只读配置，不修改任何文件。');
+    lines.push('');
+    process.stdout.write(lines.join('\n'));
+  }
+  if (opts.strict && coverage.unmanaged.length > 0) process.exitCode = 1;
+}
+
+function cmdSnapshots(dir: string, limit: number): void {
+  const list = listSnapshots(dir);
+  if (list.length === 0) {
+    log(`no snapshots in ${dir}`);
+    return;
+  }
+  log(`${list.length} snapshot(s) in ${dir} (last ${Math.min(limit, list.length)}):`);
+  for (const s of list.slice(0, limit)) {
+    log(
+      `  ${s.id}  ${s.created_at}  ${s.server}.${s.tool}  ${s.entries.length} path(s)` +
+        `${s.skipped.length > 0 ? ` (skipped ${s.skipped.length})` : ''}`,
+    );
+  }
+}
+
+function cmdRollback(dir: string, id: string): void {
+  const { restored, missing } = restoreSnapshot(dir, id);
+  log(`rollback ${id}: restored ${restored.length} path(s)`);
+  for (const p of restored) log(`  ✅ ${p}`);
+  for (const p of missing) log(`  ⚠️ missing in snapshot: ${p}`);
+  if (restored.length === 0) process.exitCode = 1;
+}
+
+function mostCommonAgent(input: Array<{ entries: AuditEntry[] }>): string | undefined {
+  const counts = new Map<string, number>();
+  for (const { entries } of input) {
+    for (const e of entries) counts.set(e.agent, (counts.get(e.agent) ?? 0) + 1);
+  }
+  let best: string | undefined;
+  let max = 0;
+  for (const [agent, n] of counts) {
+    if (n > max) {
+      max = n;
+      best = agent;
+    }
+  }
+  return best;
+}
+
+interface PolicyDraftOptions {
+  auditDir: string;
+  agent?: string;
+  server?: string;
+  out: string;
+  version?: string;
+}
+
+/** pod policy draft：从录制语料生成最小权限策略草稿（不自动启用） */
+function cmdPolicyDraft(opts: PolicyDraftOptions): void {
+  const files = loadAllAuditFiles(opts.auditDir).filter((f) => !opts.server || f.server === opts.server);
+  const input = files.map((f) => ({ server: f.server, entries: f.log.entries }));
+  if (input.length === 0 || input.every((i) => i.entries.length === 0)) {
+    log(`no audit records in ${opts.auditDir}${opts.server ? ` for server "${opts.server}"` : ''}`);
+    log('先采集语料: pod record --config <mcp-manager.json> --server <name>');
+    process.exitCode = 1;
+    return;
+  }
+  const agent = opts.agent ?? mostCommonAgent(input) ?? 'local';
+  const summary = draftPolicy(input, { agent, version: opts.version });
+  mkdirSync(dirname(opts.out), { recursive: true });
+  writeFileSync(opts.out, JSON.stringify(summary.policy, null, 2) + '\n', 'utf8');
+  process.stdout.write(summary.report + '\n');
+  log(`草稿已写入: ${opts.out}`);
+  if (summary.issues.length > 0) {
+    log('lint 提示:');
+    for (const i of summary.issues) log(`  [${i.severity}] ${i.where}: ${i.message}`);
+  }
+}
+
+interface OnboardOptions {
+  home: string;
+  config?: string;
+  agent?: string;
+  policyDir: string;
+  dryRun: boolean;
+  revert: boolean;
+  podBin?: string;
+}
+
+/** pod onboard：发现本机 MCP server，默认 dry-run，--yes 才改写配置 */
+function cmdOnboard(opts: OnboardOptions): void {
+  if (opts.revert) {
+    const restored = revertOnboard({ home: opts.home, config: opts.config });
+    if (restored.length === 0) {
+      log('没有可恢复的 pod 备份');
+      return;
+    }
+    for (const r of restored) log(`已恢复 ${r.configPath} ← ${r.backup}`);
+    return;
+  }
+  const targets = discoverTargets({ home: opts.home, config: opts.config, agent: opts.agent });
+  if (targets.length === 0) {
+    log('未发现可接管的 MCP 配置（支持 ~/.dsh/mcp-manager.json / ~/.claude.json / ~/.cursor/mcp.json）');
+    return;
+  }
+  const result = applyOnboard(targets, {
+    policyDir: opts.policyDir,
+    dryRun: opts.dryRun,
+    podBin: opts.podBin,
+  });
+  log(opts.dryRun ? 'pod onboard — 计划（dry-run，未修改任何文件）' : 'pod onboard — 已接管');
+  for (const t of targets) {
+    log(`  ${t.configPath} (agent=${t.agent})`);
+    for (const s of t.servers) {
+      const action = s.wrapped
+        ? '已由 pod 包装，跳过'
+        : s.transport && s.transport !== 'stdio'
+          ? `transport=${s.transport}，v0 只支持 stdio，跳过`
+          : '将包装为 pod serve --record-only';
+      log(`    - ${s.name}: ${action}`);
+    }
+  }
+  for (const p of result.policies) log(`  策略: ${p}${opts.dryRun ? '（dry-run 未写入）' : ''}`);
+  for (const s of result.skipped) log(`  跳过: ${s}`);
+  if (opts.dryRun) {
+    log('确认无误后执行: pod onboard --yes');
+  } else {
+    log('下一步: 正常使用 agent 采集语料 → pod policy draft → 复核后切换执法模式');
+    log('回滚: pod onboard --revert');
   }
 }
 
@@ -473,10 +733,24 @@ async function main(): Promise<void> {
       since: { type: 'string' },
       limit: { type: 'string' },
       out: { type: 'string' },
+      report: { type: 'string' },
       'policy-dir': { type: 'string' },
       template: { type: 'string' },
+      version: { type: 'string' },
       transport: { type: 'string' },
       port: { type: 'string' },
+      'record-only': { type: 'boolean' },
+      'remember-approvals': { type: 'boolean' },
+      snapshot: { type: 'boolean' },
+      'snapshot-all': { type: 'boolean' },
+      'snapshot-dir': { type: 'string' },
+      'auth-token': { type: 'string' },
+      interval: { type: 'string' },
+      once: { type: 'boolean' },
+      'pod-bin': { type: 'string' },
+      strict: { type: 'boolean' },
+      yes: { type: 'boolean', short: 'y' },
+      revert: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -510,6 +784,12 @@ async function main(): Promise<void> {
       alertConfig: values['alert-config'],
       transport: values.transport === 'http' ? 'http' : 'stdio',
       port: values.port ? Number.parseInt(values.port, 10) : 8787,
+      recordOnly: values['record-only'] === true,
+      rememberApprovals: values['remember-approvals'] === true,
+      snapshot: values.snapshot === true || values['snapshot-all'] === true,
+      snapshotAll: values['snapshot-all'] === true,
+      snapshotDir: values['snapshot-dir'],
+      authToken: values['auth-token'] ?? process.env.POD_AUTH_TOKEN,
     });
     return;
   }
@@ -532,6 +812,36 @@ async function main(): Promise<void> {
 
   if (cmd === 'pending') {
     cmdPending(values['pending-dir'] ?? podPath('pending'));
+    return;
+  }
+
+  if (cmd === 'watch') {
+    await watchPending({
+      pendingDir: values['pending-dir'] ?? podPath('pending'),
+      intervalMs: values.interval ? Number.parseInt(values.interval, 10) : 1000,
+      once: values.once === true,
+      approver: values.approver ?? 'cli-user',
+      interactive: process.stdin.isTTY === true && values.once !== true,
+      log,
+    });
+    return;
+  }
+
+  if (cmd === 'snapshots') {
+    cmdSnapshots(
+      values['snapshot-dir'] ?? podPath('snapshots'),
+      values.limit ? Number.parseInt(values.limit, 10) : 20,
+    );
+    return;
+  }
+
+  if (cmd === 'rollback') {
+    if (!values.id) {
+      console.error('pod rollback requires --id <snapshot-id>');
+      console.error(usage());
+      process.exit(1);
+    }
+    cmdRollback(values['snapshot-dir'] ?? podPath('snapshots'), values.id);
     return;
   }
 
@@ -599,6 +909,7 @@ async function main(): Promise<void> {
       values['audit-dir'] ?? podPath('audit'),
       values['policy-dir'] ?? podPath('policies'),
       values.out ?? podPath('evidence', `pod-evidence-${new Date().toISOString().slice(0, 10)}.json`),
+      values.report,
     );
     return;
   }
@@ -647,6 +958,51 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'digest') {
+    cmdDigest({
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+      since: values.since ?? '7d',
+      out: values.out,
+      json: values.json ?? false,
+    });
+    return;
+  }
+
+  if (cmd === 'coverage') {
+    cmdCoverage({ home: homedir(), json: values.json ?? false, strict: values.strict === true });
+    return;
+  }
+
+  if (cmd === 'policy') {
+    const sub = positionals[1];
+    if (sub === 'draft') {
+      cmdPolicyDraft({
+        auditDir: values['audit-dir'] ?? podPath('audit'),
+        agent: values.agent,
+        server: values.server,
+        out: values.out ?? podPath('policies', 'draft.json'),
+        version: values.version,
+      });
+      return;
+    }
+    console.error(`unknown policy subcommand: ${sub ?? '(none)'} (available: draft)`);
+    console.error(usage());
+    process.exit(1);
+  }
+
+  if (cmd === 'onboard') {
+    cmdOnboard({
+      home: homedir(),
+      config: values.config,
+      agent: values.agent,
+      policyDir: values['policy-dir'] ?? podPath('policies'),
+      dryRun: values.yes !== true,
+      revert: values.revert === true,
+      podBin: values['pod-bin'],
+    });
+    return;
+  }
+
   console.error(`unknown command: ${cmd}`);
   console.error(usage());
   process.exit(1);
@@ -678,26 +1034,40 @@ Usage:
   pod serve --agent <name> --server <name> --policy <file> \\
            --command <cmd> [--arg <value> ...] [--audit-dir <dir>] \\
            [--approval-timeout <sec>] [--pending-dir <dir>] [--alert-config <file>] \
-           [--transport stdio|http] [--port <n>]
+           [--transport stdio|http] [--port <n>] [--record-only] [--remember-approvals] \
+           [--snapshot] [--snapshot-all] [--snapshot-dir <dir>] [--auth-token <token>]
   pod record --config <mcp-manager.json> --server <name> \\
              [--agent <name>] [--policy <file>] [--audit-dir <dir>]
   pod approve --id <approval-id> [--reason <why>] [--approver <who>]
   pod deny --id <approval-id> [--reason <why>] [--approver <who>]
   pod pending [--pending-dir <dir>]
+  pod watch [--pending-dir <dir>] [--interval <ms>] [--once] [--approver <who>]
+  pod snapshots [--snapshot-dir <dir>] [--limit <n>]
+  pod rollback --id <snapshot-id> [--snapshot-dir <dir>]
   pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
   pod timeline [--server <name>] [--agent <name>] [--tool <name>] [--since 2h|24h|7d] [--limit <n>]
   pod verify-audit [--audit-dir <dir>] [--out <report.md>]
-  pod export-evidence [--audit-dir <dir>] [--policy-dir <dir>] [--out <bundle.json>]
+  pod export-evidence [--audit-dir <dir>] [--policy-dir <dir>] [--out <bundle.json>] [--report <report.md>]
   pod verify-evidence --out <bundle.json>
   pod lint --policy <file>
   pod doctor [--policy <file>]
   pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
   pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--out-dir <dir>]
+  pod policy draft [--audit-dir <dir>] [--agent <name>] [--server <name>] [--out <file>]
+  pod onboard [--config <path>] [--agent <name>] [--policy-dir <dir>] [--pod-bin <path>] [--yes] [--revert]
+  pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
+  pod coverage [--json] [--strict]
   pod scan [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
+policy draft: 从录制语料生成最小权限策略草稿（只读审计，不自动启用）。
+onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--revert 回滚）。
+digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
+coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。
 approve/deny/pending: 审批旁路通道（stdio 被 MCP 占用，交互在另一个终端进行）。
+watch:  长驻审批队列：新请求立即提示，TTY 下可直接批准/拒绝。
+snapshots/rollback: 高危写操作的快照与回滚（serve --snapshot 开启）。
 audit:  查看审计（含哈希链校验）。
 `;
 }

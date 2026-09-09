@@ -88,7 +88,7 @@ describe('pod serve end-to-end (stdio, real processes)', () => {
   it('exposes the upstream tool list through the gateway', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(['danger_delete', 'echo', 'now']);
+    expect(names).toEqual(['danger_delete', 'echo', 'now', 'write_file']);
   });
 
   it('forwards allowed calls and writes an audit trail', async () => {

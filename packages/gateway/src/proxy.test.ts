@@ -62,7 +62,7 @@ describe('createProxyServer (in-memory)', () => {
   it('passes through the tool list from the real server', async () => {
     const { tools } = await agentClient.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(['danger_delete', 'echo', 'now']);
+    expect(names).toEqual(['danger_delete', 'echo', 'now', 'write_file']);
   });
 
   it('forwards an allowed call and audits it', async () => {
@@ -141,7 +141,10 @@ describe('createProxyServer approval flow', () => {
     servers: { demo: { approve: ['echo'] } },
   };
 
-  async function buildProxy(approval: Parameters<typeof createProxyServer>[0]['approval']) {
+  async function buildProxy(
+    approval: Parameters<typeof createProxyServer>[0]['approval'],
+    rememberApprovals = false,
+  ) {
     const audit = new AuditLog(approvePolicy.version);
     const demo = createDemoServer();
     const { a: demoSide, b: upClientSide } = await connectPair();
@@ -154,6 +157,7 @@ describe('createProxyServer approval flow', () => {
       policy: approvePolicy,
       audit,
       approval,
+      rememberApprovals,
       connectUpstream: async () => upstream,
     });
     const { a: agentSide, b: proxySide } = await connectPair();
@@ -205,6 +209,68 @@ describe('createProxyServer approval flow', () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('approval provider error');
     expect(audit.entries[0]!.outcome).toBe('blocked');
+  });
+
+  it('remembers an approved (server, tool) for the session when enabled', async () => {
+    let prompts = 0;
+    const { client, audit } = await buildProxy(async () => {
+      prompts += 1;
+      return { approved: true, approver: 'walden', reason: 'first time' };
+    }, true);
+    await client.callTool({ name: 'echo', arguments: { message: 'first' } });
+    await client.callTool({ name: 'echo', arguments: { message: 'second' } });
+    expect(prompts).toBe(1);
+    expect(audit.entries).toHaveLength(2);
+    expect(audit.entries[1]!.reason).toBe('session-remembered approval');
+    expect(audit.entries[1]!.approver).toBe('walden');
+    expect(audit.verify()).toEqual({ ok: true });
+  });
+});
+
+describe('onBeforeForward snapshot hook (P2)', () => {
+  async function build(onBeforeForward: NonNullable<Parameters<typeof createProxyServer>[0]['onBeforeForward']>) {
+    const policy: Policy = { version: '0.1.0', agent: 'test-agent', servers: { demo: { allow: ['echo'] } } };
+    const audit = new AuditLog(policy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy,
+      audit,
+      onBeforeForward,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+    return { client, audit };
+  }
+
+  it('records the snapshot id returned by the hook', async () => {
+    const { client, audit } = await build(async ({ tool, decision }) => {
+      expect(tool).toBe('echo');
+      expect(decision).toBe('allow');
+      return { snapshotId: 'snap-1' };
+    });
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'hi' } });
+    expect(result.isError).toBeFalsy();
+    expect(audit.entries[0]!.snapshot).toBe('snap-1');
+    expect(audit.verify()).toEqual({ ok: true });
+  });
+
+  it('fails closed when the snapshot hook throws', async () => {
+    const { client, audit } = await build(async () => {
+      throw new Error('disk full');
+    });
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'hi' } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('snapshot failed');
+    expect(audit.entries[0]!.reason).toContain('snapshot_failed');
   });
 });
 
@@ -346,6 +412,62 @@ describe('secrets.deny_output_matching (P0, T2 output gate)', () => {
   });
 });
 
+describe('secrets.entropy (P2 output entropy)', () => {
+  const SECRET = 'aB3xK9mQ2pR7sT4vW8yZ1nC6';
+
+  async function build(block: boolean) {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'test-agent',
+      servers: { demo: { allow: ['*'] } },
+      secrets: { entropy: { enabled: true, block } },
+    };
+    const audit = new AuditLog(policy.version);
+    const demo = createDemoServer();
+    const { a: demoSide, b: upClientSide } = await connectPair();
+    await demo.connect(demoSide);
+    const upstream = new Client({ name: 'test-upstream', version: '0.1.0' }, { capabilities: {} });
+    await upstream.connect(upClientSide);
+    const proxy = createProxyServer({
+      agent: 'test-agent',
+      serverName: 'demo',
+      policy,
+      audit,
+      connectUpstream: async () => upstream,
+    });
+    const { a: agentSide, b: proxySide } = await connectPair();
+    await proxy.connect(proxySide);
+    const client = new Client({ name: 'test-agent-client', version: '0.1.0' }, { capabilities: {} });
+    await client.connect(agentSide);
+    return { client, audit };
+  }
+
+  it('blocks a high-entropy output and audits secret_entropy', async () => {
+    const { client, audit } = await build(true);
+    const result = await client.callTool({ name: 'echo', arguments: { message: `secret ${SECRET}` } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('looks like a secret');
+    expect(audit.entries[0]!.reason).toContain('secret_entropy');
+    expect(audit.entries[0]!.outcome).toBe('blocked');
+  });
+
+  it('only marks when block=false', async () => {
+    const { client, audit } = await build(false);
+    const result = await client.callTool({ name: 'echo', arguments: { message: `secret ${SECRET}` } });
+    expect(result.isError).toBeFalsy();
+    expect(audit.entries.some((e) => e.reason?.includes('secret_entropy_suspect'))).toBe(true);
+    expect(audit.entries.some((e) => e.outcome === 'ok' && e.reason === undefined)).toBe(true);
+  });
+
+  it('does not flag hex hashes (entropy ceiling 4.0)', async () => {
+    const { client, audit } = await build(true);
+    const hex = 'a3f9c2e1b7d4086f5a2c9e1d3b7f0a4c8e2d6b1f';
+    const result = await client.callTool({ name: 'echo', arguments: { message: hex } });
+    expect(result.isError).toBeFalsy();
+    expect(audit.entries).toHaveLength(1);
+  });
+});
+
 describe('injection signal (P1, T1 lightweight defense)', () => {
   it('marks suspicious output in audit without blocking', async () => {
     const audit = new AuditLog('0.1.0');
@@ -444,7 +566,7 @@ describe('createHttpProxy (resident HTTP gateway)', () => {
       const c = new Client({ name: 'http-client', version: '0.1.0' }, { capabilities: {} });
       await c.connect(t);
       const { tools } = await c.listTools();
-      expect(tools.map((x) => x.name).sort()).toEqual(['danger_delete', 'echo', 'now']);
+      expect(tools.map((x) => x.name).sort()).toEqual(['danger_delete', 'echo', 'now', 'write_file']);
 
       const ok = await c.callTool({ name: 'echo', arguments: { message: 'hi' } }, undefined);
       expect(ok.isError).toBeFalsy();

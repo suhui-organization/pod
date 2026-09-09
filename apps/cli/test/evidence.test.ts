@@ -11,8 +11,18 @@ import {
   verifyAll,
   exportEvidence,
   verifyEvidenceBundle,
+  renderEvidenceReport,
+  summarizeEvidence,
+  listAuditFiles,
+  loadAllAuditFiles,
   parseSince,
 } from '../src/evidence.js';
+import { spawnSync } from 'node:child_process';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CLI_INDEX = join(HERE, '../src/index.ts');
 
 function makeAudit(dir: string, server: string, count: number, agent = 'openclaw-main', toolBase = 'read_file'): AuditLog {
   const log = new AuditLog('0.1.0');
@@ -52,6 +62,18 @@ describe('evidence toolkit (P0 black box)', () => {
     expect(parseSince('7d')).not.toBeNull();
     expect(parseSince('2026-01-01T00:00:00Z')).toBe('2026-01-01T00:00:00.000Z');
     expect(parseSince('garbage')).toBeNull();
+  });
+
+  it('reads the multi-agent subdirectory layout (~/.pod/audit/<agent>/<server>.jsonl)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pod-evidence-sub-'));
+    mkdirSync(join(root, 'openclaw'), { recursive: true });
+    mkdirSync(join(root, 'hermes'), { recursive: true });
+    makeAudit(join(root, 'openclaw'), 'filesystem', 2, 'openclaw');
+    makeAudit(join(root, 'hermes'), 'filesystem', 1, 'hermes');
+
+    expect(listAuditFiles(root).map((f) => f.key).sort()).toEqual(['hermes/filesystem', 'openclaw/filesystem']);
+    expect(loadAllAuditFiles(root)).toHaveLength(2);
+    expect(verifyAll(root).map((r) => r.server).sort()).toEqual(['hermes/filesystem', 'openclaw/filesystem']);
   });
 
   it('timeline merges servers, sorts by ts, and filters', () => {
@@ -106,5 +128,44 @@ describe('evidence toolkit (P0 black box)', () => {
     writeFileSync(out, raw.replace('"ok": true', '"ok": false'), 'utf8');
     const r = verifyEvidenceBundle(out);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('one-page compliance report (P1)', () => {
+  it('summarizes and renders an evidence bundle for humans', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-evidence-report-'));
+    const auditDir = join(dir, 'audit');
+    mkdirSync(auditDir, { recursive: true });
+    makeAudit(auditDir, 'filesystem', 4);
+    const bundle = exportEvidence({ auditDir, policyDir: join(dir, 'policies'), outPath: join(dir, 'evidence.json') });
+
+    const summary = summarizeEvidence(bundle);
+    expect(summary.entries).toBe(4);
+    expect(summary.servers).toEqual(['filesystem']);
+    expect(summary.agents).toEqual(['openclaw-main']);
+    expect(summary.decisions.approve).toBe(1);
+
+    const md = renderEvidenceReport(bundle);
+    expect(md).toContain('# AI Agent 操作审计证据包');
+    expect(md).toContain('## 2. 完整性自证');
+    expect(md).toContain('## 3. 控制措施');
+    expect(md).toContain('审计不可篡改');
+    expect(md).toContain(bundle.top_level_hash);
+  });
+
+  it('pod export-evidence writes the report alongside the bundle', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-evidence-cli-'));
+    const auditDir = join(dir, 'audit');
+    mkdirSync(auditDir, { recursive: true });
+    makeAudit(auditDir, 'filesystem', 2);
+    const out = join(dir, 'bundle.json');
+    const report = join(dir, 'report.md');
+    const res = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI_INDEX, 'export-evidence', '--audit-dir', auditDir, '--out', out, '--report', report],
+      { encoding: 'utf8' },
+    );
+    expect(res.status).toBe(0);
+    expect(readFileSync(report, 'utf8')).toContain('# AI Agent 操作审计证据包');
   });
 });

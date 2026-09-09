@@ -16,6 +16,8 @@ export interface ServeHttpOptions {
   host?: string;
   /** 每个会话创建一个新的 MCP Server（upstream 连接由工厂内部共享） */
   createServer: () => { connect(transport: Transport): Promise<void> };
+  /** P2：HTTP 身份令牌；设置后所有请求必须带 Authorization: Bearer <token> */
+  authToken?: string;
   log?: (msg: string) => void;
 }
 
@@ -31,6 +33,15 @@ export function serveHttp(opts: ServeHttpOptions): Promise<HttpServeResult> {
 
   const httpServer = createServer(async (req, res) => {
     const url = req.url ?? '/';
+    if (opts.authToken) {
+      const auth = req.headers.authorization ?? '';
+      if (auth !== `Bearer ${opts.authToken}`) {
+        log(`http ${req.method} ${url} -> 401 unauthorized`);
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+    }
     if (url !== '/mcp' && url !== '/') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'not found' }));

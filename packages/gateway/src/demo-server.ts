@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -28,6 +29,16 @@ export function createDemoServer(): McpServer {
     'Simulate a destructive operation (would delete a path)',
     { path: z.string() },
     async ({ path }) => ({ content: [{ type: 'text', text: `would delete ${path}` }] }),
+  );
+
+  server.tool(
+    'write_file',
+    'Write content to a file (demo only; used to exercise snapshots/rollback)',
+    { path: z.string(), content: z.string() },
+    async ({ path, content }) => {
+      writeFileSync(path, content, 'utf8');
+      return { content: [{ type: 'text', text: `wrote ${content.length} bytes to ${path}` }] };
+    },
   );
 
   return server;
