@@ -138,6 +138,41 @@ function log(message: string): void {
   console.error(`[pod] ${message}`);
 }
 
+type ProxyServer = Awaited<ReturnType<typeof createStdioProxy>>;
+
+/**
+ * 连接 agent 侧的 stdio transport，并在 agent 消失时退出进程。
+ *
+ * 两个退出信号缺一不可：
+ *   1. stdin EOF —— 正常情况，agent 关掉管道；
+ *   2. PPID 迁移到 1 —— agent 进程被强杀、或管道写端被别的子进程继承时不会来 EOF，
+ *      这时网关会被 launchd 收养并永久滞留（dogfood 机器上曾留下 5 个从 9/7 起就没有客户端的网关）。
+ *      只在「启动时本来有父进程」时才判定，避免把经 wrapper 后台启动的网关误杀。
+ */
+async function connectStdioAndExitOnAgentGone(server: ProxyServer, label: string): Promise<void> {
+  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+  let closing = false;
+  const shutdown = (reason: string): void => {
+    if (closing) return;
+    closing = true;
+    log(`${reason}，${label} 退出`);
+    void server.close().catch(() => undefined);
+    process.exit(0);
+  };
+
+  process.stdin.on('end', () => shutdown('agent 断开（stdin EOF）'));
+
+  // ponytail: 只看「启动时父进程还在」的情况。若 agent 在网关起来之前就死了（tsx 启动约 1-2s），
+  // 这里已经 ppid=1，看门狗不装，只能靠 stdin EOF 收敛。要覆盖这一档就得引入空闲超时。
+  if (process.ppid !== 1) {
+    setInterval(() => {
+      if (process.ppid === 1) shutdown('agent 进程已退出（已 reparent 到 launchd）');
+    }, 5000).unref();
+  }
+
+  await server.connect(new StdioServerTransport());
+}
+
 async function cmdInit(template: string | undefined): Promise<void> {
   mkdirSync(podPath('policies'), { recursive: true });
   mkdirSync(podPath('audit'), { recursive: true });
@@ -293,8 +328,7 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
     log('agent-side config: point your agent\'s MCP server at the URL above');
     return;
   }
-  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-  await server.connect(new StdioServerTransport());
+  await connectStdioAndExitOnAgentGone(server, `gateway(${opts.server})`);
   log('gateway ready on stdio; waiting for agent…');
 }
 
@@ -370,8 +404,7 @@ async function cmdRecord(opts: RecordOptions): Promise<void> {
   log(`upstream: ${upstream.command} ${upstream.args.join(' ')}`);
   log(`audit: ${auditPath}`);
 
-  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-  await server.connect(new StdioServerTransport());
+  await connectStdioAndExitOnAgentGone(server, `recorder(${opts.server})`);
   log('recorder ready on stdio; waiting for agent…');
   log('agent-side config: point your agent\'s MCP server at this process (see docs/agent-onboarding.md)');
 }
