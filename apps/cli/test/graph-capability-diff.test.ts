@@ -82,6 +82,8 @@ describe('capability-level chain diff', () => {
         CLI,
         'graph',
         'apply',
+        '--out-dir',
+        outDir,
         '--graph',
         join(outDir, 'potential.json'),
         '--policy',
