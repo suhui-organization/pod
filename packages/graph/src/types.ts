@@ -112,6 +112,7 @@ export interface ToxicPath {
 }
 
 export interface ToxicGroup {
+  id: string;
   rule: string;
   severity: ToxicPath['severity'];
   sourceCapability: Capability;
@@ -121,5 +122,7 @@ export interface ToxicGroup {
   crossAgent: number;
   sourceTools: string[];
   sinkTools: string[];
+  sourceEndpoints: PathEndpoint[];
+  sinkEndpoints: PathEndpoint[];
   sample: ToxicPath;
 }

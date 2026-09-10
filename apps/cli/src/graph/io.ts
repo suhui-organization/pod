@@ -1,7 +1,13 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { parseGraph, serializeGraph, type CapabilityGraph, type ToxicPath } from '@podsec/graph';
+import {
+  parseGraph,
+  serializeGraph,
+  type CapabilityGraph,
+  type ScoredToxicGroup,
+  type ToxicPath,
+} from '@podsec/graph';
 
 export function graphDir(home = homedir()): string {
   return join(home, '.pod', 'graph');
@@ -28,4 +34,8 @@ export function writePaths(path: string, paths: ToxicPath[]): void {
 
 export function readPaths(path: string): ToxicPath[] {
   return JSON.parse(readFileSync(path, 'utf8')) as ToxicPath[];
+}
+
+export function readChains(path: string): ScoredToxicGroup[] {
+  return JSON.parse(readFileSync(path, 'utf8')) as ScoredToxicGroup[];
 }

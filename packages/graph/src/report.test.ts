@@ -42,6 +42,7 @@ describe('renderToxicReport', () => {
   it('renders aggregated chains when groups are provided', () => {
     const groups: ScoredToxicGroup[] = [
       {
+        id: 'chain-001',
         rule: 'exfiltration',
         severity: 'high',
         sourceCapability: 'read-secret',
@@ -51,6 +52,8 @@ describe('renderToxicReport', () => {
         crossAgent: 1,
         sourceTools: ['a.read_file'],
         sinkTools: ['a.send_email'],
+        sourceEndpoints: [path.source],
+        sinkEndpoints: [path.sink],
         sample: path,
         score: 92,
         risk: 'high',

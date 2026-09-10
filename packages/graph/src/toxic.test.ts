@@ -66,4 +66,11 @@ describe('findToxicPaths', () => {
     expect(groups.some((g) => g.rule === 'exfiltration')).toBe(true);
     expect(groups.reduce((sum, g) => sum + g.count, 0)).toBe(total);
   });
+
+  it('assigns chain ids and unique endpoints', () => {
+    const { groups } = findToxicPaths(graphWithAgents(), { minConfidence: 0.4 });
+    expect(groups[0]!.id).toMatch(/^chain-\d{3}$/);
+    expect(groups[0]!.sourceEndpoints.length).toBeGreaterThan(0);
+    expect(groups[0]!.sinkEndpoints.length).toBeGreaterThan(0);
+  });
 });

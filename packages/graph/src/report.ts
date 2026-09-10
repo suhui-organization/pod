@@ -56,6 +56,27 @@ export function renderToxicReport(input: ToxicReportInput): string {
     }
     lines.push('');
   }
+  const withChainDiff = groups?.filter((group) => group.chain_diff) ?? [];
+  if (withChainDiff.length > 0) {
+    lines.push('## 断链建议');
+    lines.push('');
+    for (const group of withChainDiff) {
+      const diff = group.chain_diff!;
+      lines.push(`### ${group.id}（score ${group.score}，${group.rule}）`);
+      if (diff.strategy === 'capability-level' && diff.capability_recommendation) {
+        lines.push(`**能力级建议**：${diff.capability_recommendation.reason}`);
+        lines.push(`示例改动（前 ${diff.changes.length} 个）：`);
+      } else {
+        lines.push(
+          `收紧 ${diff.strategy === 'tighten-sinks' ? 'sink' : 'source'} 的 ${diff.changes.length} 个工具，覆盖 ${diff.breaks_paths} 条路径：`,
+        );
+      }
+      for (const change of diff.changes) {
+        lines.push(`- \`${change.target}\`：${change.from} → ${change.to}`);
+      }
+      lines.push('');
+    }
+  }
   if (paths.length === 0) {
     lines.push('未发现毒性路径。');
     return lines.join('\n');

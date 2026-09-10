@@ -18,6 +18,7 @@ const sample: ToxicPath = {
 
 function group(overrides: Partial<ToxicGroup>): ToxicGroup {
   return {
+    id: 'chain-001',
     rule: 'exfiltration',
     severity: 'high',
     sourceCapability: 'read-secret',
@@ -27,6 +28,8 @@ function group(overrides: Partial<ToxicGroup>): ToxicGroup {
     crossAgent: 100,
     sourceTools: ['a.read_file'],
     sinkTools: ['b.execute_command'],
+    sourceEndpoints: [sample.source],
+    sinkEndpoints: [sample.sink],
     sample,
     ...overrides,
   };

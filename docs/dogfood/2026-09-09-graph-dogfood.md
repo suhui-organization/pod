@@ -116,3 +116,15 @@ dsh.firecrawl_scrape → dsh.supabase.execute_sql    (exec 0.9)
 | **73** | medium | `destruction: destructive-write → destructive-write` | 30 | 0 |
 
 排序结果符合直觉：**读私有数据 + 外发**与**读不可信内容 + 执行**并列最高，破坏性写最低（不跨 agent、无外发）。用户第一眼看到的是这 4 条链，而不是 30,047 条明细。
+
+## Phase 2 三项（2026-09-10）
+
+1. **链级 diff**：`suggestChainDiff` 计算链级最小割。工具级最小割 ≤3 时给出精确改动；>3 时降级为能力级建议。本次 dogfood 的 4 条链全部是能力级：
+   - chain-001 exfiltration：需要改 99 个 sink → 建议对 `external-communication` 统一加审批
+   - chain-003 injection-exec：需要改 24 个 sink → 建议对 `exec` 统一加审批
+   - chain-002 injection-exfil：需要改 81 个 sink → 建议对 `external-communication` 统一加审批
+   - chain-004 destruction：需要改 30 个 sink → 建议对 `destructive-write` 统一加审批
+
+   **结论**：工具级策略无法用"1-2 条改动"切断这种笛卡尔积链；需要引入 capability-level policy（按 D2 能力统一 allow/approve/deny）。这是下一步最明确的产品缺口。
+2. **Claude Code 配置发现**：已支持 `~/.claude/settings.json`、`~/.claude.json` 的 `projects[*].mcpServers`、`~/.mcp.json`、项目 `.mcp.json`。本机 Claude Code 没有配置 MCP server（`~/.claude.json` 无 `mcpServers`/`projects`），所以本次图规模未变化。
+3. **跨 agent 默认开启**：`pod graph toxic` 默认 `--cross-agent`，`--no-cross-agent` 可关闭。本次 dogfood 未加 flag，跨 agent 路径正常计入。

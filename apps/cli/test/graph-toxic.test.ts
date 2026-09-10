@@ -51,5 +51,7 @@ describe('pod graph toxic', () => {
     expect(existsSync(join(outDir, 'chains.json'))).toBe(true);
     const diff = JSON.parse(readFileSync(join(outDir, 'policy-diff.json'), 'utf8'));
     expect(diff.length).toBeGreaterThan(0);
+    const chains = JSON.parse(readFileSync(join(outDir, 'chains.json'), 'utf8'));
+    expect(chains[0].chain_diff).toBeTruthy();
   });
 });

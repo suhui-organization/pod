@@ -35,4 +35,39 @@ describe('pod graph explain', () => {
     expect(res.stdout).toContain('source:');
     expect(res.stdout).toContain('sink:');
   });
+
+  it('prints a chain id with its chain diff', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-graph-explain-chain-'));
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { demo: { command: process.execPath, args: ['--import', 'tsx', DANGER] } } }),
+      'utf8',
+    );
+    const outDir = join(home, '.pod', 'graph');
+    const baseline = join(home, 'baseline.json');
+    writeFileSync(
+      baseline,
+      JSON.stringify({
+        version: '0.1.0',
+        agent: 'claude-code',
+        defaultDecision: 'deny',
+        servers: { demo: { allow: ['read_file', 'send_email', 'execute_command', 'http_request', 'delete_file'] } },
+      }),
+      'utf8',
+    );
+    spawnSync(process.execPath, ['--import', 'tsx', CLI, 'graph', 'build', '--home', home], { timeout: 30_000 });
+    spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI, 'graph', 'toxic', '--out-dir', outDir, '--diff', baseline, '--min-confidence', '0.4'],
+      { timeout: 30_000 },
+    );
+    const res = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI, 'graph', 'explain', 'chain-001', '--out-dir', outDir],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('chain-001');
+    expect(res.stdout).toContain('断链');
+  });
 });

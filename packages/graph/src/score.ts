@@ -1,9 +1,11 @@
 import type { Capability, ToxicGroup } from './types.js';
+import type { ChainDiffHint } from './diff.js';
 
 export interface ScoredToxicGroup extends ToxicGroup {
   score: number;
   risk: 'critical' | 'high' | 'medium' | 'low';
   score_reasons: string[];
+  chain_diff?: ChainDiffHint | null;
 }
 
 const RULE_SCORE: Record<string, number> = {

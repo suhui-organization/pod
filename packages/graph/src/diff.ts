@@ -1,5 +1,5 @@
 import type { Policy } from '@podsec/policy';
-import type { PolicyDiffHint, ToxicPath } from './types.js';
+import type { PathEndpoint, PolicyDiffHint, ToxicGroup, ToxicPath } from './types.js';
 
 export function decisionFor(
   policy: Policy,
@@ -43,4 +43,81 @@ export function suggestDiff(path: ToxicPath, policy: Policy): PolicyDiffHint | n
     };
   }
   return null;
+}
+
+export interface ChainDiffHint {
+  chain_id: string;
+  strategy: 'tighten-sinks' | 'tighten-sources' | 'capability-level';
+  changes: PolicyDiffHint[];
+  capability_recommendation?: {
+    capability: string;
+    action: 'approve' | 'deny';
+    reason: string;
+    needs_capability_policy: boolean;
+  };
+  breaks_paths: number;
+  total_paths: number;
+}
+
+function uniqueToolEndpoints(endpoints: PathEndpoint[]): PathEndpoint[] {
+  const seen = new Set<string>();
+  return endpoints.filter((endpoint) => {
+    const key = `${endpoint.server}.${endpoint.tool}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * 链级 diff：选择改动更少的一侧（sink 或 source）来断掉整条链。
+ * 覆盖的路径数是该链类型的全部路径（收紧一侧即可断掉所有经过该侧工具的路径）。
+ */
+export function suggestChainDiff(group: ToxicGroup, policy: Policy): ChainDiffHint | null {
+  const sinks = uniqueToolEndpoints(group.sinkEndpoints);
+  const sources = uniqueToolEndpoints(group.sourceEndpoints);
+  if (sinks.length === 0 || sources.length === 0) return null;
+
+  const strategy: ChainDiffHint['strategy'] =
+    sinks.length <= sources.length ? 'tighten-sinks' : 'tighten-sources';
+  const targets = strategy === 'tighten-sinks' ? sinks : sources;
+  const changes: PolicyDiffHint[] = [];
+  for (const target of targets) {
+    const from = decisionFor(policy, target.server, target.tool);
+    if (from === 'deny') continue;
+    changes.push({
+      target: `${target.server}.${target.tool}`,
+      from,
+      to: from === 'approve' ? 'deny' : 'approve',
+      rationale:
+        strategy === 'tighten-sinks'
+          ? `断链：收紧 sink ${target.server}.${target.tool}（${target.capability}）`
+          : `断链：收紧 source ${target.server}.${target.tool}（${target.capability}）`,
+    });
+  }
+  if (changes.length === 0) return null;
+  if (targets.length > 3) {
+    const capability = strategy === 'tighten-sinks' ? group.sinkCapability : group.sourceCapability;
+    const side = strategy === 'tighten-sinks' ? 'sink' : 'source';
+    return {
+      chain_id: group.id,
+      strategy: 'capability-level',
+      changes: changes.slice(0, 3),
+      capability_recommendation: {
+        capability,
+        action: 'approve',
+        reason: `工具级最小割需要改 ${targets.length} 个 ${side}；建议对能力 "${capability}" 统一加审批（需要 capability-level policy）`,
+        needs_capability_policy: true,
+      },
+      breaks_paths: group.count,
+      total_paths: group.count,
+    };
+  }
+  return {
+    chain_id: group.id,
+    strategy,
+    changes,
+    breaks_paths: group.count,
+    total_paths: group.count,
+  };
 }

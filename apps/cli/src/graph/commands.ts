@@ -1,16 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   findToxicPaths,
   renderGraphSummary,
   renderToxicReport,
   scoreToxicGroups,
+  suggestChainDiff,
   suggestDiff,
   type ToxicPath,
 } from '@podsec/graph';
 import type { Policy } from '@podsec/policy';
 import { buildStaticGraph } from './static.js';
-import { graphDir, readGraphFile, readPaths, writeFileAtomic, writeGraph, writePaths } from './io.js';
+import { graphDir, readChains, readGraphFile, readPaths, writeFileAtomic, writeGraph, writePaths } from './io.js';
 
 export interface GraphBuildOptions {
   home: string;
@@ -84,7 +85,6 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     minConfidence: opts.minConfidence,
     maxPaths: opts.maxPaths,
   });
-  const scoredGroups = scoreToxicGroups(groups);
   let policy: Policy | null = null;
   if (opts.baselinePath) {
     try {
@@ -94,6 +94,10 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
       return 2;
     }
   }
+  const scoredGroups = scoreToxicGroups(groups).map((group) => ({
+    ...group,
+    chain_diff: policy ? suggestChainDiff(group, policy) : null,
+  }));
   const withDiff: ToxicPath[] = paths.map((path) => ({
     ...path,
     suggested_diff: policy ? suggestDiff(path, policy) : null,
@@ -147,6 +151,42 @@ export function cmdGraphExplain(opts: GraphExplainOptions): number {
   if (!existsSync(opts.pathsPath)) {
     process.stderr.write(`paths not found: ${opts.pathsPath}\n`);
     return 2;
+  }
+  if (opts.id.startsWith('chain-')) {
+    const chainsPath = join(dirname(opts.pathsPath), 'chains.json');
+    if (!existsSync(chainsPath)) {
+      process.stderr.write(`chains not found: ${chainsPath}\n`);
+      return 2;
+    }
+    const chain = readChains(chainsPath).find((c) => c.id === opts.id);
+    if (!chain) {
+      process.stderr.write(`chain not found: ${opts.id}\n`);
+      return 2;
+    }
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(chain, null, 2) + '\n');
+    } else {
+      const lines = [
+        `${chain.id}  ${chain.rule}（score ${chain.score} / ${chain.risk}，路径 ${chain.count}，跨 agent ${chain.crossAgent}）`,
+        `source: ${chain.sourceCapability}（${chain.sourceTools.join(', ')}）`,
+        `sink:   ${chain.sinkCapability}（${chain.sinkTools.join(', ')}）`,
+      ];
+      if (chain.chain_diff) {
+        if (chain.chain_diff.strategy === 'capability-level' && chain.chain_diff.capability_recommendation) {
+          lines.push(`断链（能力级）：${chain.chain_diff.capability_recommendation.reason}`);
+          lines.push('示例改动：');
+        } else {
+          lines.push(
+            `断链：收紧 ${chain.chain_diff.strategy === 'tighten-sinks' ? 'sink' : 'source'} 的 ${chain.chain_diff.changes.length} 个工具`,
+          );
+        }
+        for (const change of chain.chain_diff.changes) {
+          lines.push(`  - ${change.target}: ${change.from} → ${change.to}`);
+        }
+      }
+      process.stdout.write(lines.join('\n') + '\n');
+    }
+    return 0;
   }
   const paths = readPaths(opts.pathsPath);
   const path = paths.find((p) => p.id === opts.id);

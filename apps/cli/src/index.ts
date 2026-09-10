@@ -807,6 +807,7 @@ async function main(): Promise<void> {
       timeout: { type: 'string' },
       graph: { type: 'string' },
       'cross-agent': { type: 'boolean' },
+      'no-cross-agent': { type: 'boolean' },
       'min-confidence': { type: 'string' },
       'max-paths': { type: 'string' },
       'alert-config': { type: 'string' },
@@ -1120,7 +1121,8 @@ async function main(): Promise<void> {
       const code = cmdGraphToxic({
         graphPath: values.graph ?? join(outDir, 'potential.json'),
         outDir,
-        crossAgent: values['cross-agent'] === true,
+        // 默认开启跨 agent：dogfood 中最有价值的发现来自跨 agent 组合
+        crossAgent: values['no-cross-agent'] !== true,
         minConfidence: Number.parseFloat(values['min-confidence'] ?? '0.5'),
         maxPaths: Number.parseInt(values['max-paths'] ?? '20', 10),
         baselinePath: values.diff,
@@ -1212,8 +1214,8 @@ Usage:
   pod coverage [--json] [--strict]
   pod scan [--json]
   pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
-  pod graph toxic [--graph <file>] [--out-dir <dir>] [--cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
-  pod graph explain <path-id> [--out-dir <dir>] [--json]
+  pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
+  pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。

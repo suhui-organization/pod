@@ -42,6 +42,7 @@ export async function buildStaticGraph(opts: BuildStaticOptions): Promise<{ grap
   const targets = discoverTargets({
     home: opts.home,
     config: opts.config,
+    includeProject: true,
     onWarning: (warning) =>
       warnings.push({ code: 'config_unreadable', message: warning.message, where: warning.path }),
   });

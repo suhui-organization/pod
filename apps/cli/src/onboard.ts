@@ -45,18 +45,28 @@ const DEFAULT_AGENT: Record<ConfigFormat, string> = {
   cursor: 'cursor',
 };
 
-function candidatePaths(home: string): Array<{ format: ConfigFormat; path: string }> {
-  return [
+function candidatePaths(
+  home: string,
+  cwd: string,
+  includeProject: boolean,
+): Array<{ format: ConfigFormat; path: string }> {
+  const out: Array<{ format: ConfigFormat; path: string }> = [
     { format: 'dsh', path: join(home, '.dsh', 'mcp-manager.json') },
     { format: 'claude', path: join(home, '.claude.json') },
     { format: 'cursor', path: join(home, '.cursor', 'mcp.json') },
+    { format: 'claude', path: join(home, '.claude', 'settings.json') },
+    { format: 'claude', path: join(home, '.mcp.json') },
   ];
+  if (includeProject) out.push({ format: 'claude', path: join(cwd, '.mcp.json') });
+  return out;
 }
 
 function inferFormat(configPath: string): ConfigFormat | null {
   const name = basename(configPath);
   if (name === 'mcp-manager.json') return 'dsh';
   if (name === '.claude.json') return 'claude';
+  if (name === 'settings.json' && configPath.includes('.claude')) return 'claude';
+  if (name === '.mcp.json') return 'claude';
   if (name === 'mcp.json' && configPath.includes('.cursor')) return 'cursor';
   return null;
 }
@@ -118,12 +128,54 @@ function parseMcpServersObject(raw: unknown): ServerEntry[] {
   return out;
 }
 
+/**
+ * Claude Code 配置：支持三种位置
+ * 1. ~/.claude.json 顶层 mcpServers（用户级）
+ * 2. ~/.claude.json 的 projects[*].mcpServers（项目级；仅在 includeProject 时合并，避免 onboard 改写错位置）
+ * 3. ~/.claude/settings.json / ~/.mcp.json / <cwd>/.mcp.json 的顶层 mcpServers
+ */
+function parseClaude(raw: unknown, includeProject: boolean): ServerEntry[] {
+  const out: ServerEntry[] = [];
+  const seen = new Set<string>();
+  const addServers = (servers: Record<string, Record<string, unknown>> | undefined): void => {
+    for (const [key, cfg] of Object.entries(servers ?? {})) {
+      if (seen.has(key)) continue;
+      const command = typeof cfg.command === 'string' ? cfg.command : undefined;
+      if (!command) continue;
+      const args = Array.isArray(cfg.args) ? (cfg.args as string[]) : [];
+      seen.add(key);
+      out.push({
+        name: key,
+        command,
+        args,
+        env: cfg.env as Record<string, string> | undefined,
+        transport: typeof cfg.transport === 'string' ? cfg.transport : undefined,
+        location: { kind: 'object', key },
+        wrapped: isPodCommand(command, args),
+      });
+    }
+  };
+  const doc = raw as {
+    mcpServers?: Record<string, Record<string, unknown>>;
+    projects?: Record<string, { mcpServers?: Record<string, Record<string, unknown>> }>;
+  };
+  addServers(doc.mcpServers);
+  if (includeProject) {
+    for (const project of Object.values(doc.projects ?? {})) addServers(project?.mcpServers);
+  }
+  return out;
+}
+
 export interface DiscoverOptions {
   home: string;
   /** 只处理指定配置文件（否则扫描默认候选路径） */
   config?: string;
   /** 覆盖 agent 名（默认按平台推断） */
   agent?: string;
+  /** 项目级配置扫描的工作目录（默认 process.cwd()） */
+  cwd?: string;
+  /** 是否合并 ~/.claude.json 的 projects[*].mcpServers 与 <cwd>/.mcp.json */
+  includeProject?: boolean;
   /** 配置不可读/不可解析时上报（pod graph build 用于产出 config_unreadable 警告） */
   onWarning?: (warning: { path: string; message: string }) => void;
 }
@@ -132,7 +184,7 @@ export interface DiscoverOptions {
 export function discoverTargets(opts: DiscoverOptions): OnboardTarget[] {
   const candidates = opts.config
     ? [{ format: inferFormat(opts.config), path: opts.config }]
-    : candidatePaths(opts.home);
+    : candidatePaths(opts.home, opts.cwd ?? process.cwd(), opts.includeProject === true);
   const out: OnboardTarget[] = [];
   for (const c of candidates) {
     if (!existsSync(c.path)) continue;
@@ -148,7 +200,12 @@ export function discoverTargets(opts: DiscoverOptions): OnboardTarget[] {
     }
     let format = c.format;
     if (!format) format = Array.isArray((raw as { servers?: unknown }).servers) ? 'dsh' : 'claude';
-    const servers = format === 'dsh' ? parseDsh(raw, c.path) : parseMcpServersObject(raw);
+    const servers =
+      format === 'dsh'
+        ? parseDsh(raw, c.path)
+        : format === 'claude'
+          ? parseClaude(raw, opts.includeProject === true)
+          : parseMcpServersObject(raw);
     if (servers.length === 0) continue;
     out.push({
       format,
@@ -320,7 +377,7 @@ export function applyOnboard(targets: OnboardTarget[], opts: OnboardApplyOptions
 export function revertOnboard(opts: { home: string; config?: string }): Array<{ configPath: string; backup: string }> {
   const candidates = opts.config
     ? [opts.config]
-    : candidatePaths(opts.home).map((c) => c.path);
+    : candidatePaths(opts.home, process.cwd(), false).map((c) => c.path);
   const restored: Array<{ configPath: string; backup: string }> = [];
   for (const configPath of candidates) {
     if (!existsSync(configPath)) continue;

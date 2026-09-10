@@ -61,6 +61,7 @@ export function groupToxicPaths(paths: ToxicPath[]): ToxicGroup[] {
     let group = groups.get(key);
     if (!group) {
       group = {
+        id: '',
         rule: path.rule,
         severity: path.severity,
         sourceCapability: path.source.capability,
@@ -70,6 +71,8 @@ export function groupToxicPaths(paths: ToxicPath[]): ToxicGroup[] {
         crossAgent: 0,
         sourceTools: [],
         sinkTools: [],
+        sourceEndpoints: [],
+        sinkEndpoints: [],
         sample: path,
       };
       groups.set(key, group);
@@ -81,10 +84,21 @@ export function groupToxicPaths(paths: ToxicPath[]): ToxicGroup[] {
     const sinkTool = `${path.sink.agent}.${path.sink.tool}`;
     if (!group.sourceTools.includes(sourceTool)) group.sourceTools.push(sourceTool);
     if (!group.sinkTools.includes(sinkTool)) group.sinkTools.push(sinkTool);
+    const sourceKey = `${path.source.agent}|${path.source.server}|${path.source.tool}|${path.source.capability}`;
+    const sinkKey = `${path.sink.agent}|${path.sink.server}|${path.sink.tool}|${path.sink.capability}`;
+    if (!group.sourceEndpoints.some((e) => `${e.agent}|${e.server}|${e.tool}|${e.capability}` === sourceKey)) {
+      group.sourceEndpoints.push(path.source);
+    }
+    if (!group.sinkEndpoints.some((e) => `${e.agent}|${e.server}|${e.tool}|${e.capability}` === sinkKey)) {
+      group.sinkEndpoints.push(path.sink);
+    }
   }
-  return [...groups.values()].sort(
-    (a, b) => b.count - a.count || a.rule.localeCompare(b.rule) || a.sourceCapability.localeCompare(b.sourceCapability),
-  );
+  return [...groups.values()]
+    .sort(
+      (a, b) =>
+        b.count - a.count || a.rule.localeCompare(b.rule) || a.sourceCapability.localeCompare(b.sourceCapability),
+    )
+    .map((group, index) => ({ ...group, id: `chain-${String(index + 1).padStart(3, '0')}` }));
 }
 
 export function buildToolRefs(graph: CapabilityGraph): ToolRef[] {
