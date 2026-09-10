@@ -55,6 +55,7 @@ describe('pod graph observe/diff/mark', () => {
       [
         '--import', 'tsx', CLI, 'graph', 'observe',
         '--audit-dir', auditDir,
+        '--out-dir', outDir,
         '--graph', join(outDir, 'potential.json'),
         '--out', join(outDir, 'observed.json'),
       ],

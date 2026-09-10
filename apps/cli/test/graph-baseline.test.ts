@@ -48,7 +48,7 @@ describe('pod graph baseline', () => {
     expect(build.status).toBe(0);
     const observe = spawnSync(
       process.execPath,
-      ['--import', 'tsx', CLI, 'graph', 'observe', '--audit-dir', auditDir, '--out', join(outDir, 'observed.json')],
+      ['--import', 'tsx', CLI, 'graph', 'observe', '--audit-dir', auditDir, '--out-dir', outDir, '--out', join(outDir, 'observed.json')],
       { timeout: 30_000 },
     );
     expect(observe.status).toBe(0);

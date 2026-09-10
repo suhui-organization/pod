@@ -20,6 +20,17 @@ import { buildObservedGraph } from './observe.js';
 import { feedbackMap, writeFeedback, type FeedbackVerdict } from './feedback.js';
 import { buildToolRefs } from '@podsec/graph';
 import { graphDir, readChains, readGraphFile, readPaths, writeFileAtomic, writeGraph, writePaths } from './io.js';
+import {
+  activeDays,
+  artifactDays,
+  feedbackCounts,
+  judgeRetention,
+  localDay,
+  readUsage,
+  renderRetention,
+  withinWindow,
+  type RetentionReport,
+} from './retention.js';
 
 export interface GraphBuildOptions {
   home: string;
@@ -327,6 +338,45 @@ export function cmdGraphMark(opts: GraphMarkOptions): number {
     process.stdout.write(JSON.stringify(entry, null, 2) + '\n');
   } else {
     process.stdout.write(`${opts.id}: ${opts.verdict}${opts.note ? `（${opts.note}）` : ''}\n`);
+  }
+  return 0;
+}
+
+export interface GraphRetentionOptions {
+  outDir: string;
+  days: number;
+  json: boolean;
+}
+
+/**
+ * H4：连续 N 天主动使用的留存信号。
+ * 数据源 = usage.jsonl（埋点）+ 产物回填（usage.jsonl 上线前的真实证据）+ feedback.json（H1 的 confirmed 统计）。
+ */
+export function cmdGraphRetention(opts: GraphRetentionOptions): number {
+  const usage = readUsage(opts.outDir);
+  const today = localDay(new Date());
+  const evidence = [...new Set([...activeDays(usage), ...artifactDays(opts.outDir)])].sort();
+  const inWindow = withinWindow(evidence, today, opts.days);
+  let verdict;
+  try {
+    verdict = judgeRetention({ activeDays: inWindow, today, window: opts.days });
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    return 3;
+  }
+  const report: RetentionReport = {
+    ...verdict,
+    window: opts.days,
+    today,
+    activeDays: inWindow,
+    missingDays: opts.days - inWindow.length,
+    lastActive: evidence.at(-1) ?? null,
+    feedback: feedbackCounts(opts.outDir),
+  };
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+  } else {
+    process.stdout.write(renderRetention(report) + '\n');
   }
   return 0;
 }

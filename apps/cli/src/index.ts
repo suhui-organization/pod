@@ -55,9 +55,11 @@ import {
   cmdGraphExplain,
   cmdGraphMark,
   cmdGraphObserve,
+  cmdGraphRetention,
   cmdGraphToxic,
 } from './graph/commands.js';
 import { graphDir } from './graph/io.js';
+import { recordUsage } from './graph/retention.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -856,6 +858,7 @@ async function main(): Promise<void> {
       'capability-diff': { type: 'string' },
       note: { type: 'string' },
       since: { type: 'string' },
+      days: { type: 'string' },
       limit: { type: 'string' },
       out: { type: 'string' },
       report: { type: 'string' },
@@ -1171,6 +1174,8 @@ async function main(): Promise<void> {
     const sub = positionals[1];
     const home = values.home ?? homedir();
     const outDir = values['out-dir'] ?? graphDir(home);
+    // H4 埋点：graph 分发是唯一入口，在这里记一次即可覆盖全部子命令（retention 自身不计）
+    if (sub) recordUsage(outDir, sub);
     if (sub === 'build') {
       const code = await cmdGraphBuild({
         home,
@@ -1269,8 +1274,17 @@ async function main(): Promise<void> {
         }),
       );
     }
+    if (sub === 'retention') {
+      process.exit(
+        cmdGraphRetention({
+          outDir,
+          days: Number.parseInt(values.days ?? '14', 10),
+          json: values.json === true,
+        }),
+      );
+    }
     console.error(
-      `unknown graph subcommand: ${sub ?? '(none)'} (available: build, observe, diff, baseline, toxic, explain, apply, mark)`,
+      `unknown graph subcommand: ${sub ?? '(none)'} (available: build, observe, diff, baseline, toxic, explain, apply, mark, retention)`,
     );
     process.exit(1);
   }
@@ -1356,6 +1370,7 @@ Usage:
   pod graph diff [--graph <potential.json>] [--observed <observed.json>] [--out-dir <dir>] [--json]
   pod graph mark <path-id|chain-id> confirmed|false-positive [--note <text>] [--json]
   pod graph baseline [--graph <potential.json>] [--observed <observed.json>] [--agent <name>] [--out-dir <dir>] [--capability-diff <file>] [--json]
+  pod graph retention [--days 14] [--out-dir <dir>] [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。

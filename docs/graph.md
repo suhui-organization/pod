@@ -17,6 +17,15 @@ pod graph explain path-001           # 追溯某条路径的证据
 | `pod graph build` | 生成 `~/.pod/graph/potential.json` |
 | `pod graph toxic` | 生成 `paths.json`、`report.md`、`policy-diff.json` |
 | `pod graph explain <id>` | 打印某条路径的 source/sink/证据/建议 |
+| `pod graph retention [--days 14]` | H4 留存信号：连续活跃天数 + confirmed/false-positive 统计（读 `usage.jsonl`） |
+
+## H4 留存信号
+
+`usage.jsonl` 是 append-only 的使用流水（`~/.pod/graph/usage.jsonl`），每次 `pod graph <子命令>` 追加一行；
+产物文件都是幂等覆盖写的，只有这条流水能回答「连续多少天在用」。
+
+活跃口径（2026-09-10 定）：只有分析类命令算主动使用 —— `build` / `observe` / `diff` / `toxic` / `baseline`；
+`explain` / `mark` / `apply` 仍记录但不计入活跃日。
 
 ## 退出码
 
