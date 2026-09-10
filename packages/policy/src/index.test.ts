@@ -329,3 +329,55 @@ describe('capability overrides', () => {
     expect(lintPolicy(policy).filter((i) => i.severity === 'error')).toEqual([]);
   });
 });
+
+describe('capability rules', () => {
+  it('denies a tool whose capability is denied even if the tool is allowed', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { allow: ['send_email'] } },
+      capabilityMap: { 's.send_email': ['external-communication'] },
+      capabilityRules: { deny: ['external-communication'] },
+    };
+    const result = evaluate(policy, { agent: 'a', server: 's', tool: 'send_email' });
+    expect(result.decision).toBe('deny');
+    expect(result.matched).toBe('capability-deny');
+  });
+
+  it('requires approval for a capability even if the tool is allowed', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { allow: ['execute_command'] } },
+      capabilityMap: { 's.execute_command': ['exec'] },
+      capabilityRules: { approve: ['exec'] },
+    };
+    const result = evaluate(policy, { agent: 'a', server: 's', tool: 'execute_command' });
+    expect(result.decision).toBe('approve');
+    expect(result.matched).toBe('capability-approve');
+  });
+
+  it('tool deny still wins over capability approve', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { deny: ['send_email'] } },
+      capabilityMap: { 's.send_email': ['external-communication'] },
+      capabilityRules: { approve: ['external-communication'] },
+    };
+    expect(evaluate(policy, { agent: 'a', server: 's', tool: 'send_email' }).matched).toBe('deny');
+  });
+
+  it('lint warns when capabilityRules has no capabilityMap', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      servers: { s: { allow: ['x'] } },
+      capabilityRules: { deny: ['exec'] },
+    };
+    expect(lintPolicy(policy).some((i) => i.where === 'capabilityRules')).toBe(true);
+  });
+});

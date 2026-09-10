@@ -128,3 +128,14 @@ dsh.firecrawl_scrape → dsh.supabase.execute_sql    (exec 0.9)
    **结论**：工具级策略无法用"1-2 条改动"切断这种笛卡尔积链；需要引入 capability-level policy（按 D2 能力统一 allow/approve/deny）。这是下一步最明确的产品缺口。
 2. **Claude Code 配置发现**：已支持 `~/.claude/settings.json`、`~/.claude.json` 的 `projects[*].mcpServers`、`~/.mcp.json`、项目 `.mcp.json`。本机 Claude Code 没有配置 MCP server（`~/.claude.json` 无 `mcpServers`/`projects`），所以本次图规模未变化。
 3. **跨 agent 默认开启**：`pod graph toxic` 默认 `--cross-agent`，`--no-cross-agent` 可关闭。本次 dogfood 未加 flag，跨 agent 路径正常计入。
+
+## Capability-level policy（2026-09-10）
+
+- `pod graph apply` 把真实图的 **396 个工具 → D2 能力**映射写进策略的 `capabilityMap`。
+- 示例 `capabilityRules: { approve: ["external-communication"], deny: ["read-secret"] }` 通过 `pod lint`（0 error / 0 warning）。
+- `pod serve` 在配置了 `capabilityRules` 时自动加载 `~/.pod/graph/potential.json` 并合并映射（策略里显式声明的映射优先）；运行时按能力规则求值，端到端验证见 `apps/cli/test/capability-serve.test.ts`（`servers.allow` 里的工具因 `external-communication` 能力被 deny）。
+- 链级 diff 现在输出 `capability-diff.json`，内容可直接加入策略：
+  ```json
+  [{ "capabilityRules": { "approve": ["external-communication"] } }]
+  ```
+- 效果：chain-001/002 从"改 99/81 个工具"变成"1 条能力规则"，这才是能落地的断链方式。

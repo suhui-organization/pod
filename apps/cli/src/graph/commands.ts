@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  capabilityMapFromGraph,
   findToxicPaths,
   renderGraphSummary,
   renderToxicReport,
@@ -122,6 +123,19 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     const unique = [...new Map(diff.map((d) => [`${d.target}|${d.from}|${d.to}`, d])).values()];
     writeFileAtomic(join(opts.outDir, 'policy-diff.json'), JSON.stringify(unique, null, 2) + '\n');
   }
+  const capabilityPatches = [
+    ...new Map(
+      scoredGroups
+        .filter((group) => group.chain_diff?.capability_recommendation)
+        .map((group) => {
+          const recommendation = group.chain_diff!.capability_recommendation!;
+          return [recommendation.capability, recommendation.policy_patch] as const;
+        }),
+    ).values(),
+  ];
+  if (capabilityPatches.length > 0) {
+    writeFileAtomic(join(opts.outDir, 'capability-diff.json'), JSON.stringify(capabilityPatches, null, 2) + '\n');
+  }
   if (opts.json) {
     process.stdout.write(
       JSON.stringify({ total, groups: scoredGroups, paths: withDiff, warnings: graph.meta.warnings }, null, 2) + '\n',
@@ -139,6 +153,44 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     );
   }
   return withDiff.some((p) => p.severity === 'high') ? 1 : 0;
+}
+
+export interface GraphApplyOptions {
+  graphPath: string;
+  policyPath: string;
+  out: string;
+  json: boolean;
+}
+
+/** 把能力图里的 tool→capability 映射写入策略的 capabilityMap */
+export function cmdGraphApply(opts: GraphApplyOptions): number {
+  if (!existsSync(opts.graphPath)) {
+    process.stderr.write(`graph not found: ${opts.graphPath}\n`);
+    return 2;
+  }
+  let graph;
+  try {
+    graph = readGraphFile(opts.graphPath);
+  } catch (err) {
+    process.stderr.write(`graph unreadable: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+  let policy: Policy;
+  try {
+    policy = JSON.parse(readFileSync(opts.policyPath, 'utf8')) as Policy;
+  } catch (err) {
+    process.stderr.write(`policy unreadable: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+  const map = capabilityMapFromGraph(graph);
+  const merged: Policy = { ...policy, capabilityMap: { ...(policy.capabilityMap ?? {}), ...map } };
+  writeFileAtomic(opts.out, JSON.stringify(merged, null, 2) + '\n');
+  if (opts.json) {
+    process.stdout.write(JSON.stringify({ out: opts.out, tools: Object.keys(map).length }, null, 2) + '\n');
+  } else {
+    process.stdout.write(`已写入 ${opts.out}：capabilityMap 覆盖 ${Object.keys(map).length} 个工具\n`);
+  }
+  return 0;
 }
 
 export interface GraphExplainOptions {

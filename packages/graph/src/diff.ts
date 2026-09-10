@@ -54,6 +54,7 @@ export interface ChainDiffHint {
     action: 'approve' | 'deny';
     reason: string;
     needs_capability_policy: boolean;
+    policy_patch: { capabilityRules: { approve?: string[]; deny?: string[] } };
   };
   breaks_paths: number;
   total_paths: number;
@@ -106,8 +107,9 @@ export function suggestChainDiff(group: ToxicGroup, policy: Policy): ChainDiffHi
       capability_recommendation: {
         capability,
         action: 'approve',
-        reason: `工具级最小割需要改 ${targets.length} 个 ${side}；建议对能力 "${capability}" 统一加审批（需要 capability-level policy）`,
-        needs_capability_policy: true,
+        reason: `工具级最小割需要改 ${targets.length} 个 ${side}；建议加入 capabilityRules.approve: ["${capability}"]，并运行 pod graph apply 生成 capabilityMap`,
+        needs_capability_policy: false,
+        policy_patch: { capabilityRules: { approve: [capability] } },
       },
       breaks_paths: group.count,
       total_paths: group.count,

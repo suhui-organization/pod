@@ -20,6 +20,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AuditLog, appendToAuditFile, hashValue, loadAuditFile, type AuditEntry } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
+import { capabilityMapFromGraph, type CapabilityGraph } from '@podsec/graph';
 import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
@@ -45,7 +46,7 @@ import {
   type TimelineOptions,
 } from './evidence.js';
 import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
-import { cmdGraphBuild, cmdGraphExplain, cmdGraphToxic } from './graph/commands.js';
+import { cmdGraphApply, cmdGraphBuild, cmdGraphExplain, cmdGraphToxic } from './graph/commands.js';
 import { graphDir } from './graph/io.js';
 
 const POD_HOME = join(homedir(), '.pod');
@@ -168,10 +169,30 @@ interface ServeOptions {
   snapshotDir?: string;
   /** P2：HTTP 网关身份令牌（防止本机其他进程冒充 agent 连接） */
   authToken?: string;
+  /** capabilityRules 使用的能力图路径（默认 ~/.pod/graph/potential.json） */
+  graphPath?: string;
 }
 
 async function cmdServe(opts: ServeOptions): Promise<void> {
   const policy = JSON.parse(readFileSync(opts.policy, 'utf8')) as Policy;
+  if (policy.capabilityRules) {
+    const graphPath = opts.graphPath ?? podPath('graph', 'potential.json');
+    if (existsSync(graphPath)) {
+      try {
+        const graph = JSON.parse(readFileSync(graphPath, 'utf8')) as CapabilityGraph;
+        const map = capabilityMapFromGraph(graph);
+        // 策略里显式声明的映射优先；图只补缺
+        policy.capabilityMap = { ...map, ...(policy.capabilityMap ?? {}) };
+        log(`capabilityRules: 从 ${graphPath} 加载 ${Object.keys(map).length} 个工具的能力映射`);
+      } catch (err) {
+        log(
+          `⚠️ capabilityRules 已配置，但读取 ${graphPath} 失败：${err instanceof Error ? err.message : String(err)}；能力规则可能不生效`,
+        );
+      }
+    } else {
+      log(`⚠️ capabilityRules 已配置，但找不到 ${graphPath}；先运行 pod graph build 或 pod graph apply`);
+    }
+  }
 
   const auditDir = opts.auditDir;
   mkdirSync(auditDir, { recursive: true });
@@ -881,6 +902,7 @@ async function main(): Promise<void> {
       snapshotAll: values['snapshot-all'] === true,
       snapshotDir: values['snapshot-dir'],
       authToken: values['auth-token'] ?? process.env.POD_AUTH_TOKEN,
+      graphPath: values.graph,
     });
     return;
   }
@@ -1138,7 +1160,22 @@ async function main(): Promise<void> {
       }
       process.exit(cmdGraphExplain({ pathsPath: join(outDir, 'paths.json'), id, json: values.json === true }));
     }
-    console.error(`unknown graph subcommand: ${sub ?? '(none)'} (available: build, toxic, explain)`);
+    if (sub === 'apply') {
+      if (!values.policy) {
+        console.error('pod graph apply requires --policy <file>');
+        process.exit(1);
+      }
+      const out = values.out ?? values.policy.replace(/\.json$/, '') + '.with-capabilities.json';
+      process.exit(
+        cmdGraphApply({
+          graphPath: values.graph ?? join(outDir, 'potential.json'),
+          policyPath: values.policy,
+          out,
+          json: values.json === true,
+        }),
+      );
+    }
+    console.error(`unknown graph subcommand: ${sub ?? '(none)'} (available: build, toxic, explain, apply)`);
     process.exit(1);
   }
 
@@ -1216,6 +1253,7 @@ Usage:
   pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
   pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
   pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]
+  pod graph apply --policy <file> [--graph <file>] [--out <file>] [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。

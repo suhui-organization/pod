@@ -90,7 +90,10 @@ describe('suggestChainDiff', () => {
       policy,
     );
     expect(diff?.strategy).toBe('capability-level');
-    expect(diff?.capability_recommendation?.needs_capability_policy).toBe(true);
+    expect(diff?.capability_recommendation?.needs_capability_policy).toBe(false);
+    expect(diff?.capability_recommendation?.policy_patch.capabilityRules.approve).toContain(
+      'external-communication',
+    );
     expect(diff?.changes).toHaveLength(3);
   });
 });

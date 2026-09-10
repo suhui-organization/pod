@@ -127,8 +127,28 @@ export interface Policy {
    * 值为 D2 能力标签。policy 引擎本身不解释该字段。
    */
   capabilities?: Record<string, string[]>;
+  /** 能力级规则：即使工具在 servers 里被 allow，命中 deny/approve 仍按更严格者执行 */
+  capabilityRules?: CapabilityRules;
+  /** 工具 → D2 能力映射（由 pod graph apply 生成；网关据此执行 capabilityRules） */
+  capabilityMap?: Record<string, string[]>;
   secrets?: SecretRules;
 }
+
+export interface CapabilityRules {
+  deny?: string[];
+  approve?: string[];
+}
+
+/** 与 @podsec/graph 的 D2 标签保持一致；policy 不依赖 graph，避免循环依赖 */
+export const KNOWN_CAPABILITIES = [
+  'read-secret',
+  'read-private-data',
+  'read-untrusted-input',
+  'external-communication',
+  'exec',
+  'destructive-write',
+  'credential-access',
+] as const;
 
 export interface EvalContext {
   agent: string;
@@ -142,7 +162,16 @@ export interface EvalResult {
   decision: Decision;
   reason: string;
   /** 命中的规则位置，便于审计与调试 */
-  matched: 'agent' | 'server' | 'deny' | 'secrets-input' | 'approve' | 'allow' | 'default';
+  matched:
+    | 'agent'
+    | 'server'
+    | 'deny'
+    | 'secrets-input'
+    | 'capability-deny'
+    | 'approve'
+    | 'capability-approve'
+    | 'allow'
+    | 'default';
 }
 
 /** 递归收集参数中的字符串值（数组/对象嵌套） */
@@ -259,6 +288,13 @@ function matches(patterns: string[] | undefined, tool: string): boolean {
   return patterns.includes('*') || patterns.includes(tool);
 }
 
+/** 合并 graph 生成的 capabilityMap 与用户在 capabilities 里的覆盖，去重 */
+function capabilitiesFor(policy: Policy, server: string, tool: string): string[] {
+  const mapped = policy.capabilityMap?.[`${server}.${tool}`] ?? policy.capabilityMap?.[tool] ?? [];
+  const overrides = policy.capabilities?.[`${server}.${tool}`] ?? policy.capabilities?.[tool] ?? [];
+  return [...new Set([...mapped, ...overrides])];
+}
+
 export function evaluate(policy: Policy, ctx: EvalContext): EvalResult {
   if (policy.agent !== ctx.agent) {
     return {
@@ -290,8 +326,26 @@ export function evaluate(policy: Policy, ctx: EvalContext): EvalResult {
       matched: 'secrets-input',
     };
   }
+
+  const capabilities = capabilitiesFor(policy, ctx.server, ctx.tool);
+  const deniedCapability = capabilities.find((capability) => policy.capabilityRules?.deny?.includes(capability));
+  if (deniedCapability !== undefined) {
+    return {
+      decision: 'deny',
+      reason: `tool "${ctx.tool}" has denied capability "${deniedCapability}" (capabilityRules.deny)`,
+      matched: 'capability-deny',
+    };
+  }
   if (matches(serverPolicy.approve, ctx.tool)) {
     return { decision: 'approve', reason: `tool "${ctx.tool}" requires approval on "${ctx.server}"`, matched: 'approve' };
+  }
+  const approvedCapability = capabilities.find((capability) => policy.capabilityRules?.approve?.includes(capability));
+  if (approvedCapability !== undefined) {
+    return {
+      decision: 'approve',
+      reason: `tool "${ctx.tool}" has capability "${approvedCapability}" requiring approval (capabilityRules.approve)`,
+      matched: 'capability-approve',
+    };
   }
   if (matches(serverPolicy.allow, ctx.tool)) {
     return { decision: 'allow', reason: `tool "${ctx.tool}" is allowed on "${ctx.server}"`, matched: 'allow' };
@@ -404,6 +458,33 @@ export function lintPolicy(policy: Policy): LintIssue[] {
         }
       }
     }
+  }
+
+  const knownCapabilities = new Set<string>(KNOWN_CAPABILITIES);
+  const capabilityRuleLists: Array<[string, string[] | undefined]> = [
+    ['capabilityRules.deny', policy.capabilityRules?.deny],
+    ['capabilityRules.approve', policy.capabilityRules?.approve],
+  ];
+  for (const [where, values] of capabilityRuleLists) {
+    for (const capability of values ?? []) {
+      if (!knownCapabilities.has(capability)) {
+        issues.push({ severity: 'warn', where, message: `未知能力标签 "${capability}"（不会生效）` });
+      }
+    }
+  }
+  for (const [key, values] of Object.entries(policy.capabilityMap ?? {})) {
+    for (const capability of values) {
+      if (!knownCapabilities.has(capability)) {
+        issues.push({ severity: 'warn', where: `capabilityMap.${key}`, message: `未知能力标签 "${capability}"` });
+      }
+    }
+  }
+  if (policy.capabilityRules && !policy.capabilityMap && !policy.capabilities) {
+    issues.push({
+      severity: 'warn',
+      where: 'capabilityRules',
+      message: '配置了 capabilityRules 但没有 capabilityMap/capabilities，规则不会命中任何工具；先运行 pod graph apply',
+    });
   }
 
   return issues;
