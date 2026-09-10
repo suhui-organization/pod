@@ -7,3 +7,4 @@ export * from './report.js';
 export * from './score.js';
 export * from './map.js';
 export * from './graph-diff.js';
+export * from './baseline.js';

@@ -48,6 +48,21 @@ export interface SecretRules {
   entropy?: EntropyRules;
 }
 
+/** baseline/draft 通用的默认密钥防线 */
+export const DEFAULT_SECRET_RULES: SecretRules = {
+  deny_input_paths: ['.ssh', '.aws', '.env', 'credentials', 'id_rsa', 'id_ed25519', 'known_hosts'],
+  deny_output_matching: [
+    'ghp_[A-Za-z0-9]{36}',
+    'github_pat_[A-Za-z0-9_]{22,}',
+    'sk-[A-Za-z0-9]{20,}',
+    'sk-ant-[A-Za-z0-9-]{20,}',
+    'AKIA[0-9A-Z]{16}',
+    'xox[baprs]-[A-Za-z0-9-]{10,}',
+    'AIza[0-9A-Za-z_-]{35}',
+  ],
+  entropy: { enabled: true, min_length: 24, threshold: 4.5, block: true },
+};
+
 export interface EntropyRules {
   enabled?: boolean;
   /** 候选串最小长度，默认 24 */

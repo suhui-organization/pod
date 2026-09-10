@@ -49,6 +49,7 @@ import {
 import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
 import {
   cmdGraphApply,
+  cmdGraphBaseline,
   cmdGraphBuild,
   cmdGraphDiff,
   cmdGraphExplain,
@@ -852,6 +853,7 @@ async function main(): Promise<void> {
       key: { type: 'string' },
       sig: { type: 'string' },
       observed: { type: 'string' },
+      'capability-diff': { type: 'string' },
       note: { type: 'string' },
       since: { type: 'string' },
       limit: { type: 'string' },
@@ -1255,8 +1257,20 @@ async function main(): Promise<void> {
         }),
       );
     }
+    if (sub === 'baseline') {
+      process.exit(
+        cmdGraphBaseline({
+          potentialPath: values.graph ?? join(outDir, 'potential.json'),
+          observedPath: values.observed ?? join(outDir, 'observed.json'),
+          agent: values.agent,
+          outDir,
+          capabilityDiffPath: values['capability-diff'] ?? join(outDir, 'capability-diff.json'),
+          json: values.json === true,
+        }),
+      );
+    }
     console.error(
-      `unknown graph subcommand: ${sub ?? '(none)'} (available: build, observe, diff, toxic, explain, apply, mark)`,
+      `unknown graph subcommand: ${sub ?? '(none)'} (available: build, observe, diff, baseline, toxic, explain, apply, mark)`,
     );
     process.exit(1);
   }
@@ -1341,6 +1355,7 @@ Usage:
   pod graph observe [--audit-dir <dir>] [--since 7d] [--graph <potential.json>] [--out <file>] [--json]
   pod graph diff [--graph <potential.json>] [--observed <observed.json>] [--out-dir <dir>] [--json]
   pod graph mark <path-id|chain-id> confirmed|false-positive [--note <text>] [--json]
+  pod graph baseline [--graph <potential.json>] [--observed <observed.json>] [--agent <name>] [--out-dir <dir>] [--capability-diff <file>] [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。

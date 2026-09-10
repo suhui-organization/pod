@@ -1,11 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  baselineForAgent,
   capabilityMapFromGraph,
   diffGraphs,
   findToxicPaths,
   renderDiffReport,
   renderGraphSummary,
+  renderBaselineReport,
   renderToxicReport,
   scoreToxicGroups,
   suggestChainDiff,
@@ -16,6 +18,7 @@ import type { Policy } from '@podsec/policy';
 import { buildStaticGraph } from './static.js';
 import { buildObservedGraph } from './observe.js';
 import { feedbackMap, writeFeedback, type FeedbackVerdict } from './feedback.js';
+import { buildToolRefs } from '@podsec/graph';
 import { graphDir, readChains, readGraphFile, readPaths, writeFileAtomic, writeGraph, writePaths } from './io.js';
 
 export interface GraphBuildOptions {
@@ -239,6 +242,82 @@ export interface GraphMarkOptions {
   note?: string;
   feedbackPath: string;
   json: boolean;
+}
+
+export interface GraphBaselineOptions {
+  potentialPath: string;
+  observedPath: string;
+  agent?: string;
+  outDir: string;
+  capabilityDiffPath?: string;
+  json: boolean;
+}
+
+/** Phase 3 B4：为每个 agent 生成最小权限策略基线 */
+export function cmdGraphBaseline(opts: GraphBaselineOptions): number {
+  if (!existsSync(opts.potentialPath)) {
+    process.stderr.write(`graph not found: ${opts.potentialPath}\n`);
+    return 2;
+  }
+  if (!existsSync(opts.observedPath)) {
+    process.stderr.write(`observed graph not found: ${opts.observedPath}（先运行 pod graph observe）\n`);
+    return 2;
+  }
+  let potential;
+  let observed;
+  try {
+    potential = readGraphFile(opts.potentialPath);
+    observed = readGraphFile(opts.observedPath);
+  } catch (err) {
+    process.stderr.write(`graph unreadable: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+
+  let capabilityRules: { deny?: string[]; approve?: string[] } | undefined;
+  if (opts.capabilityDiffPath && existsSync(opts.capabilityDiffPath)) {
+    const patches = JSON.parse(readFileSync(opts.capabilityDiffPath, 'utf8')) as Array<{
+      capabilityRules?: { deny?: string[]; approve?: string[] };
+    }>;
+    const approve = [...new Set(patches.flatMap((p) => p.capabilityRules?.approve ?? []))];
+    const deny = [...new Set(patches.flatMap((p) => p.capabilityRules?.deny ?? []))];
+    if (approve.length > 0 || deny.length > 0) capabilityRules = { approve, deny };
+  }
+
+  const potentialAgents = new Set(buildToolRefs(potential).map((ref) => ref.agent));
+  const observedAgents = new Set(buildToolRefs(observed).map((ref) => ref.agent));
+  const agents = opts.agent
+    ? [opts.agent]
+    : [...new Set([...potentialAgents, ...observedAgents])].sort();
+  const written: Array<{ agent: string; policy: string; report: string; counts: ReturnType<typeof baselineForAgent>['counts'] }> = [];
+  for (const agent of agents) {
+    const result = baselineForAgent(potential, observed, { agent, capabilityRules });
+    const observedTools = result.counts.allow + result.counts.approve + result.counts.deny;
+    if (observedTools === 0) {
+      process.stderr.write(`跳过 ${agent}：没有观测数据（先 pod record/observe）\n`);
+      continue;
+    }
+    const policyPath = join(opts.outDir, 'baselines', `${agent}.json`);
+    const reportPath = join(opts.outDir, 'baselines', `${agent}.md`);
+    writeFileAtomic(policyPath, JSON.stringify(result.policy, null, 2) + '\n');
+    writeFileAtomic(reportPath, renderBaselineReport(agent, result) + '\n');
+    written.push({ agent, policy: policyPath, report: reportPath, counts: result.counts });
+  }
+
+  if (written.length === 0) {
+    process.stderr.write('没有任何 agent 有观测数据；先运行 pod record 或 pod graph observe\n');
+    return 2;
+  }
+  if (opts.json) {
+    process.stdout.write(JSON.stringify({ baselines: written }, null, 2) + '\n');
+  } else {
+    for (const item of written) {
+      process.stdout.write(
+        `${item.agent}: allow ${item.counts.allow} · approve ${item.counts.approve} · deny ${item.counts.deny} · omitted ${item.counts.omitted}\n` +
+          `  policy: ${item.policy}\n`,
+      );
+    }
+  }
+  return 0;
 }
 
 export function cmdGraphMark(opts: GraphMarkOptions): number {
