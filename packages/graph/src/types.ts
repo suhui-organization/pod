@@ -36,6 +36,10 @@ export interface GraphNode {
   tool?: string;
   command?: string;
   writeContext?: boolean;
+  /** observed 图：观测到的调用次数 */
+  calls?: number;
+  /** observed 图：最近一次调用时间（ISO） */
+  lastSeen?: string;
 }
 
 export interface GraphEdge {
@@ -52,7 +56,8 @@ export type GraphWarningCode =
   | 'server_unintrospectable'
   | 'schema_missing'
   | 'unclassified'
-  | 'stale_graph';
+  | 'stale_graph'
+  | 'corpus_empty';
 
 export interface GraphWarning {
   code: GraphWarningCode;

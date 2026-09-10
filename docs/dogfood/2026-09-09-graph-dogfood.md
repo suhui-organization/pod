@@ -156,3 +156,14 @@ dsh.firecrawl_scrape → dsh.supabase.execute_sql    (exec 0.9)
    - `create_entities` → **allowed**（无 D2 能力，仅 write context）
 
    这是能力级策略在真实 agent 工具链上的端到端验证，不依赖测试 fixture。
+
+## Observe / Diff / Mark（2026-09-10）
+
+1. **`pod graph observe --since 90d`**：从真实审计语料构建观测图 —— 3 个 agent、2 个 server、5 个工具、15 条记录，写入 `~/.pod/graph/observed.json`。
+2. **`pod graph diff`**：潜在 212 / 观测 5 / **权限过载 208** / **影子能力 1**。
+   - 影子能力：`codex-tools.Bash`（agent `codex`，6 次调用）——Codex 内置工具未登记在 MCP 配置里。
+   - 权限过载：208 个"授权了但从未观测使用"的工具，可按能力优先级逐批收紧。
+   - 修正：观测图的 server 名（`filesystem`）与潜在图（`mcp-server-filesystem`/`pod-filesystem`）不一致，已按 server 归一化（去 `mcp-server-`/`mcp-`/`pod-` 前缀）+ `server.tool` 维度聚合比较，消除了第一版的 407 条假阳性。
+3. **`pod graph mark chain-001 confirmed`**：写入 `~/.pod/graph/feedback.json`；`pod graph toxic --diff` 的报告在 chain-001 后标注 `【confirmed】`。
+
+至此设计文档 Phase 2 的 observe / diff / mark 全部落地，并在真实语料上跑通。

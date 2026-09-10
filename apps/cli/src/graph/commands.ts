@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   capabilityMapFromGraph,
+  diffGraphs,
   findToxicPaths,
+  renderDiffReport,
   renderGraphSummary,
   renderToxicReport,
   scoreToxicGroups,
@@ -12,6 +14,8 @@ import {
 } from '@podsec/graph';
 import type { Policy } from '@podsec/policy';
 import { buildStaticGraph } from './static.js';
+import { buildObservedGraph } from './observe.js';
+import { feedbackMap, writeFeedback, type FeedbackVerdict } from './feedback.js';
 import { graphDir, readChains, readGraphFile, readPaths, writeFileAtomic, writeGraph, writePaths } from './io.js';
 
 export interface GraphBuildOptions {
@@ -99,6 +103,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
     ...group,
     chain_diff: policy ? suggestChainDiff(group, policy) : null,
   }));
+  const feedback = feedbackMap(join(opts.outDir, 'feedback.json'));
   const withDiff: ToxicPath[] = paths.map((path) => ({
     ...path,
     suggested_diff: policy ? suggestDiff(path, policy) : null,
@@ -114,6 +119,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
       maxPaths: opts.maxPaths,
       minConfidence: opts.minConfidence,
       groups: scoredGroups,
+      feedback,
     }) + '\n',
   );
   if (policy) {
@@ -138,7 +144,11 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
   }
   if (opts.json) {
     process.stdout.write(
-      JSON.stringify({ total, groups: scoredGroups, paths: withDiff, warnings: graph.meta.warnings }, null, 2) + '\n',
+      JSON.stringify(
+        { total, groups: scoredGroups, paths: withDiff, warnings: graph.meta.warnings, feedback },
+        null,
+        2,
+      ) + '\n',
     );
   } else {
     process.stdout.write(
@@ -149,6 +159,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
         maxPaths: opts.maxPaths,
         minConfidence: opts.minConfidence,
         groups: scoredGroups,
+        feedback,
       }) + '\n',
     );
   }
@@ -160,6 +171,85 @@ export interface GraphApplyOptions {
   policyPath: string;
   out: string;
   json: boolean;
+}
+
+export interface GraphObserveOptions {
+  auditDir: string;
+  since?: string;
+  potentialPath?: string;
+  out: string;
+  json: boolean;
+}
+
+export function cmdGraphObserve(opts: GraphObserveOptions): number {
+  const { graph, entries } = buildObservedGraph({
+    auditDir: opts.auditDir,
+    since: opts.since,
+    potentialPath: opts.potentialPath,
+  });
+  writeGraph(opts.out, graph);
+  if (opts.json) {
+    process.stdout.write(JSON.stringify({ out: opts.out, entries, graph }, null, 2) + '\n');
+  } else {
+    process.stdout.write(renderGraphSummary(graph) + '\n');
+    process.stdout.write(`\n观测记录：${entries} 条，已写入：${opts.out}\n`);
+  }
+  return 0;
+}
+
+export interface GraphDiffOptions {
+  potentialPath: string;
+  observedPath: string;
+  outDir: string;
+  json: boolean;
+}
+
+export function cmdGraphDiff(opts: GraphDiffOptions): number {
+  if (!existsSync(opts.potentialPath)) {
+    process.stderr.write(`graph not found: ${opts.potentialPath}\n`);
+    return 2;
+  }
+  if (!existsSync(opts.observedPath)) {
+    process.stderr.write(`observed graph not found: ${opts.observedPath}（先运行 pod graph observe）\n`);
+    return 2;
+  }
+  let potential;
+  let observed;
+  try {
+    potential = readGraphFile(opts.potentialPath);
+    observed = readGraphFile(opts.observedPath);
+  } catch (err) {
+    process.stderr.write(`graph unreadable: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+  const diff = diffGraphs(potential, observed);
+  writeFileAtomic(join(opts.outDir, 'diff.json'), JSON.stringify(diff, null, 2) + '\n');
+  writeFileAtomic(join(opts.outDir, 'diff.md'), renderDiffReport(diff) + '\n');
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(diff, null, 2) + '\n');
+  } else {
+    process.stdout.write(renderDiffReport(diff) + '\n');
+  }
+  return 0;
+}
+
+export interface GraphMarkOptions {
+  id: string;
+  verdict: FeedbackVerdict;
+  note?: string;
+  feedbackPath: string;
+  json: boolean;
+}
+
+export function cmdGraphMark(opts: GraphMarkOptions): number {
+  const entry = { id: opts.id, verdict: opts.verdict, note: opts.note, at: new Date().toISOString() };
+  writeFeedback(opts.feedbackPath, entry);
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(entry, null, 2) + '\n');
+  } else {
+    process.stdout.write(`${opts.id}: ${opts.verdict}${opts.note ? `（${opts.note}）` : ''}\n`);
+  }
+  return 0;
 }
 
 /** 把能力图里的 tool→capability 映射写入策略的 capabilityMap */

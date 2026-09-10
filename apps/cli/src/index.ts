@@ -47,7 +47,15 @@ import {
   type TimelineOptions,
 } from './evidence.js';
 import { loadAlertConfig, createAlertChecker, type AlertEvent } from './alert.js';
-import { cmdGraphApply, cmdGraphBuild, cmdGraphExplain, cmdGraphToxic } from './graph/commands.js';
+import {
+  cmdGraphApply,
+  cmdGraphBuild,
+  cmdGraphDiff,
+  cmdGraphExplain,
+  cmdGraphMark,
+  cmdGraphObserve,
+  cmdGraphToxic,
+} from './graph/commands.js';
 import { graphDir } from './graph/io.js';
 
 const POD_HOME = join(homedir(), '.pod');
@@ -843,6 +851,8 @@ async function main(): Promise<void> {
       in: { type: 'string' },
       key: { type: 'string' },
       sig: { type: 'string' },
+      observed: { type: 'string' },
+      note: { type: 'string' },
       since: { type: 'string' },
       limit: { type: 'string' },
       out: { type: 'string' },
@@ -1207,7 +1217,47 @@ async function main(): Promise<void> {
         }),
       );
     }
-    console.error(`unknown graph subcommand: ${sub ?? '(none)'} (available: build, toxic, explain, apply)`);
+    if (sub === 'observe') {
+      process.exit(
+        cmdGraphObserve({
+          auditDir: values['audit-dir'] ?? podPath('audit'),
+          since: values.since,
+          potentialPath: values.graph ?? join(outDir, 'potential.json'),
+          out: values.out ?? join(outDir, 'observed.json'),
+          json: values.json === true,
+        }),
+      );
+    }
+    if (sub === 'diff') {
+      process.exit(
+        cmdGraphDiff({
+          potentialPath: values.graph ?? join(outDir, 'potential.json'),
+          observedPath: values.observed ?? join(outDir, 'observed.json'),
+          outDir,
+          json: values.json === true,
+        }),
+      );
+    }
+    if (sub === 'mark') {
+      const id = positionals[2];
+      const verdict = positionals[3];
+      if (!id || (verdict !== 'confirmed' && verdict !== 'false-positive')) {
+        console.error('pod graph mark requires <id> confirmed|false-positive [--note <text>]');
+        process.exit(1);
+      }
+      process.exit(
+        cmdGraphMark({
+          id,
+          verdict,
+          note: values.note,
+          feedbackPath: join(outDir, 'feedback.json'),
+          json: values.json === true,
+        }),
+      );
+    }
+    console.error(
+      `unknown graph subcommand: ${sub ?? '(none)'} (available: build, observe, diff, toxic, explain, apply, mark)`,
+    );
     process.exit(1);
   }
 
@@ -1288,6 +1338,9 @@ Usage:
   pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
   pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]
   pod graph apply --policy <file> [--graph <file>] [--out <file>] [--json]
+  pod graph observe [--audit-dir <dir>] [--since 7d] [--graph <potential.json>] [--out <file>] [--json]
+  pod graph diff [--graph <potential.json>] [--observed <observed.json>] [--out-dir <dir>] [--json]
+  pod graph mark <path-id|chain-id> confirmed|false-positive [--note <text>] [--json]
   pod --help
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。

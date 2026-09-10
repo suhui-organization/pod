@@ -108,8 +108,11 @@ export function buildToolRefs(graph: CapabilityGraph): ToolRef[] {
     const server = edge.to.replace(/^server:/, '');
     const agent = edge.from.replace(/^agent:/, '');
     const list = agentsByServer.get(server);
-    if (list) list.push(agent);
-    else agentsByServer.set(server, [agent]);
+    if (list) {
+      if (!list.includes(agent)) list.push(agent);
+    } else {
+      agentsByServer.set(server, [agent]);
+    }
   }
 
   const toolsByServer = new Map<string, { nodeId: string; server: string; tool: string; writeContext: boolean }>();

@@ -1,5 +1,6 @@
 import type { CapabilityGraph, ToxicPath } from './types.js';
 import type { ScoredToxicGroup } from './score.js';
+import type { GraphDiffResult } from './graph-diff.js';
 
 export interface ToxicReportInput {
   graph: CapabilityGraph;
@@ -8,6 +9,7 @@ export interface ToxicReportInput {
   maxPaths: number;
   minConfidence: number;
   groups?: ScoredToxicGroup[];
+  feedback?: Record<string, 'confirmed' | 'false-positive'>;
 }
 
 export function renderGraphSummary(graph: CapabilityGraph): string {
@@ -31,7 +33,7 @@ export function renderGraphSummary(graph: CapabilityGraph): string {
 }
 
 export function renderToxicReport(input: ToxicReportInput): string {
-  const { graph, paths, total, maxPaths, minConfidence, groups } = input;
+  const { graph, paths, total, maxPaths, minConfidence, groups, feedback } = input;
   const lines = ['# pod graph toxic — 毒性路径', ''];
   lines.push(`生成时间：${graph.generated_at}`);
   lines.push(`阈值：min-confidence=${minConfidence} · max-paths=${maxPaths}`);
@@ -62,7 +64,8 @@ export function renderToxicReport(input: ToxicReportInput): string {
     lines.push('');
     for (const group of withChainDiff) {
       const diff = group.chain_diff!;
-      lines.push(`### ${group.id}（score ${group.score}，${group.rule}）`);
+      const verdict = feedback?.[group.id] ? ` 【${feedback[group.id]}】` : '';
+      lines.push(`### ${group.id}（score ${group.score}，${group.rule}）${verdict}`);
       if (diff.strategy === 'capability-level' && diff.capability_recommendation) {
         lines.push(`**能力级建议**：${diff.capability_recommendation.reason}`);
         lines.push(`示例改动（前 ${diff.changes.length} 个）：`);
@@ -93,6 +96,43 @@ export function renderToxicReport(input: ToxicReportInput): string {
   }
   if (total > paths.length) {
     lines.push(`> 还有 ${total - paths.length} 条路径未显示；用 --max-paths 调整。`);
+  }
+  return lines.join('\n');
+}
+
+export function renderDiffReport(diff: GraphDiffResult): string {
+  const lines = [
+    '# pod graph diff — 潜在 vs 观测',
+    '',
+    `潜在工具：${diff.summary.potentialTools} · 观测工具：${diff.summary.observedTools}`,
+    '',
+    `## 权限过载（潜在 − 实际）：${diff.summary.overPrivileged}`,
+    '',
+  ];
+  if (diff.overPrivileged.length === 0) {
+    lines.push('（无）');
+  } else {
+    lines.push('| server | tool | agents | 能力 |');
+    lines.push('|--------|------|--------|------|');
+    for (const entry of diff.overPrivileged.slice(0, 100)) {
+      lines.push(
+        `| ${entry.servers.join(' / ')} | ${entry.tool} | ${entry.agents.join(', ')} | ${entry.capabilities.join(', ') || '—'} |`,
+      );
+    }
+    if (diff.overPrivileged.length > 100) lines.push(`| … | 还有 ${diff.overPrivileged.length - 100} 条 | … | … |`);
+  }
+  lines.push('', `## 影子能力（实际 − 潜在）：${diff.summary.shadow}`, '');
+  if (diff.shadow.length === 0) {
+    lines.push('（无）');
+  } else {
+    lines.push('| server | tool | agents | 能力 | 调用 |');
+    lines.push('|--------|------|--------|------|-----:|');
+    for (const entry of diff.shadow.slice(0, 100)) {
+      lines.push(
+        `| ${entry.servers.join(' / ')} | ${entry.tool} | ${entry.agents.join(', ')} | ${entry.capabilities.join(', ') || '—'} | ${entry.calls ?? 0} |`,
+      );
+    }
+    if (diff.shadow.length > 100) lines.push(`| … | 还有 ${diff.shadow.length - 100} 条 | … | … | … |`);
   }
   return lines.join('\n');
 }
