@@ -357,13 +357,7 @@ export function cmdGraphRetention(opts: GraphRetentionOptions): number {
   const today = localDay(new Date());
   const evidence = [...new Set([...activeDays(usage), ...artifactDays(opts.outDir)])].sort();
   const inWindow = withinWindow(evidence, today, opts.days);
-  let verdict;
-  try {
-    verdict = judgeRetention({ activeDays: inWindow, today, window: opts.days });
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    return 3;
-  }
+  const verdict = judgeRetention({ activeDays: inWindow, today, window: opts.days });
   const report: RetentionReport = {
     ...verdict,
     window: opts.days,

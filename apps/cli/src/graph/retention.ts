@@ -190,23 +190,24 @@ export function feedbackCounts(outDir: string): { confirmed: number; falsePositi
 /**
  * H4 判定：给定窗口内的活跃日，算出连续天数和结论。
  *
- * TODO(walden)：这 5-10 行是 H4 的「度量口径」，交给你定。输入输出已固定，替换函数体即可。
- *
- * 需要你拍板的三个点（都会静默改变结论，别默认掉）：
- *   1. 今天还没用，算不算断？形如 [..., 昨天]、今天空白 —— 判 on-track（今天还剩一整天）还是 broken？
- *   2. 断一天是否清零？形如 [09-01..09-05, 09-07..09-09] 中间断一天：streak 从 09-07 重数（3），还是取窗口内最长连续（5）？
- *   3. met 的边界：streak === window 即可；还是要求 activeDays.length === window（窗口内一天都不许断）？
- *
- * 一行参考（从今天往回数，遇到第一个不连续就停）：
- *   let streak = 0;
- *   while (activeDays.includes(addDays(today, -streak))) streak++;
- *   缺口在「今天还没用」——它会让 streak 立刻归零。
+ * 口径（2026-09-10 定）：
+ *   1. 今天还没用不算断档 —— 从今天或昨天起算，否则每天早上 streak 都会归零；
+ *   2. 断一天就清零 —— H4 要的是「连续」，从最近一次活跃日往回数，遇到缺口即停；
+ *   3. met 条件是 streak >= window，即连续满 14 天；不要求窗口内一天不缺（断过再连续满 14 天同样算达成）。
  */
-export function judgeRetention(_input: RetentionInput): RetentionVerdict {
-  throw new Error('judgeRetention 尚未实现：见 apps/cli/src/graph/retention.ts 的 TODO(walden)');
+export function judgeRetention({ activeDays: days, today, window }: RetentionInput): RetentionVerdict {
+  const active = new Set(days);
+  let cursor = active.has(today) ? today : addDays(today, -1);
+  if (!active.has(cursor)) return { streak: 0, status: 'broken' };
+  let streak = 0;
+  while (active.has(cursor)) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return { streak, status: streak >= window ? 'met' : 'on-track' };
 }
 
-/** 人读输出。judgeRetention 未实现时不在这里兜底 —— 缺口径就该显式报错，而不是给个假结论。 */
+/** 人读输出。 */
 export function renderRetention(report: RetentionReport): string {
   const label: Record<RetentionStatus, string> = {
     met: '✅ H4 达成：连续使用已满窗口',

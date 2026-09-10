@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CLI = join(HERE, '../src/index.ts');
 import {
   activeDays,
   addDays,
   artifactDays,
+  judgeRetention,
   localDay,
   readUsage,
   recordUsage,
@@ -81,6 +87,41 @@ describe('窗口计算', () => {
   });
 });
 
+describe('H4 判定', () => {
+  const day = (n: number) => `2026-09-${String(n).padStart(2, '0')}`;
+  const run = (activeDays: string[], today = day(10), window = 14) =>
+    judgeRetention({ activeDays, today, window });
+
+  it('连续满窗口即达成', () => {
+    const activeDays = Array.from({ length: 14 }, (_, i) => addDays(day(10), -i));
+    expect(run(activeDays)).toEqual({ streak: 14, status: 'met' });
+  });
+
+  it('今天还没用不算断档，从昨天起算', () => {
+    expect(run([day(8), day(9)])).toEqual({ streak: 2, status: 'on-track' });
+  });
+
+  it('今天和昨天都没用就是中断', () => {
+    expect(run([day(5), day(6)])).toEqual({ streak: 0, status: 'broken' });
+  });
+
+  it('断一天就清零，从最近一次活跃日重新数', () => {
+    // 9/5 之后断了 9/6，9/7-9/9 连续三天
+    expect(run([day(1), day(2), day(3), day(4), day(5), day(7), day(8), day(9)])).toEqual({
+      streak: 3,
+      status: 'on-track',
+    });
+  });
+
+  it('今天活跃则从今天起算', () => {
+    expect(run([day(9), day(10)])).toEqual({ streak: 2, status: 'on-track' });
+  });
+
+  it('空窗口是中断', () => {
+    expect(run([])).toEqual({ streak: 0, status: 'broken' });
+  });
+});
+
 describe('产物回填', () => {
   it('从 generated_at 与产物 mtime 还原真实证据日', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-retention-artifacts-'));
@@ -95,4 +136,58 @@ describe('产物回填', () => {
   it('空目录不报错', () => {
     expect(artifactDays(mkdtempSync(join(tmpdir(), 'pod-retention-none-'))).size).toBe(0);
   });
+});
+
+describe('pod graph retention', () => {
+  function localNoonOffset(daysAgo: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    date.setHours(12, 0, 0, 0);
+    return date.toISOString();
+  }
+
+  it('埋点走 CLI，retention 自身不留痕，并按口径 B 汇总', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-retention-cli-'));
+    const outDir = join(home, '.pod', 'graph');
+    mkdirSync(outDir, { recursive: true });
+    // 昨天做过分析，今天只有查看/标注 → 口径 B 下今昨天连续，今天不算活跃
+    writeFileSync(
+      usageLogPath(outDir),
+      [
+        { at: localNoonOffset(1), cmd: 'build' },
+        { at: localNoonOffset(0), cmd: 'mark' },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join('\n') + '\n',
+      'utf8',
+    );
+
+    const mark = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI, 'graph', 'mark', 'chain-002', 'false-positive', '--out-dir', outDir],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    expect(mark.status).toBe(0);
+
+    const recorded = readUsage(outDir).map((entry) => entry.cmd);
+    expect(recorded).toEqual(['build', 'mark', 'mark']);
+
+    const res = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI, 'graph', 'retention', '--out-dir', outDir, '--json'],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    expect(res.status).toBe(0);
+    const report = JSON.parse(res.stdout);
+    expect(report).toMatchObject({
+      streak: 1,
+      status: 'on-track',
+      window: 14,
+      feedback: { confirmed: 0, falsePositive: 1 },
+    });
+    expect(report.activeDays).toEqual([localDay(new Date(localNoonOffset(1)))]);
+
+    // retention 自己不算使用：次数仍是 3 条
+    expect(readUsage(outDir)).toHaveLength(3);
+  }, 40_000);
 });
