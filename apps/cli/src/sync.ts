@@ -12,6 +12,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
+import type { Policy } from '@podsec/policy';
+import { verifyPolicy } from './policy-sign.js';
 
 export interface CloudAgentBinding {
   /** 本地审计文件的 agent 字段（"*" = 全部） */
@@ -22,6 +24,8 @@ export interface CloudAgentBinding {
 
 export interface CloudConfig {
   api_url: string;
+  /** 策略签名公钥（Ed25519 PEM）；配置后 pod pull-policy 会验签 */
+  policy_public_key?: string;
   /** 旧格式：单 agent（agent_id/sync_token） */
   agent_id?: number;
   sync_token?: string;
@@ -52,12 +56,21 @@ export function loadCloudConfig(configPath?: string): CloudConfig {
         throw new Error(`云配置 ${path} 的 agents 条目缺少 local_agent/agent_id/sync_token`);
       }
     }
-    return { api_url: raw.api_url.replace(/\/+$/, ''), agents: raw.agents };
+    return {
+      api_url: raw.api_url.replace(/\/+$/, ''),
+      agents: raw.agents,
+      policy_public_key: raw.policy_public_key,
+    };
   }
   if (!raw.agent_id || !raw.sync_token) {
     throw new Error(`云配置 ${path} 缺少 agent_id/sync_token（或 agents 数组）`);
   }
-  return { api_url: raw.api_url.replace(/\/+$/, ''), agent_id: raw.agent_id, sync_token: raw.sync_token };
+  return {
+    api_url: raw.api_url.replace(/\/+$/, ''),
+    agent_id: raw.agent_id,
+    sync_token: raw.sync_token,
+    policy_public_key: raw.policy_public_key,
+  };
 }
 
 export function loadSyncState(agentId: number): Record<string, string> {
@@ -170,11 +183,12 @@ export interface PulledPolicy {
   agent_id: number | null;
   policy_json: string;
   version: string;
+  signature?: string;
 }
 
 export interface PullPoliciesResult {
   agent_id: number;
-  policies: Array<PulledPolicy & { path: string }>;
+  policies: Array<PulledPolicy & { path: string; verified: boolean }>;
 }
 
 /**
@@ -186,6 +200,8 @@ export async function pullPolicies(opts: {
   apiUrl?: string;
   agentId?: number;
   syncToken?: string;
+  policyPublicKey?: string;
+  requireSignature?: boolean;
   outDir: string;
 }): Promise<PullPoliciesResult> {
   const needFile = opts.config !== undefined || !(opts.apiUrl && opts.agentId && opts.syncToken);
@@ -213,16 +229,30 @@ export async function pullPolicies(opts: {
     throw new Error(`拉取策略失败 HTTP ${resp.status}：${body.detail ?? ''}`);
   }
   const data = (await resp.json()) as { agent_id: number; policies: PulledPolicy[] };
+  const publicKey = opts.policyPublicKey ?? loaded.policy_public_key;
 
   mkdirSync(opts.outDir, { recursive: true });
   const out: PullPoliciesResult['policies'] = [];
   for (const p of data.policies) {
     // 校验云端策略是合法 JSON
-    JSON.parse(p.policy_json);
+    const policy = JSON.parse(p.policy_json) as Policy;
+    let verified = false;
+    if (p.signature) {
+      if (publicKey) {
+        if (!verifyPolicy(policy, p.signature, publicKey)) {
+          throw new Error(`策略 "${p.name}" 签名无效（可能被篡改），已拒绝写入`);
+        }
+        verified = true;
+      } else if (opts.requireSignature) {
+        throw new Error(`策略 "${p.name}" 带签名但未配置 policy_public_key，无法验签`);
+      }
+    } else if (opts.requireSignature) {
+      throw new Error(`策略 "${p.name}" 缺少签名（--require-signature）`);
+    }
     const safeName = p.name.replace(/[^a-zA-Z0-9_-]/g, '-');
     const path = join(opts.outDir, `${p.id}-${safeName}.json`);
     writeFileSync(path, p.policy_json.endsWith('\n') ? p.policy_json : p.policy_json + '\n', 'utf8');
-    out.push({ ...p, path });
+    out.push({ ...p, path, verified });
   }
   return { agent_id: data.agent_id, policies: out };
 }

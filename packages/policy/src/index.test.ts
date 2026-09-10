@@ -380,4 +380,42 @@ describe('capability rules', () => {
     };
     expect(lintPolicy(policy).some((i) => i.where === 'capabilityRules')).toBe(true);
   });
+
+  it('allows an unlisted tool whose capability is allowed', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { allow: [] } },
+      capabilityMap: { 's.search': ['read-private-data'] },
+      capabilityRules: { allow: ['read-private-data'] },
+    };
+    const result = evaluate(policy, { agent: 'a', server: 's', tool: 'search' });
+    expect(result.decision).toBe('allow');
+    expect(result.matched).toBe('capability-allow');
+  });
+
+  it('tool deny still wins over capability allow', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { deny: ['search'] } },
+      capabilityMap: { 's.search': ['read-private-data'] },
+      capabilityRules: { allow: ['read-private-data'] },
+    };
+    expect(evaluate(policy, { agent: 'a', server: 's', tool: 'search' }).matched).toBe('deny');
+  });
+
+  it('supports agent-qualified capabilityMap keys', () => {
+    const policy: Policy = {
+      version: '0.1.0',
+      agent: 'a',
+      defaultDecision: 'deny',
+      servers: { s: { allow: ['search'] } },
+      capabilityMap: { 'a/s.search': ['read-secret'] },
+      capabilityRules: { deny: ['read-secret'] },
+    };
+    expect(evaluate(policy, { agent: 'a', server: 's', tool: 'search' }).matched).toBe('capability-deny');
+  });
 });

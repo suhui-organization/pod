@@ -26,6 +26,7 @@ import { scanMachine, renderMarkdown } from '@podsec/scan';
 import { lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { diffPolicies, draftPolicy, renderPolicyDiff } from './policy-draft.js';
+import { signPolicy, verifyPolicy } from './policy-sign.js';
 import { applyOnboard, computeCoverage, discoverTargets, revertOnboard } from './onboard.js';
 import { notifyApproval } from './notify.js';
 import { watchPending } from './watch.js';
@@ -822,6 +823,8 @@ async function main(): Promise<void> {
       'api-url': { type: 'string' },
       'agent-id': { type: 'string' },
       'sync-token': { type: 'string' },
+      'policy-public-key': { type: 'string' },
+      'require-signature': { type: 'boolean' },
       'out-dir': { type: 'string' },
       home: { type: 'string' },
       'no-exec': { type: 'boolean' },
@@ -837,6 +840,9 @@ async function main(): Promise<void> {
       outcome: { type: 'string' },
       args: { type: 'string' },
       session: { type: 'string' },
+      in: { type: 'string' },
+      key: { type: 'string' },
+      sig: { type: 'string' },
       since: { type: 'string' },
       limit: { type: 'string' },
       out: { type: 'string' },
@@ -1075,6 +1081,8 @@ async function main(): Promise<void> {
       apiUrl: values['api-url'],
       agentId: values['agent-id'] ? Number.parseInt(values['agent-id'], 10) : undefined,
       syncToken: values['sync-token'],
+      policyPublicKey: values['policy-public-key'],
+      requireSignature: values['require-signature'] === true,
       outDir: values['out-dir'] ?? podPath('policies'),
     });
     if (result.policies.length === 0) log('云端无策略（可先在 Pod Cloud 策略中心创建模板或绑定本 agent）');
@@ -1118,7 +1126,31 @@ async function main(): Promise<void> {
       });
       return;
     }
-    console.error(`unknown policy subcommand: ${sub ?? '(none)'} (available: draft)`);
+    if (sub === 'sign') {
+      if (!values.key || !values.in || !values.out) {
+        console.error('pod policy sign requires --key <private.pem> --in <policy.json> --out <sig>');
+        process.exit(1);
+      }
+      const policy = JSON.parse(readFileSync(values.in, 'utf8')) as Policy;
+      writeFileSync(values.out, signPolicy(policy, readFileSync(values.key, 'utf8')) + '\n', 'utf8');
+      log(`签名已写入: ${values.out}`);
+      return;
+    }
+    if (sub === 'verify') {
+      if (!values.key || !values.in || !values.sig) {
+        console.error('pod policy verify requires --key <public.pem> --in <policy.json> --sig <sig>');
+        process.exit(1);
+      }
+      const policy = JSON.parse(readFileSync(values.in, 'utf8')) as Policy;
+      const ok = verifyPolicy(policy, readFileSync(values.sig, 'utf8').trim(), readFileSync(values.key, 'utf8'));
+      if (!ok) {
+        console.error('签名无效：策略内容与签名不匹配（可能被篡改）');
+        process.exit(1);
+      }
+      log('签名有效');
+      return;
+    }
+    console.error(`unknown policy subcommand: ${sub ?? '(none)'} (available: draft, sign, verify)`);
     console.error(usage());
     process.exit(1);
   }
@@ -1244,8 +1276,10 @@ Usage:
   pod lint --policy <file>
   pod doctor [--policy <file>]
   pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
-  pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--out-dir <dir>]
+  pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--policy-public-key <pem>] [--require-signature] [--out-dir <dir>]
   pod policy draft [--audit-dir <dir>] [--agent <name>] [--server <name>] [--out <file>] [--diff <baseline.json>]
+  pod policy sign --key <private.pem> --in <policy.json> --out <sig>
+  pod policy verify --key <public.pem> --in <policy.json> --sig <sig>
   pod onboard [--config <path>] [--agent <name>] [--policy-dir <dir>] [--pod-bin <path>] [--yes] [--revert]
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]

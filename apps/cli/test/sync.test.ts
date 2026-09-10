@@ -4,22 +4,33 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
 import { runSync, pullPolicies } from '../src/sync.js';
+import { signPolicy } from '../src/policy-sign.js';
+
+interface MockPolicy {
+  id: number;
+  name: string;
+  agent_id: number | null;
+  policy_json: string;
+  version: string;
+  signature?: string;
+}
 
 /** mock Pod Cloud：按 (server) 维护链尾 hash，断链返回 409；提供 /sync/policies */
 function startMockCloud(): {
   url: string;
   close: () => void;
   received: Map<string, number>;
-  setPolicies: (p: Array<{ id: number; name: string; agent_id: number | null; policy_json: string; version: string }>) => void;
+  setPolicies: (p: MockPolicy[]) => void;
 } {
   const tails = new Map<string, string>();
   const received = new Map<string, number>();
-  let policies: Array<{ id: number; name: string; agent_id: number | null; policy_json: string; version: string }> = [];
+  let policies: MockPolicy[] = [];
   const server: Server = createServer((req, res) => {
     if (req.url?.endsWith('/api/v1/sync/policies') && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -193,5 +204,56 @@ describe('pod pull-policy', () => {
     await expect(
       pullPolicies({ apiUrl: cloud.url, agentId: 1, syncToken: 't', outDir: join(workDir, 'policies2') }),
     ).rejects.toThrow(/Unexpected token|JSON/);
+  });
+
+  it('verifies a signed policy and rejects tampering', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const policyJson = '{"version":"0.1.0","agent":"x","defaultDecision":"deny"}';
+    const signature = signPolicy(JSON.parse(policyJson), privatePem);
+
+    cloud.setPolicies([
+      { id: 10, name: 'signed', agent_id: null, policy_json: policyJson, version: '0.1.0', signature },
+    ]);
+    const ok = await pullPolicies({
+      apiUrl: cloud.url,
+      agentId: 1,
+      syncToken: 't',
+      policyPublicKey: publicPem,
+      outDir: join(workDir, 'signed'),
+    });
+    expect(ok.policies[0]!.verified).toBe(true);
+
+    cloud.setPolicies([
+      {
+        id: 11,
+        name: 'tampered',
+        agent_id: null,
+        policy_json: '{"version":"0.1.0","agent":"x","defaultDecision":"allow"}',
+        version: '0.1.0',
+        signature,
+      },
+    ]);
+    await expect(
+      pullPolicies({
+        apiUrl: cloud.url,
+        agentId: 1,
+        syncToken: 't',
+        policyPublicKey: publicPem,
+        outDir: join(workDir, 'tampered'),
+      }),
+    ).rejects.toThrow(/签名无效/);
+
+    cloud.setPolicies([{ id: 12, name: 'unsigned', agent_id: null, policy_json: policyJson, version: '0.1.0' }]);
+    await expect(
+      pullPolicies({
+        apiUrl: cloud.url,
+        agentId: 1,
+        syncToken: 't',
+        requireSignature: true,
+        outDir: join(workDir, 'unsigned'),
+      }),
+    ).rejects.toThrow(/缺少签名/);
   });
 });

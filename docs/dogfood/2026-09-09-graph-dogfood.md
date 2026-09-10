@@ -139,3 +139,20 @@ dsh.firecrawl_scrape → dsh.supabase.execute_sql    (exec 0.9)
   [{ "capabilityRules": { "approve": ["external-communication"] } }]
   ```
 - 效果：chain-001/002 从"改 99/81 个工具"变成"1 条能力规则"，这才是能落地的断链方式。
+
+## Policy hardening（2026-09-10）
+
+1. **capabilityRules.allow**：未在 `servers` 显式登记的工具，可按能力统一放行；工具级 `deny` 仍然优先，不会被能力放行绕过。`pod lint` 会对 `allow` 给放宽告警。
+2. **per-agent capabilityMap**：查找键支持 `${agent}/${server}.${tool}`、`${server}.${tool}`、`${tool}` 三种；当前一策略一 agent 时等价，为未来多 agent 共享网关预留。
+3. **策略签名**：
+   - `pod policy sign --key <private.pem> --in <policy.json> --out <sig>`
+   - `pod policy verify --key <public.pem> --in <policy.json> --sig <sig>`
+   - `pod pull-policy` 配置 `policy_public_key` 后验签；`--require-signature` 强制要求签名；签名无效时拒绝落盘。
+   - 使用 Ed25519 + 稳定序列化，篡改任一字段验签失败。
+4. **真实 serve dogfood**：在真实的 `memory` MCP server 上跑 `pod serve` + capability policy：
+   - `capabilityMap` 从真实图加载（`memory.open_nodes → read-private-data` 等 6 条）
+   - `capabilityRules: { deny: ["read-private-data"] }`
+   - `open_nodes` → **blocked**：`tool "open_nodes" has denied capability "read-private-data" (capabilityRules.deny)`
+   - `create_entities` → **allowed**（无 D2 能力，仅 write context）
+
+   这是能力级策略在真实 agent 工具链上的端到端验证，不依赖测试 fixture。

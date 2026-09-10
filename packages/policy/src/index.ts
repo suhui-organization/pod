@@ -137,6 +137,8 @@ export interface Policy {
 export interface CapabilityRules {
   deny?: string[];
   approve?: string[];
+  /** 能力级 allow：只对未在 servers 显式登记的工具生效，不会覆盖 tool deny */
+  allow?: string[];
 }
 
 /** 与 @podsec/graph 的 D2 标签保持一致；policy 不依赖 graph，避免循环依赖 */
@@ -168,6 +170,7 @@ export interface EvalResult {
     | 'deny'
     | 'secrets-input'
     | 'capability-deny'
+    | 'capability-allow'
     | 'approve'
     | 'capability-approve'
     | 'allow'
@@ -288,10 +291,14 @@ function matches(patterns: string[] | undefined, tool: string): boolean {
   return patterns.includes('*') || patterns.includes(tool);
 }
 
-/** 合并 graph 生成的 capabilityMap 与用户在 capabilities 里的覆盖，去重 */
-function capabilitiesFor(policy: Policy, server: string, tool: string): string[] {
-  const mapped = policy.capabilityMap?.[`${server}.${tool}`] ?? policy.capabilityMap?.[tool] ?? [];
-  const overrides = policy.capabilities?.[`${server}.${tool}`] ?? policy.capabilities?.[tool] ?? [];
+/**
+ * 合并 agent 限定 / server 限定 / 工具名三种键，去重。
+ * 优先级：agent 限定键用于未来多 agent 共享策略；当前一策略一 agent 时与共享键等价。
+ */
+function capabilitiesFor(policy: Policy, agent: string, server: string, tool: string): string[] {
+  const keys = [`${agent}/${server}.${tool}`, `${server}.${tool}`, tool];
+  const mapped = keys.flatMap((key) => policy.capabilityMap?.[key] ?? []);
+  const overrides = keys.flatMap((key) => policy.capabilities?.[key] ?? []);
   return [...new Set([...mapped, ...overrides])];
 }
 
@@ -327,7 +334,7 @@ export function evaluate(policy: Policy, ctx: EvalContext): EvalResult {
     };
   }
 
-  const capabilities = capabilitiesFor(policy, ctx.server, ctx.tool);
+  const capabilities = capabilitiesFor(policy, ctx.agent, ctx.server, ctx.tool);
   const deniedCapability = capabilities.find((capability) => policy.capabilityRules?.deny?.includes(capability));
   if (deniedCapability !== undefined) {
     return {
@@ -349,6 +356,14 @@ export function evaluate(policy: Policy, ctx: EvalContext): EvalResult {
   }
   if (matches(serverPolicy.allow, ctx.tool)) {
     return { decision: 'allow', reason: `tool "${ctx.tool}" is allowed on "${ctx.server}"`, matched: 'allow' };
+  }
+  const allowedCapability = capabilities.find((capability) => policy.capabilityRules?.allow?.includes(capability));
+  if (allowedCapability !== undefined) {
+    return {
+      decision: 'allow',
+      reason: `tool "${ctx.tool}" has allowed capability "${allowedCapability}" (capabilityRules.allow)`,
+      matched: 'capability-allow',
+    };
   }
   return {
     decision: 'deny',
@@ -464,6 +479,7 @@ export function lintPolicy(policy: Policy): LintIssue[] {
   const capabilityRuleLists: Array<[string, string[] | undefined]> = [
     ['capabilityRules.deny', policy.capabilityRules?.deny],
     ['capabilityRules.approve', policy.capabilityRules?.approve],
+    ['capabilityRules.allow', policy.capabilityRules?.allow],
   ];
   for (const [where, values] of capabilityRuleLists) {
     for (const capability of values ?? []) {
@@ -484,6 +500,13 @@ export function lintPolicy(policy: Policy): LintIssue[] {
       severity: 'warn',
       where: 'capabilityRules',
       message: '配置了 capabilityRules 但没有 capabilityMap/capabilities，规则不会命中任何工具；先运行 pod graph apply',
+    });
+  }
+  if (policy.capabilityRules?.allow?.length) {
+    issues.push({
+      severity: 'warn',
+      where: 'capabilityRules.allow',
+      message: 'capabilityRules.allow 是放宽规则（未在 servers 显式登记的工具会按能力放行）；请确保 capabilityMap 覆盖准确',
     });
   }
 
