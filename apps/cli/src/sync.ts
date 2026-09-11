@@ -133,6 +133,11 @@ export function collectPendingEvents(
       .map((e) => ({
       seq: e.seq,
       ts: e.ts,
+      // 事件类型必须转发：服务端据此把控制平面事件（hook/config-change/…）
+      // 分流进 pod_control_events。漏掉这个字段不会报错，但控制平面事件会被
+      // 当成工具调用落进数据平面表，云端"控制平面"页永远是空的。
+      // 历史数据没有该字段，缺省 tool-call。
+      kind: e.kind ?? 'tool-call',
       server: e.server,
       tool: e.tool,
       args_hash: e.argsHash,

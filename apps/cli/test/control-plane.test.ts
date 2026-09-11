@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AuditLog, loadAuditFile } from '@podsec/audit';
 import { appendControlEvent, CONTROL_CHAIN } from '../src/control-plane.js';
+import { collectPendingEvents } from '../src/sync.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_INDEX = join(HERE, '../src/index.ts');
@@ -150,6 +151,14 @@ describe('pod posture', () => {
 });
 
 describe('pod anomaly / trace', () => {
+  it('pod sync 转发控制平面事件的 kind（漏了会被云端当成工具调用入库）', () => {
+    appendControlEvent({ auditDir, agent: 'codex', kind: 'hook', reason: 'hook:x', tool: 'hook' });
+    const pending = collectPendingEvents(auditDir, {}, 'codex');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.server).toBe('control');
+    expect(pending[0]!.events[0]!.kind).toBe('hook');
+  });
+
   it('控制平面事件出链前收口长度，长路径不会让云端 batch 422', () => {
     const longPath = `${root}/${'x'.repeat(400)}/settings.json`;
     appendControlEvent({

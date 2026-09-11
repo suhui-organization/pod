@@ -240,3 +240,15 @@ pod trace <agent>                     # 5. 追污染源与影响面
 云端不存 severity（只存 `kind`/`decision`），展示级别由服务端推导，响应里带
 `severity_source=derived`。要让云端保留真实 severity，需要在 `AuditEntry` 上加字段，
 属于后续项。
+
+3. **`pod sync` 必须转发 `kind`（已修复，勿回退）。** 服务端靠这个字段判断事件
+   该进哪张表；漏掉它不会报错——控制平面事件会被当成工具调用写进数据平面表，
+   云端"控制平面"页永远是空的，而本地看起来"同步成功"。回归用例在
+   `apps/cli/test/control-plane.test.ts`（断言 `collectPendingEvents` 带出 kind）。
+4. **机器级事件需要一条专门的绑定。** `pod posture --audit` 把"配置冻结/包来源"
+   这类**机器级**发现写进 `_control` 链，而 `pod sync` 按绑定里的 `local_agent`
+   过滤。要让它们上云，`~/.pod/cloud.json` 需要一个
+   `{"local_agent": "_control", "agent_id": N, "sync_token": "..."}` 绑定
+   （云端对应一个"机器级"agent，如 `macbook-control-plane`）。
+   按 agent 归属的发现（身份/委托/令牌/熔断）本来就写在各 agent 自己的链里，
+   沿用既有绑定即可。
