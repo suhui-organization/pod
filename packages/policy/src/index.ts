@@ -8,6 +8,9 @@
  * - 纯函数、无副作用，便于 100% 单测。
  */
 
+/** 用户可编辑的规则集（控制平面加固规则，见 docs/control-plane-hardening.md） */
+export * from './rules.js';
+
 export type Decision = 'allow' | 'deny' | 'approve';
 
 export interface ToolRule {

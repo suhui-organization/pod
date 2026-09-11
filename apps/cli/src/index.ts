@@ -23,7 +23,7 @@ import type { Policy } from '@podsec/policy';
 import { capabilityMapFromGraph, type CapabilityGraph } from '@podsec/graph';
 import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
-import { lintPolicy } from '@podsec/policy';
+import { DEFAULT_RULES, lintPolicy } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { diffPolicies, draftPolicy, renderPolicyDiff } from './policy-draft.js';
 import { signPolicy, verifyPolicy } from './policy-sign.js';
@@ -61,6 +61,28 @@ import {
 import { graphDir } from './graph/io.js';
 import { recordUsage } from './graph/retention.js';
 import { cmdUi } from './ui.js';
+import {
+  appendControlEvent,
+  buildTrace,
+  delegateCheck,
+  delegateIssue,
+  delegateVerify,
+  detectAnomalies,
+  expandPath,
+  freezePosture,
+  grantIssue,
+  grantList,
+  identityInit,
+  identityList,
+  identityVerify,
+  readBaseline,
+  readQuarantineFile,
+  resolveRules,
+  runPosture,
+  quarantineAdd,
+  quarantineRemove,
+} from './control-plane.js';
+import type { RuleSet } from '@podsec/policy';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -192,6 +214,14 @@ async function cmdInit(template: string | undefined): Promise<void> {
   }
   log(`initialized ${POD_HOME}`);
   log(`policy: ${policyFile}`);
+  // 规则文件是用户的：只在缺失时落一份默认值，之后 pod 不再覆盖它
+  const rulesFile = podPath('rules.json');
+  if (!existsSync(rulesFile)) {
+    writeFileSync(rulesFile, JSON.stringify(DEFAULT_RULES, null, 2) + '\n', 'utf8');
+    log(`rules:  ${rulesFile}（判定规则归你，改这里即改判定；写错会 fail-closed 报错）`);
+  } else {
+    log(`rules:  ${rulesFile}（已存在，未覆盖）`);
+  }
 }
 
 interface ServeOptions {
@@ -219,6 +249,8 @@ interface ServeOptions {
   authToken?: string;
   /** capabilityRules 使用的能力图路径（默认 ~/.pod/graph/potential.json） */
   graphPath?: string;
+  /** 控制平面规则（注入信号/工具元数据/egress/熔断/JIT），默认 ~/.pod/rules.json */
+  rules?: RuleSet;
 }
 
 async function cmdServe(opts: ServeOptions): Promise<void> {
@@ -293,6 +325,7 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
     recordOnly: opts.recordOnly,
     rememberApprovals: opts.rememberApprovals,
     onBeforeForward,
+    rules: opts.rules,
     command: opts.command,
     args: opts.args,
     // 透传网关进程环境：onboard 包装后，原 server 的 env 由 agent 传给 pod，
@@ -314,6 +347,7 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
       recordOnly: opts.recordOnly,
       rememberApprovals: opts.rememberApprovals,
       onBeforeForward,
+      rules: opts.rules,
       command: opts.command,
       args: opts.args,
       env: { ...process.env } as Record<string, string>,
@@ -900,6 +934,18 @@ async function main(): Promise<void> {
       diff: { type: 'string' },
       template: { type: 'string' },
       version: { type: 'string' },
+      rules: { type: 'string' },
+      baseline: { type: 'string' },
+      ttl: { type: 'string' },
+      'single-use': { type: 'boolean' },
+      capability: { type: 'string', multiple: true },
+      parent: { type: 'string' },
+      child: { type: 'string' },
+      'parent-policy': { type: 'string' },
+      'child-policy': { type: 'string' },
+      'issued-by': { type: 'string' },
+      'parent-token': { type: 'string' },
+      audit: { type: 'boolean' },
       transport: { type: 'string' },
       port: { type: 'string' },
       'record-only': { type: 'boolean' },
@@ -958,6 +1004,7 @@ async function main(): Promise<void> {
       snapshotDir: values['snapshot-dir'],
       authToken: values['auth-token'] ?? process.env.POD_AUTH_TOKEN,
       graphPath: values.graph,
+      rules: resolveRules(values.rules, POD_HOME),
     });
     return;
   }
@@ -1153,6 +1200,284 @@ async function main(): Promise<void> {
 
   if (cmd === 'scan') {
     cmdScan(values.json ?? false);
+    return;
+  }
+
+  // ---------- 控制平面加固命令（docs/control-plane-hardening.md） ----------
+
+  if (cmd === 'posture') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const baselinePath = values.baseline ?? podPath('posture', 'baseline.json');
+    if (positionals[1] === 'freeze') {
+      const r = freezePosture({ rules, auditDir, baselinePath, home: homedir() });
+      log(`基线已写入 ${r.baselinePath}`);
+      log(
+        `  冻结项 ${r.counts.configs} · 记忆 ${r.counts.memory} · 钩子 ${r.counts.hooks} · MCP 来源 ${r.counts.packages}`,
+      );
+      log('  之后任何变更都会在 pod posture 里报出来（规则决定严重级别）。');
+      return;
+    }
+    const run = runPosture({
+      rules,
+      auditDir,
+      baselinePath,
+      writeAudit: values.audit === true,
+      strict: values.strict === true,
+      home: homedir(),
+    });
+    process.stdout.write((values.json ? JSON.stringify(run.result, null, 2) : run.report) + '\n');
+    if (run.exitCode !== 0) process.exitCode = run.exitCode;
+    return;
+  }
+
+  if (cmd === 'identity') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const dir = expandPath(rules.identity.dir);
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const sub = positionals[1] ?? 'list';
+    if (sub === 'init') {
+      if (!values.agent) {
+        console.error('pod identity init requires --agent <name>');
+        process.exit(1);
+      }
+      const r = identityInit({ agent: values.agent, dir, auditDir });
+      log(`identity 已建立：${values.agent}`);
+      log(`  fingerprint: ${r.fingerprint}`);
+      log(`  私钥: ${join(dir, values.agent, 'private.pem')}（0600，不要外传）`);
+      return;
+    }
+    if (sub === 'verify') {
+      const targets = values.agent ? [values.agent] : identityList(dir).map((i) => i.agent);
+      if (targets.length === 0) {
+        log('没有可校验的身份（先 pod identity init --agent <name>）');
+        process.exitCode = 1;
+        return;
+      }
+      let failed = 0;
+      for (const agent of targets) {
+        const r = identityVerify(agent, dir);
+        log(`${r.ok ? '✅' : '❌'} ${agent}: ${r.reason}`);
+        if (!r.ok) failed++;
+      }
+      if (failed > 0) process.exitCode = 1;
+      return;
+    }
+    const rows = identityList(dir);
+    if (values.json) {
+      process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
+      return;
+    }
+    if (rows.length === 0) log('没有已建立的 agent 身份（pod identity init --agent <name>）');
+    for (const row of rows) log(`${row.ok ? '✅' : '⚠️'} ${row.agent}  fingerprint=${row.fingerprint ?? '-'}`);
+    return;
+  }
+
+  if (cmd === 'delegate') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const identityDir = expandPath(rules.identity.dir);
+    const delegationDir = expandPath(rules.delegation.dir);
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const sub = positionals[1];
+    if (sub === 'issue') {
+      if (!values.parent || !values.child || !values.ttl) {
+        console.error('pod delegate issue requires --parent <agent> --child <agent> --ttl <seconds> [--capability x]');
+        process.exit(1);
+      }
+      const r = delegateIssue({
+        parent: values.parent,
+        child: values.child,
+        capabilities: values.capability ?? [],
+        ttlSeconds: Number.parseInt(values.ttl, 10),
+        identityDir,
+        delegationDir,
+        auditDir,
+        parentToken: values['parent-token'],
+      });
+      log(`委托已签发：${values.parent} → ${values.child}`);
+      log(`  能力: ${r.token.capabilities.join('、') || '（无）'}`);
+      log(`  到期: ${r.token.expiresAt}`);
+      log(`  文件: ${r.file}`);
+      return;
+    }
+    if (sub === 'verify') {
+      if (!values.in) {
+        console.error('pod delegate verify requires --in <token.json>');
+        process.exit(1);
+      }
+      const r = delegateVerify({ file: values.in, identityDir, rules });
+      log(`${r.ok ? '✅' : '❌'} ${values.in}`);
+      for (const hop of r.hops) log(`  跳: ${hop}`);
+      log(`  生效能力: ${r.capabilities.join('、') || '（无）'}`);
+      for (const err of r.errors) log(`  ✗ ${err}`);
+      if (!r.ok) process.exitCode = 1;
+      return;
+    }
+    if (sub === 'check') {
+      if (!values['parent-policy'] || !values['child-policy']) {
+        console.error('pod delegate check requires --parent-policy <file> --child-policy <file>');
+        process.exit(1);
+      }
+      const parentPolicy = JSON.parse(readFileSync(values['parent-policy'], 'utf8')) as Policy;
+      const childPolicy = JSON.parse(readFileSync(values['child-policy'], 'utf8')) as Policy;
+      const r = delegateCheck({ parentPolicy, childPolicy, rules });
+      log(`${r.ok ? '✅' : '❌'} 委托收窄校验：${parentPolicy.agent} → ${childPolicy.agent}`);
+      log(`  父能力: ${r.parent.join('、') || '（无）'}`);
+      log(`  子能力: ${r.child.join('、') || '（无）'}`);
+      if (r.escaped.length > 0) log(`  ✗ 子 agent 扩大了权限: ${r.escaped.join('、')}`);
+      if (r.forbidden.length > 0) log(`  ✗ 命中了不可委托能力: ${r.forbidden.join('、')}`);
+      if (!r.ok) process.exitCode = 1;
+      return;
+    }
+    console.error('pod delegate <issue|verify|check>');
+    process.exit(1);
+  }
+
+  if (cmd === 'grant') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const identityDir = expandPath(rules.identity.dir);
+    const grantDir = expandPath(rules.grant.dir);
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const sub = positionals[1];
+    if (sub === 'issue') {
+      const ttl = values.ttl ? Number.parseInt(values.ttl, 10) : 900;
+      if (!values.agent || !values['issued-by']) {
+        console.error('pod grant issue requires --agent <name> --issued-by <signer> [--ttl <seconds>]');
+        process.exit(1);
+      }
+      const r = grantIssue({
+        id: values.id ?? `grant-${Date.now()}-${randomUUID().slice(0, 4)}`,
+        agent: values.agent,
+        issuedBy: values['issued-by'],
+        identityDir,
+        grantDir,
+        auditDir,
+        ttlSeconds: ttl,
+        singleUse: values['single-use'] === true,
+        servers: values.server ? [values.server] : undefined,
+        tools: values.tool ? [values.tool] : undefined,
+        capabilities: values.capability,
+        reason: values.reason,
+      });
+      log(`令牌已签发：${r.grant.claims.id} → agent=${r.grant.claims.agent}`);
+      log(`  到期: ${r.grant.claims.expiresAt}${r.grant.claims.singleUse ? '（单次）' : ''}`);
+      log(`  文件: ${r.file}`);
+      return;
+    }
+    const rows = grantList(grantDir, identityDir);
+    if (values.json) {
+      process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
+      return;
+    }
+    if (rows.length === 0) log('没有已签发的令牌（pod grant issue ...）');
+    for (const row of rows) {
+      log(
+        `${row.valid ? '✅' : '❌'} ${row.id} agent=${row.agent} ` +
+          `${row.consumed ? '（已消费）' : ''} 到期 ${row.expiresAt}`,
+      );
+    }
+    return;
+  }
+
+  if (cmd === 'quarantine') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const file = expandPath(rules.quarantine.file);
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const sub = positionals[1] ?? 'list';
+    if (sub === 'add' || sub === 'remove') {
+      if (!values.agent) {
+        console.error(`pod quarantine ${sub} requires --agent <name>`);
+        process.exit(1);
+      }
+      const by = values.approver ?? 'cli-user';
+      const state =
+        sub === 'add'
+          ? quarantineAdd({ file, agent: values.agent, reason: values.reason ?? '人工熔断', by, auditDir })
+          : quarantineRemove({ file, agent: values.agent, by, auditDir });
+      log(sub === 'add' ? `已熔断：${values.agent}` : `已解除熔断：${values.agent}`);
+      log(`  当前熔断 ${Object.keys(state.agents).length} 个 agent`);
+      log('  网关下一次调用即生效（无需重启）。');
+      return;
+    }
+    const state = readQuarantineFile(file);
+    const agents = Object.entries(state.agents);
+    if (values.json) {
+      process.stdout.write(JSON.stringify(state, null, 2) + '\n');
+      return;
+    }
+    if (agents.length === 0) log('没有处于熔断状态的 agent');
+    for (const [agent, entry] of agents) {
+      log(`⛔ ${agent} — ${entry.reason ?? ''}（${entry.at ?? ''} by ${entry.by ?? ''}）`);
+    }
+    return;
+  }
+
+  if (cmd === 'anomaly') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const findings = detectAnomalies({
+      auditDir,
+      grantDir: expandPath(rules.grant.dir),
+      delegationDir: expandPath(rules.delegation.dir),
+      rules,
+    });
+    if (values.json) {
+      process.stdout.write(JSON.stringify(findings, null, 2) + '\n');
+      return;
+    }
+    if (findings.length === 0) {
+      log(`✅ 未发现信任传播异常（窗口 ${rules.anomaly.windowMinutes} 分钟）`);
+      return;
+    }
+    for (const f of findings) log(`${f.severity === 'high' ? '🔴' : '🟠'} [${f.rule}] ${f.agent}: ${f.detail}`);
+    if (values.audit) {
+      for (const f of findings) {
+        appendControlEvent({
+          auditDir,
+          agent: f.agent,
+          kind: 'anomaly',
+          reason: `anomaly:${f.rule}:${f.detail}`,
+          payload: { severity: f.severity },
+        });
+      }
+      log('（已写入审计链）');
+    }
+    if (findings.some((f) => f.severity === 'high')) process.exitCode = 1;
+    return;
+  }
+
+  if (cmd === 'trace') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const agent = positionals[1];
+    if (!agent) {
+      console.error('pod trace <agent> [--audit-dir <dir>]');
+      process.exit(1);
+    }
+    const report = buildTrace({
+      agent,
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+      delegationDir: expandPath(rules.delegation.dir),
+    });
+    if (values.json) {
+      process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+      return;
+    }
+    log(`# pod trace — ${agent}`);
+    log('');
+    log('## 委托链（上游）');
+    if (report.hops.length === 0) log('- 没有记录到委托关系（该 agent 不是任何委托的接收方）');
+    for (const hop of report.hops) {
+      log(`- ${hop.parent} → ${hop.child} [${hop.capabilities.join('、') || '无能力'}] @ ${hop.issuedAt}`);
+    }
+    log('');
+    log('## 下游（可能被影响的 agent）');
+    log(report.downstream.length === 0 ? '- 无' : report.downstream.map((d) => `- ${d}`).join('\n'));
+    log('');
+    log('## 审计时间线');
+    log(`- 相关事件 ${report.entries.length} 条，其中被拒绝/阻断 ${report.blocked.length} 条`);
+    for (const entry of report.blocked.slice(-10)) {
+      log(`  - ${entry.ts} ${entry.agent} ${entry.server}.${entry.tool} → ${entry.decision}（${entry.reason ?? ''}）`);
+    }
     return;
   }
 
@@ -1421,6 +1746,17 @@ Usage:
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
   pod scan [--json]
+  pod posture [--rules <file>] [--baseline <file>] [--json] [--strict] [--audit]
+  pod posture freeze [--rules <file>] [--baseline <file>]
+  pod identity [list] | init --agent <name> | verify [--agent <name>] [--json]
+  pod delegate issue --parent <agent> --child <agent> --ttl <seconds> [--capability <c> ...] [--parent-token <file>]
+  pod delegate verify --in <token.json>
+  pod delegate check --parent-policy <file> --child-policy <file>
+  pod grant issue --agent <name> --issued-by <signer> [--ttl <seconds>] [--single-use] [--server <s>] [--tool <t>] [--capability <c> ...]
+  pod grant list [--json]
+  pod quarantine [list] | add --agent <name> [--reason <why>] | remove --agent <name>
+  pod anomaly [--rules <file>] [--audit-dir <dir>] [--json] [--audit]
+  pod trace <agent> [--audit-dir <dir>] [--json]
   pod ui [--port <n>]
   pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
   pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
@@ -1438,6 +1774,8 @@ policy draft: 从录制语料生成最小权限策略草稿（只读审计，不
 onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--revert 回滚）。
 digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
 coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。
+posture: 控制平面姿态检查（钩子/冻结项/记忆/包来源/身份/委托），规则来自 --rules 或 ~/.pod/rules.json。
+identity/delegate/grant/quarantine/anomaly/trace: 身份、委托收窄、JIT 令牌、熔断、信任传播异常、污染溯源。
 approve/deny/pending: 审批旁路通道（stdio 被 MCP 占用，交互在另一个终端进行）。
 watch:  长驻审批队列：新请求立即提示，TTY 下可直接批准/拒绝。
 snapshots/rollback: 高危写操作的快照与回滚（serve --snapshot 开启）。

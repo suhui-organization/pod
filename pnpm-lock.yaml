@@ -38,9 +38,15 @@ importers:
       '@podsec/graph':
         specifier: workspace:*
         version: link:../../packages/graph
+      '@podsec/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity
       '@podsec/policy':
         specifier: workspace:*
         version: link:../../packages/policy
+      '@podsec/posture':
+        specifier: workspace:*
+        version: link:../../packages/posture
       '@podsec/scan':
         specifier: workspace:*
         version: link:../../packages/scan
@@ -92,6 +98,9 @@ importers:
       '@podsec/audit':
         specifier: workspace:*
         version: link:../audit
+      '@podsec/identity':
+        specifier: workspace:*
+        version: link:../identity
       '@podsec/policy':
         specifier: workspace:*
         version: link:../policy
@@ -105,7 +114,28 @@ importers:
         specifier: workspace:*
         version: link:../policy
 
+  packages/identity:
+    dependencies:
+      '@podsec/audit':
+        specifier: workspace:*
+        version: link:../audit
+
   packages/policy: {}
+
+  packages/posture:
+    dependencies:
+      '@podsec/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@podsec/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@podsec/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@podsec/scan':
+        specifier: workspace:*
+        version: link:../scan
 
   packages/scan: {}
 

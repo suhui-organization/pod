@@ -16,7 +16,9 @@
     "@podsec/console": "workspace:*",
     "@podsec/gateway": "workspace:*",
     "@podsec/graph": "workspace:*",
+    "@podsec/identity": "workspace:*",
     "@podsec/policy": "workspace:*",
+    "@podsec/posture": "workspace:*",
     "@podsec/scan": "workspace:*"
   }
 }

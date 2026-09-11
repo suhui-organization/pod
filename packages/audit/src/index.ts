@@ -6,6 +6,23 @@ export type Decision = 'allow' | 'deny' | 'approve';
 export type Outcome = 'ok' | 'error' | 'blocked';
 
 /**
+ * 事件类型（控制平面加固，见 docs/control-plane-hardening.md §2.2）。
+ * 缺省（字段不存在）= 'tool-call'，保证历史 JSONL 不受影响。
+ */
+export type AuditKind =
+  | 'tool-call'
+  | 'config-change'
+  | 'hook'
+  | 'metadata'
+  | 'memory'
+  | 'package'
+  | 'identity'
+  | 'delegation'
+  | 'grant'
+  | 'quarantine'
+  | 'anomaly';
+
+/**
  * 一条审计记录。
  *
  * 设计原则（threat-model.md T7 / T2）：
@@ -16,6 +33,8 @@ export type Outcome = 'ok' | 'error' | 'blocked';
 export interface AuditEntry {
   seq: number;
   ts: string;
+  /** 事件类型；缺省 = 'tool-call'（历史数据无此字段） */
+  kind?: AuditKind;
   agent: string;
   session: string;
   server: string;
