@@ -270,6 +270,25 @@ export async function pullPolicies(opts: {
 }
 
 /** 执行一次同步；返回各 server 推送统计。 */
+/** 按 500 条一批推完一条链，返回实际写入条数 */
+async function pushAll(
+  cfg: { api_url?: string },
+  syncToken: string,
+  server: string,
+  events: Array<Record<string, unknown>>,
+): Promise<number> {
+  let synced = 0;
+  for (let i = 0; i < events.length; i += 500) {
+    const res = await pushBatch(
+      { api_url: cfg.api_url ?? '', sync_token: syncToken },
+      server,
+      events.slice(i, i + 500),
+    );
+    synced += res.synced;
+  }
+  return synced;
+}
+
 export async function runSync(opts: {
   config?: string;
   auditDir: string;
@@ -302,16 +321,7 @@ export async function runSync(opts: {
     let boundTotal = 0;
     for (const { server, events } of pending) {
       try {
-        let synced = 0;
-        for (let i = 0; i < events.length; i += 500) {
-          const batch = events.slice(i, i + 500);
-          const res = await pushBatch(
-            { api_url: cfg.api_url, sync_token: b.sync_token },
-            server,
-            batch,
-          );
-          synced += res.synced;
-        }
+        const synced = await pushAll(cfg, b.sync_token, server, events);
         newCursor[server] = events[events.length - 1]!.hash as string;
         total += synced;
         boundTotal += synced;
@@ -319,11 +329,29 @@ export async function runSync(opts: {
       } catch (err: unknown) {
         // 只记这一条链的失败，继续跑其它链。关键：**不推进游标**——
         // 推进了就等于把没传上去的事件永久跳过，而用户以为已经同步过了。
-        failures.push({
-          agent_id: b.agent_id,
-          server,
-          message: err instanceof Error ? err.message : String(err),
-        });
+        let message = err instanceof Error ? err.message : String(err);
+        // 自愈：409 且本地有这条链的游标，多半是服务端这条链其实是空的——
+        // 本机游标指向被重建过的旧库（agent_id 会被复用，游标文件却留在本地），
+        // 于是只发了游标之后的事件，服务端从空链开始校验自然对不上。
+        // 从链首重推一次：服务端若真有一条不同的链，会照样 409，重推不会损坏任何数据。
+        if (message.includes('哈希链断裂') && cursor[server]) {
+          const full = collectPendingEvents(opts.auditDir, {}, b.local_agent).find((p) => p.server === server);
+          if (full) {
+            try {
+              const synced = await pushAll(cfg, b.sync_token, server, full.events);
+              newCursor[server] = full.events[full.events.length - 1]!.hash as string;
+              total += synced;
+              boundTotal += synced;
+              servers.push({ server, synced, skipped: 0 });
+              continue;
+            } catch (retryErr: unknown) {
+              message += `；从链首重推仍未通过：${
+                retryErr instanceof Error ? retryErr.message : String(retryErr)
+              }`;
+            }
+          }
+        }
+        failures.push({ agent_id: b.agent_id, server, message });
       }
     }
     saveSyncState(b.agent_id, newCursor);

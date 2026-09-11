@@ -173,6 +173,21 @@ describe('pod sync (mock Pod Cloud)', () => {
     expect(cloud.received.get('filesystem')).toBe(5);
   });
 
+  it('本地游标指向不存在的云端链时自愈：从链首重推一次', async () => {
+    // 真实场景：agent_id 会被复用（库重建过），而 ~/.pod/sync-state 留在本机，
+    // 于是客户端以为 seq 1 已推过，只发 seq 2——云端这条链却是空的，必然 409。
+    const log = writeAuditFile(auditDir, 'stale-cursor', 2);
+    const stateFile = join(process.env.HOME!, '.pod', 'sync-state', '1.json');
+    const state = JSON.parse(readFileSync(stateFile, 'utf8')) as Record<string, string>;
+    state['stale-cursor'] = log.entries[0]!.hash; // 伪造"第一条已推过"的陈旧游标
+    writeFileSync(stateFile, JSON.stringify(state), 'utf8');
+
+    const r = await runSync(opts());
+    expect(r.total_synced).toBe(2); // 自愈后整条链都补上
+    expect(cloud.received.get('stale-cursor')).toBe(2);
+    expect(r.failures).toHaveLength(0);
+  });
+
   it('handles multiple servers as independent chains', async () => {
     writeAuditFile(auditDir, 'github', 2);
     const r = await runSync(opts());
