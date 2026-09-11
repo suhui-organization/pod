@@ -19,8 +19,29 @@ import {
   type CallToolResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { AuditLog, hashValue } from '@podsec/audit';
-import { checkServerSource, evaluate, findHighEntropySecrets, type EntropyFinding, type Policy } from '@podsec/policy';
+import { AuditLog, hashValue, type AuditKind } from '@podsec/audit';
+import {
+  checkServerSource,
+  collectStrings,
+  DEFAULT_RULES,
+  evaluate,
+  findHighEntropySecrets,
+  type EntropyFinding,
+  type Policy,
+  type RuleSet,
+  type Severity,
+} from '@podsec/policy';
+import {
+  grantCovers,
+  markGrantConsumed,
+  publicKeyResolver,
+  readConsumedAt,
+  verifyGrant,
+  type Grant,
+} from '@podsec/identity';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 /** 从工具响应中提取全部文本内容（用于输出侧密钥扫描） */
 function extractResponseText(result: CallToolResult): string {
@@ -38,11 +59,181 @@ const INJECTION_PATTERNS: RegExp[] = [
   /you are now (an? )?(autonomous|unrestricted|jailbroken)/i,
 ];
 
-/** 检测注入信号；命中返回 true（审计标记用，不阻断） */
-export function matchInjectionSignal(result: CallToolResult): boolean {
+/**
+ * 检测注入信号；命中返回 true（审计标记用，不阻断）。
+ * 信号词表来自用户规则（rules.injection.signals）；传了 signals 就按用户的来
+ * ——包括传空数组（= 关掉这项）。不传时退回内置正则。
+ */
+export function matchInjectionSignal(result: CallToolResult, signals?: readonly string[]): boolean {
   const text = extractResponseText(result);
   if (!text) return false;
+  if (signals !== undefined) {
+    const lower = text.toLowerCase();
+    return signals.some((s) => s.trim() !== '' && lower.includes(s.toLowerCase()));
+  }
   return INJECTION_PATTERNS.some((re) => re.test(text));
+}
+
+// ---------- 控制平面加固：规则驱动的运行时防护 ----------
+
+/** 规则里的路径支持 ~；网关以本机 home 为根 */
+export function expandHomePath(path: string, home: string): string {
+  if (path === '~') return home;
+  if (path.startsWith('~/')) return `${home}/${path.slice(2)}`;
+  return path;
+}
+
+export interface QuarantineEntry {
+  reason?: string;
+  at?: string;
+  by?: string;
+}
+
+/** 熔断状态文件是用户可编辑的 JSON：{ "agents": { "<agent>": {...} } } */
+export function readQuarantine(file: string): Record<string, QuarantineEntry> {
+  if (!existsSync(file)) return {};
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { agents?: Record<string, QuarantineEntry> };
+    return raw.agents ?? {};
+  } catch {
+    // 文件坏了按"没有熔断"处理：熔断是用户手动开关，不该让网关整体不可用
+    return {};
+  }
+}
+
+/** 级联失效熔断：被熔断的 agent 一律 deny（fail-closed） */
+export function checkQuarantine(agent: string, file: string): { quarantined: boolean; reason?: string } {
+  const entry = readQuarantine(file)[agent];
+  if (!entry) return { quarantined: false };
+  return { quarantined: true, reason: entry.reason ?? 'agent 处于熔断状态' };
+}
+
+export interface LoadedGrant {
+  file: string;
+  grant: Grant;
+}
+
+export function loadGrants(dir: string): LoadedGrant[] {
+  if (!existsSync(dir)) return [];
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out: LoadedGrant[] = [];
+  for (const name of names.sort()) {
+    const file = join(dir, name);
+    try {
+      out.push({ file, grant: JSON.parse(readFileSync(file, 'utf8')) as Grant });
+    } catch {
+      // 坏文件跳过：它不该让整个网关起不来，posture 会把它报出来
+    }
+  }
+  return out;
+}
+
+/** 找一枚覆盖本次调用的有效 JIT 令牌（签名 + 未过期 + 未消费 + 作用域匹配） */
+export function findCoveringGrant(input: {
+  dir: string;
+  call: { agent: string; server: string; tool: string; capabilities?: string[] };
+  identityDir: string;
+  now?: Date;
+}): LoadedGrant | null {
+  const now = input.now ?? new Date();
+  const resolve = publicKeyResolver(input.identityDir);
+  for (const item of loadGrants(input.dir)) {
+    if (!grantCovers(item.grant.claims, input.call)) continue;
+    const check = verifyGrant(item.grant, {
+      resolvePublicKey: resolve,
+      now,
+      consumedAt: readConsumedAt(item.file),
+    });
+    if (check.ok) return item;
+  }
+  return null;
+}
+
+export interface MetadataHit {
+  tool: string;
+  ruleId: string;
+  severity: Severity;
+  why?: string;
+}
+
+/**
+ * 工具元数据验证（G6）：工具描述是 server 可控的自由文本，
+ * 命中用户规则即记账——默认只记不拦（拦会误伤正常 server，交用户用规则决定）。
+ */
+export function matchToolMetadata(
+  rules: RuleSet,
+  tools: ReadonlyArray<{ name?: string; description?: string }>,
+): MetadataHit[] {
+  const hits: MetadataHit[] = [];
+  const patterns = rules.toolMetadata.suspiciousPatterns.map((p) => ({ ...p, regex: new RegExp(p.re) }));
+  for (const tool of tools) {
+    const text = [tool.name, tool.description]
+      .filter((s): s is string => typeof s === 'string')
+      .join('\n');
+    if (!text) continue;
+    for (const p of patterns) {
+      if (p.regex.test(text)) {
+        hits.push({ tool: tool.name ?? '(unnamed)', ruleId: p.id, severity: p.severity, why: p.why });
+      }
+    }
+  }
+  return hits;
+}
+
+const URL_HOST_RE = /https?:\/\/([^/\s"'`]+)/gi;
+
+export interface EgressVerdict {
+  decision: 'allow' | 'approve' | 'deny' | null;
+  host?: string;
+  reason?: string;
+}
+
+function hostMatches(host: string, pattern: string): boolean {
+  const p = pattern.toLowerCase();
+  const h = host.toLowerCase();
+  return p.startsWith('.') ? h === p.slice(1) || h.endsWith(p) : h === p;
+}
+
+function hostOf(value: string): string | null {
+  const re = new RegExp(URL_HOST_RE.source, 'i');
+  const m = re.exec(value);
+  if (!m?.[1]) return null;
+  return m[1].replace(/\/$/, '').split(':')[0] ?? null;
+}
+
+/**
+ * Egress 控制（G15）：网关看不见 MCP server 自身的出网（见 docs/egress-defense.md），
+ * 但看得见 agent 传给 server 的参数。这里只对"参数里出现的 URL 主机"判定。
+ */
+export function checkEgress(rules: RuleSet, args: unknown): EgressVerdict {
+  if (!rules.egress.enabled) return { decision: null };
+  const rank: Record<'allow' | 'approve' | 'deny', number> = { allow: 0, approve: 1, deny: 2 };
+  let strictest: EgressVerdict = { decision: null };
+  for (const value of collectStrings(args)) {
+    const host = hostOf(value);
+    if (!host) continue;
+    let decision: 'allow' | 'approve' | 'deny';
+    let reason: string;
+    if (rules.egress.denyHosts.some((p) => hostMatches(host, p))) {
+      decision = 'deny';
+      reason = `egress: ${host} 在 denyHosts 里`;
+    } else if (rules.egress.allowHosts.some((p) => hostMatches(host, p))) {
+      decision = 'allow';
+      reason = `egress: ${host} 在 allowHosts 里`;
+    } else {
+      decision = rules.egress.defaultDecision;
+      reason = `egress: ${host} 未命中任何列表（defaultDecision=${rules.egress.defaultDecision}）`;
+    }
+    if (strictest.decision === null || rank[decision] > rank[strictest.decision]) {
+      strictest = { decision, host, reason };
+    }
+  }
+  return strictest;
 }
 
 /**
@@ -132,6 +323,13 @@ export interface ProxyOptions {
   }) => Promise<{ snapshotId?: string } | void>;
   /** 建立到真实 MCP server 的客户端连接（已连接） */
   connectUpstream: () => Promise<Client>;
+  /**
+   * 控制平面加固规则（docs/control-plane-hardening.md）。
+   * 缺省用内置 DEFAULT_RULES：注入信号、工具元数据、egress、熔断、JIT 令牌全走它。
+   */
+  rules?: RuleSet;
+  /** 规则里 `~` 的展开根；缺省取本机 home */
+  home?: string;
 }
 
 /** 进程级审批序号：HTTP 模式每会话新建 proxy server，不能放在实例内（否则 id 跨会话碰撞） */
@@ -143,6 +341,11 @@ let approvalSeq = 0;
  */
 export function createProxyServer(opts: ProxyOptions): Server {
   const { agent, serverName, policy, audit, recordOnly, approval, rememberApprovals } = opts;
+  const rules = opts.rules ?? DEFAULT_RULES;
+  const home = opts.home ?? homedir();
+  const quarantineFile = expandHomePath(rules.quarantine.file, home);
+  const grantDir = expandHomePath(rules.grant.dir, home);
+  const identityDir = expandHomePath(rules.identity.dir, home);
   let upstream: Client | undefined;
   const remembered = new Map<string, string | undefined>();
 
@@ -159,6 +362,22 @@ export function createProxyServer(opts: ProxyOptions): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const client = await ensureUpstream();
     const result = await client.listTools();
+    // G6：工具元数据验证——描述是 server 可控的自由文本，命中用户规则即记账
+    const metadataHits = matchToolMetadata(rules, result.tools);
+    for (const hit of metadataHits) {
+      audit.append({
+        kind: 'metadata',
+        agent,
+        session: 'cli-v0',
+        server: serverName,
+        tool: hit.tool,
+        argsHash: hashValue({ rule: hit.ruleId }),
+        decision: 'allow',
+        outcome: 'ok',
+        reason: `tool_metadata_suspect: ${hit.ruleId}${hit.why ? ` — ${hit.why}` : ''}`,
+        policyVersion: policy.version,
+      });
+    }
     return { tools: result.tools as Tool[] };
   });
 
@@ -170,11 +389,12 @@ export function createProxyServer(opts: ProxyOptions): Server {
     const blocked = (
       decision: 'deny' | 'approve',
       reason: string,
-      extra?: { approver?: string },
+      extra?: { approver?: string; kind?: AuditKind },
     ): CallToolResult => {
       audit.append({
         ...ctx,
         session: 'cli-v0',
+        kind: extra?.kind,
         argsHash: hashValue(args),
         decision,
         outcome: 'blocked',
@@ -188,7 +408,10 @@ export function createProxyServer(opts: ProxyOptions): Server {
       };
     };
 
-    const forward = async (decision: 'allow' | 'approve', extra?: { approver?: string; reason?: string }): Promise<CallToolResult> => {
+    const forward = async (
+      decision: 'allow' | 'approve',
+      extra?: { approver?: string; reason?: string; kind?: AuditKind },
+    ): Promise<CallToolResult> => {
       const client = await ensureUpstream();
       let snapshotId: string | undefined;
       if (opts.onBeforeForward) {
@@ -235,7 +458,8 @@ export function createProxyServer(opts: ProxyOptions): Server {
         });
         throw err;
       }
-      const injection = matchInjectionSignal(result);
+      // G4：注入信号词表来自用户规则（rules.injection.signals）
+      const injection = matchInjectionSignal(result, rules.injection.signals);
       if (injection) {
         audit.append({
           ...ctx,
@@ -309,6 +533,7 @@ export function createProxyServer(opts: ProxyOptions): Server {
       audit.append({
         ...ctx,
         session: 'cli-v0',
+        kind: extra?.kind,
         argsHash: hashValue(args),
         decision,
         outcome: result.isError ? 'error' : 'ok',
@@ -320,6 +545,26 @@ export function createProxyServer(opts: ProxyOptions): Server {
       });
       return result;
     };
+
+    // G8 熔断：被熔断的 agent 一律 deny（record-only 模式除外——那是"绝不阻断"的承诺）
+    if (!recordOnly) {
+      const quarantine = checkQuarantine(agent, quarantineFile);
+      if (quarantine.quarantined) {
+        return blocked('deny', `agent_quarantined: ${quarantine.reason}`, { kind: 'quarantine' });
+      }
+    }
+
+    // G15 egress：只对参数里出现的 URL 主机判定；deny > approve > allow
+    const egress = checkEgress(rules, args);
+    let decision: 'allow' | 'deny' | 'approve' = verdict.decision;
+    let reason = verdict.reason;
+    if (egress.decision === 'deny') {
+      decision = 'deny';
+      reason = `${egress.reason}（策略判定：${verdict.reason}）`;
+    } else if (egress.decision === 'approve' && decision === 'allow') {
+      decision = 'approve';
+      reason = egress.reason ?? reason;
+    }
 
     if (recordOnly) {
       // 只录不拦：求值结果作为 decision 标注写入审计，但一律放行
@@ -335,9 +580,9 @@ export function createProxyServer(opts: ProxyOptions): Server {
           ...ctx,
           session: 'cli-v0',
           argsHash: hashValue(args),
-          decision: verdict.decision,
+          decision,
           outcome: 'error',
-          reason: `${verdict.reason} (record-only) | ${err instanceof Error ? err.message : String(err)}`,
+          reason: `${reason} (record-only) | ${err instanceof Error ? err.message : String(err)}`,
           enforced: false,
           policyVersion: policy.version,
         });
@@ -347,9 +592,9 @@ export function createProxyServer(opts: ProxyOptions): Server {
         ...ctx,
         session: 'cli-v0',
         argsHash: hashValue(args),
-        decision: verdict.decision,
+        decision,
         outcome: result.isError ? 'error' : 'ok',
-        reason: `${verdict.reason} (record-only)`,
+        reason: `${reason} (record-only)`,
         outputHash: hashValue(result.content),
         enforced: false,
         policyVersion: policy.version,
@@ -357,9 +602,9 @@ export function createProxyServer(opts: ProxyOptions): Server {
       return result;
     }
 
-    if (verdict.decision === 'deny') return blocked('deny', verdict.reason);
+    if (decision === 'deny') return blocked('deny', reason);
 
-    if (verdict.decision === 'approve') {
+    if (decision === 'approve') {
       const key = `${serverName}:${name}`;
       if (rememberApprovals && remembered.has(key)) {
         return forward('approve', {
@@ -367,8 +612,26 @@ export function createProxyServer(opts: ProxyOptions): Server {
           reason: 'session-remembered approval',
         });
       }
+      // G12 JIT：有效令牌直接放行（签名 + 有效期 + 作用域 + 未消费）
+      const covering = findCoveringGrant({
+        dir: grantDir,
+        call: { agent, server: serverName, tool: name },
+        identityDir,
+      });
+      if (covering) {
+        if (covering.grant.claims.singleUse) markGrantConsumed(covering.file);
+        return forward('approve', {
+          approver: covering.grant.claims.issuedBy,
+          reason: `jit-grant:${covering.grant.claims.id}${covering.grant.claims.reason ? ` (${covering.grant.claims.reason})` : ''}`,
+        });
+      }
+      if (rules.grant.requiredForApprove) {
+        return blocked('approve', `approval requires a JIT grant (rules.grant.requiredForApprove): ${reason}`, {
+          kind: 'grant',
+        });
+      }
       if (!approval) {
-        return blocked('approve', `approval flow not configured (fail-closed): ${verdict.reason}`);
+        return blocked('approve', `approval flow not configured (fail-closed): ${reason}`);
       }
       // id 唯一化: 同机多网关(多 agent)共享 pending 目录,仅 server-序号会在
       // 各进程间碰撞(都从 1 开始)并互相"蹭"审批;加 pid 后跨进程不重复

@@ -117,6 +117,12 @@ Compared with the rest of the market: platform-native sandboxes (Claude Code, Co
 - **Rollback points** — `pod serve --snapshot` captures write operations; `pod rollback` restores files.
 - **Coverage + drift** — `pod coverage --strict` exits non-zero when an MCP server is bypassing the gateway.
 - **Supply-chain gate (T4)** — the gateway validates the declared server source (`command` / `package` / `version`) before startup.
+- **Control-plane posture (`pod posture`)** — same rules, applied to the control plane: lifecycle hooks, frozen config, memory files, MCP package sources, agent identities, delegation chains. Drift is reported against a `pod posture freeze` baseline; `--strict` exits 1.
+- **User-owned rules** — every verdict comes from `~/.pod/rules.json` (or `--rules <file>`): risk patterns, severities, thresholds, trusted sources, egress lists. Code ships defaults; you own the decisions. Invalid rules fail closed.
+- **Agent identities + delegation narrowing (`pod identity` / `pod delegate`)** — ed25519 keypair per agent; delegations are signed hop-by-hop and must narrow capabilities; `--ttl` bounds every hop.
+- **JIT grants (`pod grant`)** — signed, time-boxed, scope-limited tokens; a valid grant satisfies an `approve` decision without a human in the loop, and single-use grants are consumed atomically.
+- **Circuit breaker (`pod quarantine`)** — quarantine an agent and the gateway denies its calls on the next invocation (no restart), with the decision written to the audit chain.
+- **Trust-propagation anomalies + pollution tracing (`pod anomaly` / `pod trace`)** — thresholds from `rules.anomaly`; trace walks the delegation chain and the audit chain to find where a poisoned agent came from and who it could reach.
 
 ## Policy example
 
@@ -159,6 +165,13 @@ pod coverage        managed vs. unmanaged MCP servers; --strict exits 1 on drift
 pod export-evidence / verify-evidence   export & verify evidence bundles
 pod lint | doctor   policy lint / environment health
 pod scan            free local security scan (config & bypass checks)
+pod posture [freeze]   control-plane posture: hooks / frozen config / memory / packages / identities / delegations
+pod identity           per-agent ed25519 identity: init | list | verify
+pod delegate           signed delegation: issue | verify | check (capability narrowing)
+pod grant              JIT capability tokens: issue | list (signed, TTL, scope, single-use)
+pod quarantine         circuit breaker: list | add | remove (enforced by the gateway)
+pod anomaly            convention-burst / capability-spread signals over the rules window
+pod trace <agent>      pollution tracing: delegation chain + related audit entries
 pod graph build     static capability graph from agent configs + tool schemas
 pod graph toxic     source→sink toxic paths + targeted policy diff
 pod graph explain   trace a path back to evidence
@@ -179,6 +192,7 @@ pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 - [Positioning & wedge](docs/positioning.md)
 - [Threat model](docs/threat-model.md)
 - [Egress defense](docs/egress-defense.md)
+- [Control-plane hardening (requirements + design)](docs/control-plane-hardening.md)
 - [Agent onboarding](docs/agent-onboarding.md)
 - [Automation (launchd/systemd/cron)](docs/automation.md)
 

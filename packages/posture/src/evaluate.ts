@@ -1,0 +1,306 @@
+/**
+ * 规则 × 事实 → findings。
+ * 所有阈值、正则、严重级别都来自 RuleSet（用户可编辑）；
+ * 这里不出现魔法数字，唯一例外是"没有基线时不做漂移判定"这一结构性判断。
+ */
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import type { RuleSet, Severity } from '@podsec/policy';
+import { expandHome } from '@podsec/policy';
+import type { Baseline, Facts, Finding } from './types.js';
+import { SEVERITY_ORDER } from './types.js';
+
+function shortId(...parts: string[]): string {
+  return parts.filter(Boolean).join(':');
+}
+
+/** 基线指纹：只用内容哈希，不存原文（T2 原则） */
+export function buildBaseline(facts: Facts, now: Date = new Date()): Baseline {
+  const configs: Record<string, string> = {};
+  for (const c of facts.configs) if (c.exists && c.hash) configs[c.path] = c.hash;
+  const memory: Record<string, string> = {};
+  for (const m of facts.memory) if (m.exists && m.hash) memory[m.path] = m.hash;
+  const hooks: Record<string, string> = {};
+  for (const h of facts.hooks) hooks[`${h.file}#${h.index}`] = h.fingerprint;
+  const packages: Record<string, string> = {};
+  for (const p of facts.packages) packages[p.server] = p.fingerprint;
+  return { v: 1, createdAt: now.toISOString(), configs, memory, hooks, packages };
+}
+
+export interface LoadedBaseline {
+  baseline: Baseline;
+  path: string;
+}
+
+export function parseBaseline(text: string): Baseline {
+  const raw = JSON.parse(text) as Partial<Baseline>;
+  if (raw.v !== 1 || typeof raw.configs !== 'object') {
+    throw new Error('基线文件格式不支持（期望 v=1）');
+  }
+  return {
+    v: 1,
+    createdAt: raw.createdAt ?? '',
+    configs: raw.configs ?? {},
+    memory: raw.memory ?? {},
+    hooks: raw.hooks ?? {},
+    packages: raw.packages ?? {},
+  };
+}
+
+/** 命中 glob 的路径（** 与 * 都支持）；用于 trustedSources 判定 */
+function matchesGlob(path: string, pattern: string, home: string): boolean {
+  const re = new RegExp(
+    '^' +
+      expandHome(pattern, home)
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*\*/g, '\u0000')
+        .replace(/\*/g, '[^/]*')
+        .replace(/\u0000/g, '.*') +
+      '$',
+  );
+  return re.test(path);
+}
+
+// ---------- 钩子（G3） ----------
+
+export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline | null, home: string): Finding[] {
+  const findings: Finding[] = [];
+  const patterns = rules.hookRisk.riskPatterns.map((p) => ({ ...p, regex: new RegExp(p.re) }));
+
+  for (const hook of facts.hooks) {
+    const trusted = rules.hookRisk.trustedSources.some((p) => matchesGlob(hook.file, p, home));
+    for (const p of patterns) {
+      if (!p.regex.test(hook.command)) continue;
+      const severity: Severity = trusted ? 'low' : p.severity;
+      findings.push({
+        id: shortId('hook', `${hook.file}#${hook.index}`, p.id),
+        category: 'hook',
+        severity,
+        subject: `${hook.event} @ ${hook.file}`,
+        message: `${p.why ?? '钩子命中风险规则' }（规则 ${p.id}）：${hook.command}`,
+        evidence: [hook.command],
+      });
+    }
+    if (rules.hookRisk.requireSigned) {
+      const sigFile = `${hook.file}.sig`;
+      if (!existsSync(sigFile)) {
+        findings.push({
+          id: shortId('hook', `${hook.file}#${hook.index}`, 'unsigned'),
+          category: 'hook',
+          severity: 'medium',
+          subject: `${hook.event} @ ${hook.file}`,
+          message: `钩子配置没有配套签名（${sigFile} 不存在），无法验证来源与时效`,
+        });
+      }
+    }
+  }
+
+  if (baseline) {
+    const changeSeverity: Severity = rules.freeze.requireApprovalToChange ? 'high' : 'medium';
+    const current = new Map<string, string>();
+    for (const h of facts.hooks) current.set(`${h.file}#${h.index}`, h.fingerprint);
+    for (const [key, hash] of current) {
+      const before = baseline.hooks[key];
+      if (before === undefined) {
+        findings.push({
+          id: shortId('hook', key, 'added'),
+          category: 'hook',
+          severity: changeSeverity,
+          subject: key,
+          message: '基线之后新增了生命周期钩子（hook 以主机权限运行，需人工确认来源）',
+        });
+      } else if (before !== hash) {
+        findings.push({
+          id: shortId('hook', key, 'changed'),
+          category: 'hook',
+          severity: changeSeverity,
+          subject: key,
+          message: '生命周期钩子内容与基线不一致（可能被插件更新静默改写）',
+        });
+      }
+    }
+    for (const key of Object.keys(baseline.hooks)) {
+      if (!current.has(key)) {
+        findings.push({
+          id: shortId('hook', key, 'removed'),
+          category: 'hook',
+          severity: 'low',
+          subject: key,
+          message: '基线中的钩子已消失（确认是否为正常卸载）',
+        });
+      }
+    }
+  }
+
+  return findings;
+}
+
+// ---------- 配置冻结（G2） ----------
+
+export function evaluateConfigs(rules: RuleSet, facts: Facts, baseline: Baseline | null): Finding[] {
+  const findings: Finding[] = [];
+  const severity: Severity = rules.freeze.requireApprovalToChange ? 'high' : 'medium';
+  if (!baseline) return findings;
+  for (const fact of facts.configs) {
+    if (!fact.exists || !fact.hash) continue;
+    const before = baseline.configs[fact.path];
+    if (before === undefined) {
+      findings.push({
+        id: shortId('config', fact.path, 'added'),
+        category: 'config',
+        severity,
+        subject: fact.path,
+        message: '基线之后新出现的被冻结配置文件（未经带外审批的变更）',
+      });
+    } else if (before !== fact.hash) {
+      findings.push({
+        id: shortId('config', fact.path, 'changed'),
+        category: 'config',
+        severity,
+        subject: fact.path,
+        message: '冻结项内容与基线不一致（审批模式、网关地址、权限范围可能被降级）',
+      });
+    }
+  }
+  for (const path of Object.keys(baseline.configs)) {
+    if (!facts.configs.some((c) => c.path === path && c.exists)) {
+      findings.push({
+        id: shortId('config', path, 'removed'),
+        category: 'config',
+        severity: 'low',
+        subject: path,
+        message: '基线中的配置文件已不存在',
+      });
+    }
+  }
+  return findings;
+}
+
+// ---------- 记忆完整性（G14） ----------
+
+export function evaluateMemory(facts: Facts, baseline: Baseline | null): Finding[] {
+  const findings: Finding[] = [];
+  if (!baseline) return findings;
+  for (const fact of facts.memory) {
+    if (!fact.exists || !fact.hash) continue;
+    const before = baseline.memory[fact.path];
+    if (before === undefined) continue;
+    if (before !== fact.hash) {
+      findings.push({
+        id: shortId('memory', fact.path, 'changed'),
+        category: 'memory',
+        severity: 'high',
+        subject: fact.path,
+        message: '长期记忆文件与基线不一致——记忆投毒会影响当前与后续会话，需人工确认写入来源',
+      });
+    }
+  }
+  return findings;
+}
+
+// ---------- MCP 包来源（G5） ----------
+
+export function evaluatePackages(rules: RuleSet, facts: Facts, baseline: Baseline | null): Finding[] {
+  const findings: Finding[] = [];
+  for (const pkg of facts.packages) {
+    if (rules.packages.requireVersionPin && !pkg.pinned) {
+      findings.push({
+        id: shortId('package', pkg.server, 'unpinned'),
+        category: 'package',
+        severity: 'medium',
+        subject: pkg.server,
+        message: `MCP server 来源未锁定版本（${pkg.source}）——上游更新会直接进入你的机器`,
+        evidence: [pkg.source],
+      });
+    }
+    if (rules.packages.requireIntegrity && baseline) {
+      const before = baseline.packages[pkg.server];
+      if (before !== undefined && before !== pkg.fingerprint) {
+        findings.push({
+          id: shortId('package', pkg.server, 'source-changed'),
+          category: 'package',
+          severity: 'high',
+          subject: pkg.server,
+          message: '同名 MCP server 的启动命令/参数与基线不一致（可能被换成另一个包）',
+          evidence: [pkg.source],
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+// ---------- 身份（G11） ----------
+
+export function evaluateIdentities(rules: RuleSet, facts: Facts): Finding[] {
+  const findings: Finding[] = [];
+  if (!rules.identity.required) return findings;
+  for (const id of facts.identities) {
+    if (id.origin.length === 1 && id.origin[0] === 'identity') continue; // 只有身份、没有使用者
+    if (!id.hasIdentity) {
+      findings.push({
+        id: shortId('identity', id.agent, 'missing'),
+        category: 'identity',
+        severity: 'high',
+        subject: id.agent,
+        message: '这个 agent 没有独立密码学身份（共享凭证无法回答"是谁做的"）',
+      });
+      continue;
+    }
+    if (!id.hasPrivateKey) {
+      findings.push({
+        id: shortId('identity', id.agent, 'key-missing'),
+        category: 'identity',
+        severity: 'medium',
+        subject: id.agent,
+        message: `身份存在但私钥缺失，无法签名（fingerprint=${id.fingerprint}）`,
+      });
+    }
+  }
+  return findings;
+}
+
+// ---------- 委托链（G13） ----------
+
+export function evaluateDelegations(facts: Facts): Finding[] {
+  const findings: Finding[] = [];
+  for (const d of facts.delegations) {
+    if (d.ok) continue;
+    findings.push({
+      id: shortId('delegation', d.file, 'invalid'),
+      category: 'delegation',
+      severity: 'high',
+      subject: d.file,
+      message: `委托链校验失败：${d.errors.join('；')}`,
+      evidence: d.hops,
+    });
+  }
+  return findings;
+}
+
+export interface EvaluateOptions {
+  home: string;
+}
+
+export function evaluatePosture(
+  rules: RuleSet,
+  facts: Facts,
+  baseline: Baseline | null,
+  opts: EvaluateOptions,
+): Finding[] {
+  const findings = [
+    ...evaluateHooks(rules, facts, baseline, opts.home),
+    ...evaluateConfigs(rules, facts, baseline),
+    ...evaluateMemory(facts, baseline),
+    ...evaluatePackages(rules, facts, baseline),
+    ...evaluateIdentities(rules, facts),
+    ...evaluateDelegations(facts),
+  ];
+  return findings.sort(
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.id.localeCompare(b.id),
+  );
+}
+
+export function fingerprintOf(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
+}

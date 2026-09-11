@@ -1,5 +1,5 @@
 {
-  "name": "@podsec/gateway",
+  "name": "@podsec/posture",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -8,16 +8,15 @@
       "default": "./dist/index.js"
     }
   },
+  "dependencies": {
+    "@podsec/audit": "workspace:*",
+    "@podsec/identity": "workspace:*",
+    "@podsec/policy": "workspace:*",
+    "@podsec/scan": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@podsec/audit": "workspace:*",
-    "@podsec/identity": "workspace:*",
-    "@podsec/policy": "workspace:*",
-    "zod": "^3.25.76"
   }
 }
