@@ -1071,6 +1071,15 @@ async function main(): Promise<void> {
     if (result.total_synced === 0) log('nothing to sync');
     for (const srv of result.servers) log(`synced ${srv.synced} events from "${srv.server}"`);
     for (const b of result.bindings) log(`total synced: ${b.synced} (agent #${b.agent_id})`);
+    // 逐项报失败但整体继续:一条死 token / 一条断链不该让整台机器停止上云。
+    // 退出码仍置 1,让脚本与自动化能发现"没有全部成功"。
+    for (const f of result.failures) {
+      log(`✗ agent #${f.agent_id}${f.server ? ` server=${f.server}` : ''}: ${f.message}`);
+    }
+    if (result.failures.length > 0) {
+      log(`${result.failures.length} 项失败，其余已照常同步；修好上面这些再跑一次 pod sync。`);
+      process.exitCode = 1;
+    }
     return;
   }
 

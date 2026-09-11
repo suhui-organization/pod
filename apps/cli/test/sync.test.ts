@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
@@ -30,6 +30,8 @@ function startMockCloud(): {
 } {
   const tails = new Map<string, string>();
   const received = new Map<string, number>();
+  // 只有这两个 token 有效；其余一律 401（模拟被轮换/被删的 agent）
+  const validTokens = new Set(['test-token', 'ok-token']);
   let policies: MockPolicy[] = [];
   const server: Server = createServer((req, res) => {
     if (req.url?.endsWith('/api/v1/sync/policies') && req.method === 'GET') {
@@ -37,8 +39,24 @@ function startMockCloud(): {
       res.end(JSON.stringify({ agent_id: 1, policies }));
       return;
     }
+    const authorized = validTokens.has(String(req.headers['x-sync-token'] ?? ''));
+    if (req.url?.endsWith('/api/v1/sync/ping') && req.method === 'POST') {
+      if (!authorized) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'sync token 无效' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ pong: true, agent_id: 1, event_count: 0 }));
+      return;
+    }
     if (req.method !== 'POST' || !req.url?.endsWith('/api/v1/sync/events')) {
       res.writeHead(404).end();
+      return;
+    }
+    if (!authorized) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ detail: 'sync token 无效' }));
       return;
     }
     let body = '';
@@ -164,19 +182,55 @@ describe('pod sync (mock Pod Cloud)', () => {
     expect((await runSync(opts())).total_synced).toBe(0);
   });
 
-  it('reports 409 with a clear message when the chain is broken', async () => {
-    // 清空本地审计但保留游标 → 重建一条 prev_hash 不同的链（模拟本地链重置）
+  it('一条断链只标记它自己，不拖垮其它链，也不推进它的游标', async () => {
+    // 制造一条 prev_hash 对不上的链（模拟本地链被重置/分叉）
     const log = new AuditLog('0.1.0');
     log.append({
       agent: 'test', session: 's', server: 'broken', tool: 'x',
       argsHash: 'a'.padEnd(64, '0'), decision: 'allow', outcome: 'ok', policyVersion: '0.1.0',
     });
-    // 手动篡改 prev_hash 制造断链
     const entry = { ...log.entries[0]!, prevHash: 'f'.repeat(64) };
     const broken = new AuditLog('0.1.0');
     (broken as unknown as { entries: unknown[] }).entries = [entry];
     writeFileSync(join(auditDir, 'broken.jsonl'), broken.toJSONL(), 'utf8');
-    await expect(runSync(opts())).rejects.toThrow(/哈希链断裂/);
+    // 同时放一条健康链：它必须照常上去
+    writeAuditFile(auditDir, 'healthy', 2);
+
+    const r = await runSync(opts());
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0]!.server).toBe('broken');
+    expect(r.failures[0]!.message).toMatch(/哈希链断裂/);
+    expect(r.total_synced).toBe(2);
+    expect(cloud.received.get('healthy')).toBe(2);
+
+    // 失败的那条链不能推进游标,否则事件会被永久跳过
+    const state = JSON.parse(
+      readFileSync(join(process.env.HOME!, '.pod', 'sync-state', '1.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(state.broken).toBeUndefined();
+  });
+
+  it('一个死 token 的绑定不阻断其它绑定', async () => {
+    writeAuditFile(auditDir, 'multi', 1);
+    // 多绑定只能走 cloud.json
+    const cfgPath = join(process.env.HOME!, '.pod', 'cloud.json');
+    writeFileSync(
+      cfgPath,
+      JSON.stringify({
+        api_url: cloud.url,
+        agents: [
+          { local_agent: 'test', agent_id: 99, sync_token: 'dead-token' },
+          { local_agent: 'test', agent_id: 1, sync_token: 'test-token' },
+        ],
+      }),
+      'utf8',
+    );
+
+    const r = await runSync({ config: cfgPath, auditDir });
+    // 死绑定被逐个记下来(推送 401 + 心跳 401),而不是让整次同步崩掉
+    expect(r.failures.some((f) => f.agent_id === 99 && /401/.test(f.message))).toBe(true);
+    // 正常绑定照常同步
+    expect(r.bindings.find((b) => b.agent_id === 1)!.synced).toBeGreaterThan(0);
   });
 });
 

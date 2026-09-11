@@ -39,6 +39,13 @@ export interface SyncResult {
   total_synced: number;
   /** 每个绑定本次推送数（多 agent 时用于正确标注归属，不再笼统显示首个绑定） */
   bindings: Array<{ agent_id: number; synced: number }>;
+  /**
+   * 本次失败项（空数组 = 全部成功）。
+   *
+   * 逐项失败不再中断其余绑定/链：一条死 token 或一条断链不该让整台机器
+   * 停止上云。失败的链**不推进游标**，修好后重跑会从原处重试。
+   */
+  failures: Array<{ agent_id: number; server?: string; message: string }>;
 }
 
 export function loadCloudConfig(configPath?: string): CloudConfig {
@@ -281,6 +288,7 @@ export async function runSync(opts: {
 
   const servers: SyncResult['servers'] = [];
   const perBinding: Array<{ agent_id: number; synced: number }> = [];
+  const failures: SyncResult['failures'] = [];
   let total = 0;
   for (const b of bindings) {
     const cursor = loadSyncState(b.agent_id);
@@ -288,33 +296,42 @@ export async function runSync(opts: {
     const newCursor = { ...cursor };
     let boundTotal = 0;
     for (const { server, events } of pending) {
-      let synced = 0;
-      for (let i = 0; i < events.length; i += 500) {
-        const batch = events.slice(i, i + 500);
-        const res = await pushBatch(
-          { api_url: cfg.api_url, sync_token: b.sync_token },
+      try {
+        let synced = 0;
+        for (let i = 0; i < events.length; i += 500) {
+          const batch = events.slice(i, i + 500);
+          const res = await pushBatch(
+            { api_url: cfg.api_url, sync_token: b.sync_token },
+            server,
+            batch,
+          );
+          synced += res.synced;
+        }
+        newCursor[server] = events[events.length - 1]!.hash as string;
+        total += synced;
+        boundTotal += synced;
+        servers.push({ server, synced, skipped: 0 });
+      } catch (err: unknown) {
+        // 只记这一条链的失败，继续跑其它链。关键：**不推进游标**——
+        // 推进了就等于把没传上去的事件永久跳过，而用户以为已经同步过了。
+        failures.push({
+          agent_id: b.agent_id,
           server,
-          batch,
-        );
-        synced += res.synced;
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
-      newCursor[server] = events[events.length - 1]!.hash as string;
-      total += synced;
-      boundTotal += synced;
-      servers.push({ server, synced, skipped: 0 });
     }
     saveSyncState(b.agent_id, newCursor);
     // 心跳:即使 0 条新事件也刷新在线状态(规模化后 agent 在线不依赖新审计)
-    // 401 = token 失效(轮换过),必须显式抛出,否则 0 事件场景会静默掉线,
-    // setup-agent 的 401 自愈分支也就无从触发。
+    // 401 = token 失效(轮换过 / agent 被删过),同样只记这一项,不拖垮其它绑定。
     const ping = await fetch(`${cfg.api_url}/api/v1/sync/ping`, {
       method: 'POST',
       headers: { 'X-Sync-Token': b.sync_token },
     }).catch(() => null);
     if (ping && ping.status === 401) {
-      throw new Error(`同步失败 HTTP 401：sync token 无效 (agent #${b.agent_id})`);
+      failures.push({ agent_id: b.agent_id, message: 'sync token 无效（HTTP 401）' });
     }
     perBinding.push({ agent_id: b.agent_id, synced: boundTotal });
   }
-  return { agent_id: bindings[0]!.agent_id, servers, total_synced: total, bindings: perBinding };
+  return { agent_id: bindings[0]!.agent_id, servers, total_synced: total, bindings: perBinding, failures };
 }
