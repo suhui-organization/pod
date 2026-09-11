@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AuditLog, loadAuditFile } from '@podsec/audit';
-import { appendControlEvent } from '../src/control-plane.js';
+import { appendControlEvent, CONTROL_CHAIN } from '../src/control-plane.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_INDEX = join(HERE, '../src/index.ts');
@@ -157,17 +157,34 @@ describe('pod anomaly / trace', () => {
       agent: '_control',
       kind: 'hook',
       reason: `posture:hook:${longPath}:net-egress`,
-      server: 'hook',
       tool: longPath,
     });
     const log = loadAuditFile(join(auditDir, '_control/control.jsonl'), 'control');
     const entry = log.entries[0]!;
     expect(log.verify().ok).toBe(true);
+    // 链标识必须与文件名一致：pod sync 按文件分批、服务端按 events[0].server 找链，
+    // 同一文件里 server 不一致会被判成断链（409）
+    expect(entry.server).toBe(CONTROL_CHAIN);
     // 云端 schema：server ≤64、tool ≤128、reason ≤2000
     expect(entry.server.length).toBeLessThanOrEqual(64);
     expect(entry.tool.length).toBeLessThanOrEqual(128);
     expect(entry.reason!.length).toBeLessThanOrEqual(2000);
     expect(AuditLog.fromJSONL(JSON.stringify(entry) + '\n', 'control').entries[0]!.kind).toBe('hook');
+  });
+
+  it('同一 agent 的控制平面事件共用一条链标识（跨类别也不换 server）', () => {
+    for (const [kind, tool] of [
+      ['hook', 'hook'],
+      ['config-change', 'config'],
+      ['identity', 'identity'],
+      ['quarantine', '-'],
+    ] as const) {
+      appendControlEvent({ auditDir, agent: 'codex', kind, reason: `${kind}:x`, tool });
+    }
+    const log = loadAuditFile(join(auditDir, 'codex/control.jsonl'), 'control');
+    expect(log.entries.map((e) => e.server)).toEqual(['control', 'control', 'control', 'control']);
+    expect(log.entries.map((e) => e.kind)).toEqual(['hook', 'config-change', 'identity', 'quarantine']);
+    expect(log.verify().ok).toBe(true);
   });
 
   it('窗口内委托签发超过阈值时报异常并退出码 1', () => {

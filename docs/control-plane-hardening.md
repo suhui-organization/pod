@@ -220,3 +220,23 @@ pod posture --strict                  # 3. 挂 CI/定时任务，漂移即告警
 pod quarantine add --agent <agent>    # 4. 出事时熔断（网关下一次调用即生效）
 pod trace <agent>                     # 5. 追污染源与影响面
 ```
+
+### 5.3 云端集成（podcloud）
+
+控制平面事件可以随 `pod sync` 上云，服务端落在独立的 `pod_control_events` 表，
+由 `GET /api/v1/control-events` 与 `/control-events/summary` 展示（前端「控制平面」页）。
+
+两条**必须记住的约束**（踩过一次，写在这里避免复发）：
+
+1. **`server` 是哈希链的标识，不是事件的语义字段。**
+   `pod sync` 按审计文件分批推送，服务端用 `events[0].server` 找回该链的链尾。
+   因此同一文件里的所有事件必须共用同一个 `server` 值——控制平面事件统一为
+   `control`（与 `control.jsonl` 对齐），类别放在 `tool`（如 `hook` / `config`）。
+   早期版本把 `server` 填成 finding 类别，同一个文件里 `server` 不一致，
+   服务端会判成断链（409）。`apps/cli/test/control-plane.test.ts` 有回归用例。
+2. **字段长度要对齐云端 schema。** `server` ≤64、`tool` ≤128、`reason` ≤2000；
+   `appendControlEvent` 在出链处统一截断，避免一条长路径让整批同步 422。
+
+云端不存 severity（只存 `kind`/`decision`），展示级别由服务端推导，响应里带
+`severity_source=derived`。要让云端保留真实 severity，需要在 `AuditEntry` 上加字段，
+属于后续项。

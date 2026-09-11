@@ -74,7 +74,12 @@ export interface ControlEvent {
   agent: string;
   kind: AuditKind;
   reason: string;
-  server?: string;
+  /**
+   * 事件短标签（hook/config/delegate 之类）。
+   * 注意：`server` 不开放给调用方——它是**哈希链的标识**，必须与审计文件名
+   * （control.jsonl）一致。pod sync 按文件分批、服务端按 events[0].server 找链，
+   * 同一个文件里 server 不一致会被判成断链（409）。
+   */
   tool?: string;
   decision?: 'allow' | 'deny' | 'approve';
   outcome?: 'ok' | 'error' | 'blocked';
@@ -91,6 +96,9 @@ function clamp(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
+/** 控制平面事件所在的链标识，必须与审计文件名 control.jsonl 一致 */
+export const CONTROL_CHAIN = 'control';
+
 /** 追加一条控制平面事件；bolts 到该 agent 的 control.jsonl 链尾 */
 export function appendControlEvent(event: ControlEvent): AuditEntry {
   const path = join(event.auditDir, event.agent, 'control.jsonl');
@@ -101,7 +109,7 @@ export function appendControlEvent(event: ControlEvent): AuditEntry {
     kind: event.kind,
     agent: event.agent,
     session: 'control-plane',
-    server: clamp(event.server ?? '-', 64),
+    server: CONTROL_CHAIN,
     tool: clamp(event.tool ?? '-', 128),
     argsHash: hashValue(event.payload ?? { reason: event.reason }),
     decision: event.decision ?? 'allow',
@@ -163,7 +171,6 @@ export function runPosture(opts: PostureOptions & { strict?: boolean }): Posture
         agent: agentOf(finding),
         kind: kindOf(finding),
         reason: `posture:${finding.id}:${finding.message}`,
-        server: finding.category,
         // tool 只放短标签：完整定位串在 reason 里（云端 tool 上限 128 字符）
         tool: finding.category,
         decision: 'allow',
@@ -318,7 +325,6 @@ export function delegateIssue(opts: DelegateIssueOptions): { file: string; token
     agent: opts.parent,
     kind: 'delegation',
     reason: `delegation:issue:${opts.parent}→${opts.child}:capabilities=${token.capabilities.join(',')}`,
-    server: opts.child,
     tool: 'delegate',
     payload: { capabilities: token.capabilities, depth: token.depth, expiresAt: token.expiresAt },
   });
