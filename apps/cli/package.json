@@ -13,6 +13,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@podsec/audit": "workspace:*",
+    "@podsec/console": "workspace:*",
     "@podsec/gateway": "workspace:*",
     "@podsec/graph": "workspace:*",
     "@podsec/policy": "workspace:*",

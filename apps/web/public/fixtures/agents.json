@@ -1,0 +1,163 @@
+{
+  "generatedAt": "2026-09-10T02:10:00.000Z",
+  "podHome": "/Users/you/.pod",
+  "dirs": {
+    "policies": "/Users/you/.pod/policies",
+    "audit": "/Users/you/.pod/audit",
+    "graph": "/Users/you/.pod/graph"
+  },
+  "agents": [
+    {
+      "id": "claude-code",
+      "label": "claude-code",
+      "platform": "Claude Code",
+      "status": "active",
+      "policy": { "file": "claude-code.json", "version": "3", "defaultDecision": "deny" },
+      "permissions": { "servers": 4, "tools": 17, "allow": 9, "approve": 5, "deny": 3 },
+      "risks": [
+        {
+          "kind": "toxic-path",
+          "severity": "high",
+          "label": "存在毒性链",
+          "detail": "read-secret → external-communication：read_file + http_post",
+          "count": 2
+        },
+        {
+          "kind": "unpinned-package",
+          "severity": "medium",
+          "label": "MCP server 未锁定版本",
+          "detail": "@modelcontextprotocol/server-github",
+          "count": 1
+        }
+      ],
+      "activity": {
+        "entries": 1841,
+        "lastCallAt": "2026-09-10T02:04:12.000Z",
+        "calls7d": [12, 40, 33, 71, 129, 88, 23],
+        "calls7dTotal": 396,
+        "deny7d": 7,
+        "approve7d": 11,
+        "lastDecision": {
+          "decision": "approve",
+          "server": "github",
+          "tool": "create_pull_request",
+          "at": "2026-09-10T02:04:12.000Z",
+          "enforced": true,
+          "reason": "tool \"create_pull_request\" is allowed on \"github\""
+        }
+      }
+    },
+    {
+      "id": "cursor",
+      "label": "cursor",
+      "platform": "Cursor",
+      "status": "idle",
+      "policy": { "file": "cursor.json", "version": "1", "defaultDecision": "deny" },
+      "permissions": { "servers": 2, "tools": 6, "allow": 4, "approve": 2, "deny": 0 },
+      "risks": [
+        {
+          "kind": "no-activity",
+          "severity": "low",
+          "label": "未观测到调用",
+          "detail": "策略已登记，但审计里没有它的调用记录（策略从行为编译，未观测 = 依据不足）",
+          "count": 0
+        }
+      ],
+      "activity": {
+        "entries": 0,
+        "lastCallAt": null,
+        "calls7d": [0, 0, 0, 0, 0, 0, 0],
+        "calls7dTotal": 0,
+        "deny7d": 0,
+        "approve7d": 0,
+        "lastDecision": null
+      }
+    },
+    {
+      "id": "openclaw",
+      "label": "openclaw",
+      "platform": "OpenClaw",
+      "status": "active",
+      "policy": { "file": "openclaw.json", "version": "2", "defaultDecision": "deny" },
+      "permissions": { "servers": 5, "tools": 23, "allow": 13, "approve": 6, "deny": 4 },
+      "risks": [
+        {
+          "kind": "sensitive-path",
+          "severity": "high",
+          "label": "触发敏感路径拒绝",
+          "detail": "~/.ssh、.env",
+          "count": 5
+        },
+        {
+          "kind": "toxic-path",
+          "severity": "medium",
+          "label": "存在毒性链",
+          "detail": "read-private-data → external-communication：read_file + browser_fetch",
+          "count": 1
+        }
+      ],
+      "activity": {
+        "entries": 612,
+        "lastCallAt": "2026-09-09T21:41:03.000Z",
+        "calls7d": [4, 18, 26, 9, 31, 44, 12],
+        "calls7dTotal": 144,
+        "deny7d": 5,
+        "approve7d": 3,
+        "lastDecision": {
+          "decision": "deny",
+          "server": "filesystem",
+          "tool": "read_file",
+          "at": "2026-09-09T21:41:03.000Z",
+          "enforced": true,
+          "reason": "argument hits sensitive path pattern \".env\" (secrets.deny_input_paths)"
+        }
+      }
+    },
+    {
+      "id": "codex-lab",
+      "label": "codex-lab",
+      "platform": null,
+      "status": "unobserved",
+      "policy": null,
+      "permissions": { "servers": 0, "tools": 0, "allow": 0, "approve": 0, "deny": 0 },
+      "risks": [
+        {
+          "kind": "unregistered",
+          "severity": "high",
+          "label": "未登记策略",
+          "detail": "有真实调用记录，但 ~/.pod/policies 下没有它的策略——权限不受约束",
+          "count": 57
+        }
+      ],
+      "activity": {
+        "entries": 57,
+        "lastCallAt": "2026-09-08T09:12:44.000Z",
+        "calls7d": [0, 9, 14, 6, 3, 0, 0],
+        "calls7dTotal": 32,
+        "deny7d": 0,
+        "approve7d": 0,
+        "lastDecision": {
+          "decision": "allow",
+          "server": "shell",
+          "tool": "execute_command",
+          "at": "2026-09-08T09:12:44.000Z",
+          "enforced": false,
+          "reason": null
+        }
+      }
+    }
+  ],
+  "totals": {
+    "agents": 4,
+    "servers": 8,
+    "tools": 34,
+    "calls7d": 572,
+    "deny7d": 12,
+    "agentsWithRisks": 4
+  },
+  "discovered": [{ "platform": "DeepSeek Harness (DSH)", "detail": "dsh-mcp-manager" }],
+  "notes": [
+    "本机发现 1 个 agent 平台尚未出现在策略或审计里：DeepSeek Harness (DSH)",
+    "agent 配置里有 2 处明文密钥（github-pat、openai），运行 pod scan 查看掩码报告"
+  ]
+}

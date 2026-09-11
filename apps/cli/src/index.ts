@@ -60,6 +60,7 @@ import {
 } from './graph/commands.js';
 import { graphDir } from './graph/io.js';
 import { recordUsage } from './graph/retention.js';
+import { cmdUi } from './ui.js';
 
 const POD_HOME = join(homedir(), '.pod');
 
@@ -1335,6 +1336,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === 'ui') {
+    const portRaw = values.port;
+    const port = portRaw ? Number.parseInt(portRaw, 10) : 8787;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      console.error(`invalid --port: ${portRaw}`);
+      process.exit(1);
+    }
+    await cmdUi({
+      podHome: POD_HOME,
+      port,
+      token: values['auth-token'],
+      log,
+    });
+    return;
+  }
+
   console.error(`unknown command: ${cmd}`);
   console.error(usage());
   process.exit(1);
@@ -1395,6 +1412,7 @@ Usage:
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
   pod scan [--json]
+  pod ui [--port <n>]
   pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
   pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
   pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]

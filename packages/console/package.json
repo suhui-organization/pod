@@ -1,0 +1,25 @@
+{
+  "name": "@podsec/console",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@podsec/graph": "workspace:*",
+    "@podsec/policy": "workspace:*",
+    "@podsec/scan": "workspace:*"
+  }
+}
