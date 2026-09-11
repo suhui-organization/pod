@@ -19,7 +19,7 @@ import {
   type CallToolResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { AuditLog, hashValue, type AuditKind } from '@podsec/audit';
+import { hashValue, type AuditKind, type AuditSink } from '@podsec/audit';
 import {
   checkServerSource,
   collectStrings,
@@ -296,7 +296,11 @@ export interface ProxyOptions {
   /** 对外暴露的 server 名（策略按此名求值） */
   serverName: string;
   policy: Policy;
-  audit: AuditLog;
+  /**
+   * 审计写入点。真实网关传 ChainAppender（带跨进程锁），测试可传内存里的
+   * AuditLog——两者都满足 AuditSink。
+   */
+  audit: AuditSink;
   /**
    * record-only（pod record）：策略照常求值并写入审计（含 enforced:false），
    * 但绝不阻断——所有调用直接透传。用于 Phase 0 语料采集。

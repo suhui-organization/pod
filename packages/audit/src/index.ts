@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { withFileLock, type LockOptions } from './lock.js';
 
@@ -184,6 +184,74 @@ export function appendEntryExclusive(
     appendToAuditFile(path, entry);
     return entry;
   });
+}
+
+/**
+ * 追加审计记录的最小接口。
+ * 网关只依赖这一个方法——这样它既能接内存里的 AuditLog（测试用），
+ * 也能接 ChainAppender（真实网关用，带跨进程锁）。
+ */
+export interface AuditSink {
+  append(input: NewAuditEntry): AuditEntry;
+}
+
+export interface ChainAppenderOptions {
+  lock?: LockOptions;
+  /** 每条记录落盘后的回调（如告警检查）；不负责写文件 */
+  onAppend?: (entry: AuditEntry) => void;
+  now?: () => Date;
+}
+
+/**
+ * 长驻进程（pod serve / record）的审计写入器：带跨进程锁的追加。
+ *
+ * 为什么不能直接用内存里的 AuditLog：网关启动时把链读进内存，之后按内存里的
+ * 链尾追加。两个网关写同一个文件（例如同一 agent+server 既有 stdio 网关照会话
+ * 启动，又有常驻 HTTP 网关）就会各自算出同一个 seq/prevHash，把链写分叉。
+ *
+ * 性能取舍：每次追加都在锁内比对文件大小，只有**别人写过**时才重新加载并校验
+ * 整条链；自己连续写不会重复付出 O(n) 的校验成本（链会随时间变长，热路径不能
+ * 每次全量校验）。
+ */
+export class ChainAppender implements AuditSink {
+  private cached: { size: number; log: AuditLog } | null = null;
+
+  constructor(
+    private readonly path: string,
+    private readonly policyVersion: string,
+    private readonly options: ChainAppenderOptions = {},
+  ) {}
+
+  /** 启动时做一次链校验：断链的话宁可不启动，也不要往坏链里写 */
+  preflight(): void {
+    this.withChain((log) => log);
+  }
+
+  append(input: NewAuditEntry): AuditEntry {
+    const entry = this.withChain((log) => {
+      const appended = log.append(input);
+      appendToAuditFile(this.path, appended);
+      this.cached!.size = statSync(this.path).size;
+      return appended;
+    });
+    this.options.onAppend?.(entry);
+    return entry;
+  }
+
+  private withChain<T>(fn: (log: AuditLog) => T): T {
+    return withFileLock(`${this.path}.lock`, this.options.lock ?? {}, () => {
+      const size = existsSync(this.path) ? statSync(this.path).size : 0;
+      if (this.cached === null || this.cached.size !== size) {
+        this.cached = {
+          size,
+          log: existsSync(this.path)
+            ? loadAuditFile(this.path, this.policyVersion, { now: this.options.now })
+            : new AuditLog(this.policyVersion, { now: this.options.now }),
+        };
+      }
+      return fn(this.cached.log);
+    });
+  }
 }
 
 /** 从 JSONL 文件加载并校验（校验失败抛出）；options 用于恢复 onAppend（续链场景） */

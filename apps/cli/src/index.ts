@@ -20,6 +20,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   AuditLog,
+  ChainAppender,
   appendEntryExclusive,
   appendToAuditFile,
   hashValue,
@@ -291,9 +292,12 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e),
     });
   }) : null;
-  const audit = existsSync(auditPath)
-    ? loadAuditFile(auditPath, policy.version, { onAppend: (entry) => { appendToAuditFile(auditPath, entry); alertCheck?.(entry); } })
-    : new AuditLog(policy.version, { onAppend: (entry) => { appendToAuditFile(auditPath, entry); alertCheck?.(entry); } });
+  // 跨进程锁：同一 agent+server 可能同时有 stdio 网关（随会话启动）与常驻 HTTP
+  // 网关，两者写同一个文件。没有锁就会各自算出同一个 seq/prevHash，把链写分叉。
+  const audit = new ChainAppender(auditPath, policy.version, {
+    onAppend: (entry) => alertCheck?.(entry),
+  });
+  audit.preflight(); // 断链则拒绝启动，而不是往里写坏数据
 
   const approval = createFileApprovalProvider({
     pendingDir: opts.pendingDir,
@@ -427,9 +431,8 @@ async function cmdRecord(opts: RecordOptions): Promise<void> {
   const auditDir = opts.auditDir;
   mkdirSync(auditDir, { recursive: true });
   const auditPath = join(auditDir, `${opts.server}.jsonl`);
-  const audit = existsSync(auditPath)
-    ? loadAuditFile(auditPath, policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) })
-    : new AuditLog(policy.version, { onAppend: (entry) => appendToAuditFile(auditPath, entry) });
+  const audit = new ChainAppender(auditPath, policy.version);
+  audit.preflight();
 
   const server = await createStdioProxy({
     agent: opts.agent,

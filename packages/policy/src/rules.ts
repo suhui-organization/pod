@@ -104,13 +104,27 @@ export interface GrantRules {
   requiredForApprove: boolean;
 }
 
+export interface AuditExpectation {
+  agent: string;
+  /** 这个 agent 期望的最大空闲小时数（覆盖 auditHealth.maxIdleHours） */
+  maxIdleHours: number;
+  /** 为什么这么设，只用于报表与日后回顾 */
+  why?: string;
+}
+
 export interface AuditHealthRules {
   /** true = 检查审计链本身（断裂 / 长时间无写入） */
   enabled: boolean;
-  /** 超过这个小时数没有新记录就告警（钩子静默失败的主要信号） */
+  /** 未在 expectations 中列出的 agent 用这个阈值 */
   maxIdleHours: number;
-  /** 只检查这些 agent；空数组 = 审计目录里发现的所有 agent */
-  agents: string[];
+  /** 完全不检查的 agent（测试用 agent、已废弃的 agent） */
+  ignore: string[];
+  /**
+   * 逐 agent 的期望活跃度。语义是"我知道它应该多久动一次"：
+   * 每天在用的 agent 给 6h，偶尔用的给 720h。闲置 agent 的阈值放宽后，
+   * "空闲"和"写入失败"就不再互相冒充了。
+   */
+  expectations: AuditExpectation[];
 }
 
 export interface RuleSet {
@@ -203,7 +217,7 @@ export const DEFAULT_RULES: RuleSet = {
   },
   quarantine: { file: '~/.pod/quarantine.json' },
   grant: { dir: '~/.pod/grants', requiredForApprove: false },
-  auditHealth: { enabled: true, maxIdleHours: 72, agents: [] },
+  auditHealth: { enabled: true, maxIdleHours: 72, ignore: [], expectations: [] },
 };
 
 type DeepPartial<T> = {
@@ -269,6 +283,14 @@ export function validateRules(rules: RuleSet): void {
   }
   if (!['allow', 'approve', 'deny'].includes(rules.egress.defaultDecision)) {
     throw new RuleSetError('egress.defaultDecision 必须是 allow|approve|deny');
+  }
+  if (!Array.isArray(rules.auditHealth.expectations)) {
+    throw new RuleSetError('auditHealth.expectations 必须是数组');
+  }
+  for (const e of rules.auditHealth.expectations) {
+    if (!e?.agent || typeof e.maxIdleHours !== 'number' || Number.isNaN(e.maxIdleHours) || e.maxIdleHours < 0) {
+      throw new RuleSetError('auditHealth.expectations 每项需要 agent 与非负的 maxIdleHours');
+    }
   }
   for (const [where, value] of [
     ['delegation.maxDepth', rules.delegation.maxDepth],

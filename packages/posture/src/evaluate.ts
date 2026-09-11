@@ -287,6 +287,9 @@ export function evaluateDelegations(facts: Facts): Finding[] {
 export function evaluateAudits(rules: RuleSet, facts: Facts, now: Date = new Date()): Finding[] {
   const findings: Finding[] = [];
   if (!rules.auditHealth.enabled) return findings;
+
+  // 1) 断链：逐链报 high。这不是"少几条记录"，而是断点之后一条都写不进去——
+  //    必须精确到链，不能聚合，否则一条坏链会被同一 agent 的其他链掩盖。
   for (const audit of facts.audits) {
     if (!audit.valid) {
       findings.push({
@@ -298,21 +301,38 @@ export function evaluateAudits(rules: RuleSet, facts: Facts, now: Date = new Dat
           `审计链在 seq ${audit.brokenAt ?? '?'} 处断裂——追加会被拒绝，` +
           `该链自断点起不再记录任何事件（云端也会以 409 拒收）`,
       });
-      continue;
     }
-    if (audit.entries === 0) continue;
-    if (audit.idleHours > rules.auditHealth.maxIdleHours) {
-      findings.push({
-        id: shortId('audit', `${audit.agent}/${audit.server}`, 'idle'),
-        category: 'audit',
-        severity: 'medium',
-        subject: audit.path,
-        message:
-          `审计链已 ${Math.floor(audit.idleHours)} 小时没有新记录` +
-          `（阈值 ${rules.auditHealth.maxIdleHours}h）——钩子或网关可能在静默失败`,
-        evidence: [`last=${audit.lastTs ?? '—'}`, `entries=${audit.entries}`],
-      });
-    }
+  }
+
+  // 2) 空闲：按 agent 聚合。期望活跃度是 agent 级属性——"这条 server 没人用"
+  //    不是故障（codex 每天在动，但它未必通过 pod 用 filesystem）。
+  //    故障信号是"这个 agent 的所有链都不动了"。
+  const byAgent = new Map<string, typeof facts.audits>();
+  for (const audit of facts.audits) {
+    const list = byAgent.get(audit.agent) ?? [];
+    list.push(audit);
+    byAgent.set(audit.agent, list);
+  }
+  for (const [agent, chains] of byAgent) {
+    const withTs = chains.filter((c) => c.lastTs !== null);
+    if (withTs.length === 0) continue;
+    const freshest = Math.max(...withTs.map((c) => new Date(c.lastTs!).getTime()));
+    const idleHours = (now.getTime() - freshest) / 3_600_000;
+    const expectation = rules.auditHealth.expectations.find((e) => e.agent === agent);
+    const threshold = expectation?.maxIdleHours ?? rules.auditHealth.maxIdleHours;
+    if (idleHours <= threshold) continue;
+    findings.push({
+      id: shortId('audit', agent, 'idle'),
+      category: 'audit',
+      severity: 'medium',
+      subject: agent,
+      message:
+        `该 agent 已有 ${Math.floor(idleHours)} 小时没有任何审计写入` +
+        `（${expectation ? `期望阈值 ${threshold}h` : `默认阈值 ${threshold}h`}${
+          expectation?.why ? `，因为${expectation.why}` : ''
+        }）——钩子或网关可能在静默失败`,
+      evidence: withTs.map((c) => `${c.server}: last=${c.lastTs} entries=${c.entries}`),
+    });
   }
   return findings;
 }

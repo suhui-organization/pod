@@ -126,7 +126,15 @@ pod 的审计原本只覆盖**数据平面**（工具调用）。这批需求把
   },
   "grant": { "dir": "~/.pod/grants", "requiredForApprove": false }
   ,
-  "auditHealth": { "enabled": true, "maxIdleHours": 72, "agents": [] }
+  "auditHealth": {
+    "enabled": true,
+    "maxIdleHours": 72,
+    "ignore": ["sync-test"],
+    "expectations": [
+      { "agent": "codex", "maxIdleHours": 6, "why": "每天都在用" },
+      { "agent": "hermes", "maxIdleHours": 720, "why": "按需使用" }
+    ]
+  }
 }
 ```
 
@@ -205,7 +213,25 @@ type AuditKind =
 | G13 | `packages/identity`（`verifyDelegation`）+ `pod delegate check` | identity/posture/CLI 测试 | "收窄"以 D2 能力标签为单位（复用 `KNOWN_CAPABILITIES`），不做工具级差分 |
 | G14 | `packages/posture/src/evaluate.ts`（`evaluateMemory`） | `packages/posture/src/posture.test.ts` | 只做完整性（是否被改），不做内容语义判定 |
 | G15 | `packages/gateway/src/proxy.ts`（`checkEgress`） | `packages/gateway/src/control-plane.test.ts` | 只判定**参数里出现的 URL 主机**；server 自身的出网网关看不见（见 `egress-defense.md`），默认 `enabled: false` |
-| G16 | `packages/audit/src/lock.ts`（`withFileLock` / `appendEntryExclusive`）+ `packages/posture`（`collectAudits` / `evaluateAudits`） | `packages/audit/src/lock.test.ts`、`apps/cli/test/ingest-concurrency.test.ts`、`packages/posture/src/posture.test.ts` | 空闲阈值与检查范围由 `rules.auditHealth` 决定；链断裂一律 high（不可调），因为那不是"少几条记录"而是"之后一条都写不进去" |
+| G16 | `packages/audit/src/lock.ts` + `ChainAppender`（`pod serve` / `pod record` 的写入器）+ `packages/posture`（`collectAudits` / `evaluateAudits`） | `packages/audit/src/{lock,chain-appender}.test.ts`、`apps/cli/test/ingest-concurrency.test.ts`、`packages/posture/src/posture.test.ts` | 见 §5.5 的两条判定口径 |
+
+### 5.5 审计链健康的两条判定口径（为什么不是一条）
+
+**断链 → 逐链报 high（不可调）。** 断点之后 `loadAuditFile` 会拒绝一切追加，
+该链再也不记录任何事件，而且 agent 侧完全无感。这个必须精确到链——被同一 agent
+的其他链掩盖就失去意义。
+
+**空闲 → 按 agent 聚合报 medium。** "期望活跃度"是 agent 级属性：codex 每天在动，
+但它未必通过 pod 用 filesystem，那条链闲置不是故障。真正的故障信号是
+**这个 agent 的所有链都不动了**。阈值逐 agent 配置：
+
+```jsonc
+"expectations": [{ "agent": "codex", "maxIdleHours": 6, "why": "每天都在用" }]
+```
+
+**已知盲区（写清楚，不假装覆盖）**：如果某 agent 的一条链在动、另一条链静默死亡
+（例如钩子挂了但网关还在收调用），按 agent 聚合不会报。这类"部分静默"目前只能靠
+断链检查或人工核对链清单发现；要精确覆盖需要按链学习基线（未来项）。
 
 ### 5.4 事故记录：2026-09-09 审计链分叉（G16 的由来）
 
@@ -233,6 +259,11 @@ agent"），于是失败完全静默——本地审计从 09-09 22:54 到 09-12 
    超过 `maxIdleHours` 无写入报 medium。**把"静默失败"变成每次 posture 都能看见的告警。**
 3. 已经分叉的文件按 `mv <file>{,.broken-<date>}` 归档：不重算 hash 去"修链"
    （那等于篡改审计历史），归档后新链从 seq=1 干净开始。
+4. **网关路径同样要加锁**：`pod serve` 原来在启动时把链读进内存、之后按内存里的
+   链尾追加——两个网关（同一 agent+server 的 stdio 网关 + 常驻 HTTP 网关）同时处理
+   调用就会再次分叉。改用 `ChainAppender`：锁内比对文件大小，只有别人写过才重新
+   加载并校验整条链（自己连续写不重复付 O(n) 校验成本，长链也不会拖慢热路径）。
+   注意：这类改动要**重启常驻网关**才生效（launchd 托管的重启命令见 `automation.md`）。
 
 ### 5.1 新增/改动的文件
 

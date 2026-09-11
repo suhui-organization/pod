@@ -302,12 +302,12 @@ export interface CollectOptions {
  */
 export function collectAudits(rules: RuleSet, auditDir: string | undefined, now: Date): AuditFact[] {
   if (!rules.auditHealth.enabled || !auditDir || !existsSync(auditDir)) return [];
-  const keep = new Set(rules.auditHealth.agents);
+  const ignore = new Set(rules.auditHealth.ignore);
   const out: AuditFact[] = [];
   for (const agentDir of readdirSync(auditDir, { withFileTypes: true })) {
     if (!agentDir.isDirectory()) continue;
     const agent = agentDir.name;
-    if (keep.size > 0 && !keep.has(agent)) continue;
+    if (ignore.has(agent)) continue;
     const dirPath = join(auditDir, agent);
     for (const file of readdirSync(dirPath).filter((f) => f.endsWith('.jsonl')).sort()) {
       const path = join(dirPath, file);

@@ -257,13 +257,45 @@ describe('审计链健康（G16）', () => {
     const hits = scan(auditRules, null, NOW).findings.filter((f) => f.category === 'audit');
     expect(hits).toHaveLength(1);
     expect(hits[0]!.severity).toBe('medium');
-    expect(hits[0]!.message).toContain('没有新记录');
+    expect(hits[0]!.subject).toBe('codex');
+    expect(hits[0]!.message).toContain('没有任何审计写入');
+  });
+
+  it('同一 agent 有一条链在动 → 另一条链闲置不报（"没在用这个 server"不是故障）', () => {
+    write('.pod/audit/codex/codex-tools.jsonl', chainJsonl(['2026-09-11T23:30:00Z'])); // 新鲜
+    write('.pod/audit/codex/filesystem.jsonl', chainJsonl(['2026-09-01T00:00:00Z'])); // 停了两周
+    expect(scan(auditRules, null, NOW).findings.filter((f) => f.category === 'audit')).toHaveLength(0);
   });
 
   it('规则里关掉这项判定就不再报', () => {
     write('.pod/audit/codex/codex-tools.jsonl', chainJsonl(['2026-09-08T00:00:00Z']));
     const off = rules({ auditHealth: { enabled: false } });
     expect(scan(off, null, NOW).findings.filter((f) => f.category === 'audit')).toHaveLength(0);
+  });
+
+  it('逐 agent 期望阈值：在用的 agent 收紧、偶尔用的放宽', () => {
+    write('.pod/audit/codex/codex-tools.jsonl', chainJsonl(['2026-09-11T16:00:00Z'])); // 8h 前
+    write('.pod/audit/hermes/filesystem.jsonl', chainJsonl(['2026-09-11T16:00:00Z']));
+    const tuned = rules({
+      auditHealth: {
+        maxIdleHours: 72,
+        expectations: [
+          { agent: 'codex', maxIdleHours: 6, why: '每天都在用' },
+          { agent: 'hermes', maxIdleHours: 720, why: '偶尔用' },
+        ],
+      },
+    });
+    const hits = scan(tuned, null, NOW).findings.filter((f) => f.category === 'audit');
+    // codex 超过自己的 6h 阈值 → 报；hermes 距自己的 720h 还很远 → 不报
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.subject).toBe('codex');
+    expect(hits[0]!.message).toContain('因为每天都在用');
+  });
+
+  it('ignore 列表里的 agent 完全不检查', () => {
+    write('.pod/audit/sync-test/filesystem.jsonl', chainJsonl(['2026-08-01T00:00:00Z']));
+    const r = rules({ auditHealth: { ignore: ['sync-test'] } });
+    expect(scan(r, null, NOW).findings.filter((f) => f.category === 'audit')).toHaveLength(0);
   });
 });
 
