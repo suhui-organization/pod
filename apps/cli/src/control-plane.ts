@@ -82,6 +82,15 @@ export interface ControlEvent {
   payload?: unknown;
 }
 
+/**
+ * 云端同步接口对字段长度有上限（server 64 / tool 128 / reason 2000），超长会让
+ * 整批事件 422。控制平面事件里的定位串常来自文件路径，长度不可控，所以在出链处
+ * 就收口——宁可截断展示，也不能让 `pod sync` 因为一条 posture finding 整批失败。
+ */
+function clamp(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
 /** 追加一条控制平面事件；bolts 到该 agent 的 control.jsonl 链尾 */
 export function appendControlEvent(event: ControlEvent): AuditEntry {
   const path = join(event.auditDir, event.agent, 'control.jsonl');
@@ -92,12 +101,12 @@ export function appendControlEvent(event: ControlEvent): AuditEntry {
     kind: event.kind,
     agent: event.agent,
     session: 'control-plane',
-    server: event.server ?? '-',
-    tool: event.tool ?? '-',
+    server: clamp(event.server ?? '-', 64),
+    tool: clamp(event.tool ?? '-', 128),
     argsHash: hashValue(event.payload ?? { reason: event.reason }),
     decision: event.decision ?? 'allow',
     outcome: event.outcome ?? 'ok',
-    reason: event.reason,
+    reason: clamp(event.reason, 2000),
     policyVersion: 'control',
   });
 }
@@ -155,7 +164,8 @@ export function runPosture(opts: PostureOptions & { strict?: boolean }): Posture
         kind: kindOf(finding),
         reason: `posture:${finding.id}:${finding.message}`,
         server: finding.category,
-        tool: finding.id,
+        // tool 只放短标签：完整定位串在 reason 里（云端 tool 上限 128 字符）
+        tool: finding.category,
         decision: 'allow',
         payload: { severity: finding.severity, subject: finding.subject },
       });

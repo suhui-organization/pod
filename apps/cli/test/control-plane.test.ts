@@ -7,6 +7,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { AuditLog, loadAuditFile } from '@podsec/audit';
+import { appendControlEvent } from '../src/control-plane.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_INDEX = join(HERE, '../src/index.ts');
@@ -148,6 +150,26 @@ describe('pod posture', () => {
 });
 
 describe('pod anomaly / trace', () => {
+  it('控制平面事件出链前收口长度，长路径不会让云端 batch 422', () => {
+    const longPath = `${root}/${'x'.repeat(400)}/settings.json`;
+    appendControlEvent({
+      auditDir,
+      agent: '_control',
+      kind: 'hook',
+      reason: `posture:hook:${longPath}:net-egress`,
+      server: 'hook',
+      tool: longPath,
+    });
+    const log = loadAuditFile(join(auditDir, '_control/control.jsonl'), 'control');
+    const entry = log.entries[0]!;
+    expect(log.verify().ok).toBe(true);
+    // 云端 schema：server ≤64、tool ≤128、reason ≤2000
+    expect(entry.server.length).toBeLessThanOrEqual(64);
+    expect(entry.tool.length).toBeLessThanOrEqual(128);
+    expect(entry.reason!.length).toBeLessThanOrEqual(2000);
+    expect(AuditLog.fromJSONL(JSON.stringify(entry) + '\n', 'control').entries[0]!.kind).toBe('hook');
+  });
+
   it('窗口内委托签发超过阈值时报异常并退出码 1', () => {
     for (const agent of ['orchestrator', 'worker']) run(['identity', 'init', '--agent', agent, ...R()]);
     for (let i = 0; i < 6; i++) {
