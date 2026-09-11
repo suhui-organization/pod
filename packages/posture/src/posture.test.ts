@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_RULES, mergeRules, type RuleSet, type RuleSetOverride, validateRules } from '@podsec/policy';
 import { generateAgentIdentity, issueDelegation, linkOf } from '@podsec/identity';
+import { AuditLog, hashValue } from '@podsec/audit';
 import { buildBaseline, collectFacts, evaluatePosture, renderPostureReport } from './index.js';
 import type { Baseline } from './types.js';
 
@@ -30,9 +31,9 @@ function write(relPath: string, content: string): string {
   return full;
 }
 
-function scan(ruleSet: RuleSet, baseline: Baseline | null = null) {
-  const facts = collectFacts(ruleSet, { home, auditDir: join(home, '.pod/audit') });
-  return { facts, findings: evaluatePosture(ruleSet, facts, baseline, { home }) };
+function scan(ruleSet: RuleSet, baseline: Baseline | null = null, now?: Date) {
+  const facts = collectFacts(ruleSet, { home, auditDir: join(home, '.pod/audit'), now });
+  return { facts, findings: evaluatePosture(ruleSet, facts, baseline, { home, now }) };
 }
 
 describe('生命周期钩子（G3）', () => {
@@ -210,6 +211,59 @@ describe('身份与委托（G11、G13）', () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]!.severity).toBe('high');
     expect(hits[0]!.message).toMatch(/扩大了权限|不可委托的能力/);
+  });
+});
+
+describe('审计链健康（G16）', () => {
+  const NOW = new Date('2026-09-12T00:00:00Z');
+
+  function chainJsonl(times: string[]): string {
+    let i = 0;
+    const log = new AuditLog('external', { now: () => new Date(times[Math.min(i++, times.length - 1)]!) });
+    for (const t of times) {
+      log.append({
+        agent: 'codex',
+        session: 's',
+        server: 'codex-tools',
+        tool: 'Bash',
+        argsHash: hashValue({ t }),
+        decision: 'allow',
+        outcome: 'ok',
+        policyVersion: 'external',
+      });
+    }
+    return log.toJSONL();
+  }
+
+  const auditRules = rules({ auditHealth: { enabled: true, maxIdleHours: 24 } });
+
+  it('链完整且新鲜 → 不报', () => {
+    write('.pod/audit/codex/codex-tools.jsonl', chainJsonl(['2026-09-11T23:30:00Z']));
+    expect(scan(auditRules, null, NOW).findings.filter((f) => f.category === 'audit')).toHaveLength(0);
+  });
+
+  it('链断裂 → high（断点之后所有写入都会被拒绝，等同静默丢数据）', () => {
+    const lines = chainJsonl(['2026-09-11T23:00:00Z', '2026-09-11T23:10:00Z']).trim().split('\n');
+    write('.pod/audit/codex/codex-tools.jsonl', `${lines[1]!}\n${lines[0]!}\n`); // 打乱顺序 = 断链
+    const hits = scan(auditRules, null, NOW).findings.filter((f) => f.category === 'audit');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.severity).toBe('high');
+    expect(hits[0]!.message).toContain('断裂');
+    expect(hits[0]!.id).toContain('codex/codex-tools');
+  });
+
+  it('长时间没有新写入 → medium（钩子静默停摆的信号）', () => {
+    write('.pod/audit/codex/codex-tools.jsonl', chainJsonl(['2026-09-08T00:00:00Z']));
+    const hits = scan(auditRules, null, NOW).findings.filter((f) => f.category === 'audit');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.severity).toBe('medium');
+    expect(hits[0]!.message).toContain('没有新记录');
+  });
+
+  it('规则里关掉这项判定就不再报', () => {
+    write('.pod/audit/codex/codex-tools.jsonl', chainJsonl(['2026-09-08T00:00:00Z']));
+    const off = rules({ auditHealth: { enabled: false } });
+    expect(scan(off, null, NOW).findings.filter((f) => f.category === 'audit')).toHaveLength(0);
   });
 });
 

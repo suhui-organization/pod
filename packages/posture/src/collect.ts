@@ -8,9 +8,19 @@ import { createHash } from 'node:crypto';
 import { existsSync, globSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { expandHome, type RuleSet } from '@podsec/policy';
+import { AuditLog } from '@podsec/audit';
 import { loadAgentIdentity, publicKeyResolver, verifyDelegation, type DelegationToken } from '@podsec/identity';
 import { scanMachine } from '@podsec/scan';
-import type { ConfigFact, DelegationFact, Facts, HookFact, IdentityFact, MemoryFact, PackageFact } from './types.js';
+import type {
+  AuditFact,
+  ConfigFact,
+  DelegationFact,
+  Facts,
+  HookFact,
+  IdentityFact,
+  MemoryFact,
+  PackageFact,
+} from './types.js';
 
 function sha256Short(input: string | Buffer): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
@@ -279,9 +289,52 @@ export function collectDelegations(rules: RuleSet, home: string): DelegationFact
 export interface CollectOptions {
   home: string;
   auditDir?: string;
+  /** 判定"多久没写入算异常"的当前时刻（测试可注入） */
+  now?: Date;
+}
+
+/**
+ * 审计链健康（G16）：读每个 <agent>/<server>.jsonl，校验链并算空闲时长。
+ *
+ * 为什么值得单独采一份事实：链一旦断裂，`loadAuditFile` 会拒绝后续追加——
+ * agent 照常工作，本地却一条都不再记录（2026-09-09 就静默丢了 2.5 天）。
+ * 这个事实就是把那种"静默失败"变成可见告警的数据来源。
+ */
+export function collectAudits(rules: RuleSet, auditDir: string | undefined, now: Date): AuditFact[] {
+  if (!rules.auditHealth.enabled || !auditDir || !existsSync(auditDir)) return [];
+  const keep = new Set(rules.auditHealth.agents);
+  const out: AuditFact[] = [];
+  for (const agentDir of readdirSync(auditDir, { withFileTypes: true })) {
+    if (!agentDir.isDirectory()) continue;
+    const agent = agentDir.name;
+    if (keep.size > 0 && !keep.has(agent)) continue;
+    const dirPath = join(auditDir, agent);
+    for (const file of readdirSync(dirPath).filter((f) => f.endsWith('.jsonl')).sort()) {
+      const path = join(dirPath, file);
+      const text = readTextIfSmall(path, 8_000_000);
+      if (text === null) continue;
+      const log = AuditLog.fromJSONL(text, '');
+      const check = log.verify();
+      const last = log.entries[log.entries.length - 1];
+      const lastTs = last?.ts ?? null;
+      const idleHours = lastTs ? (now.getTime() - new Date(lastTs).getTime()) / 3_600_000 : Number.POSITIVE_INFINITY;
+      out.push({
+        agent,
+        server: file.replace(/\.jsonl$/, ''),
+        path,
+        entries: log.entries.length,
+        lastTs,
+        idleHours,
+        valid: check.ok,
+        brokenAt: check.ok ? undefined : check.firstBrokenSeq,
+      });
+    }
+  }
+  return out.sort((a, b) => a.agent.localeCompare(b.agent) || a.server.localeCompare(b.server));
 }
 
 export function collectFacts(rules: RuleSet, opts: CollectOptions): Facts {
+  const now = opts.now ?? new Date();
   return {
     hooks: collectHooks(rules, opts.home),
     configs: collectConfigs(rules, opts.home),
@@ -289,5 +342,6 @@ export function collectFacts(rules: RuleSet, opts: CollectOptions): Facts {
     packages: collectPackages(opts.home),
     identities: collectIdentities(rules, opts.home, opts.auditDir),
     delegations: collectDelegations(rules, opts.home),
+    audits: collectAudits(rules, opts.auditDir, now),
   };
 }

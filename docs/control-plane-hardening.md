@@ -31,6 +31,7 @@ pod 的审计原本只覆盖**数据平面**（工具调用）。这批需求把
 | G13 | L4 | 委托链权限收窄 | ○，但有 capability 地基 | `pod delegate`：能力子集校验 + 签名委托链 |
 | G14 | L4 | 记忆完整性保护 | ○ | `pod posture` 记忆文件基线哈希 + 漂移检测 |
 | G15 | L4 | Egress 层补齐 | ◐ 只有输出侧拦截 | 规则驱动的出网目标判定（agent→server 参数侧） |
+| G16 | — | 审计链自身健康（断裂 / 停摆） | ○ 只看云端报 409，本地无感 | 跨进程锁根治分叉 + `pod posture` 规则化告警 |
 
 **明确不做（写进 `threat-model.md` 的不防御清单）**：
 
@@ -124,6 +125,8 @@ pod 的审计原本只覆盖**数据平面**（工具调用）。这批需求把
     "defaultDecision": "allow"
   },
   "grant": { "dir": "~/.pod/grants", "requiredForApprove": false }
+  ,
+  "auditHealth": { "enabled": true, "maxIdleHours": 72, "agents": [] }
 }
 ```
 
@@ -202,6 +205,34 @@ type AuditKind =
 | G13 | `packages/identity`（`verifyDelegation`）+ `pod delegate check` | identity/posture/CLI 测试 | "收窄"以 D2 能力标签为单位（复用 `KNOWN_CAPABILITIES`），不做工具级差分 |
 | G14 | `packages/posture/src/evaluate.ts`（`evaluateMemory`） | `packages/posture/src/posture.test.ts` | 只做完整性（是否被改），不做内容语义判定 |
 | G15 | `packages/gateway/src/proxy.ts`（`checkEgress`） | `packages/gateway/src/control-plane.test.ts` | 只判定**参数里出现的 URL 主机**；server 自身的出网网关看不见（见 `egress-defense.md`），默认 `enabled: false` |
+| G16 | `packages/audit/src/lock.ts`（`withFileLock` / `appendEntryExclusive`）+ `packages/posture`（`collectAudits` / `evaluateAudits`） | `packages/audit/src/lock.test.ts`、`apps/cli/test/ingest-concurrency.test.ts`、`packages/posture/src/posture.test.ts` | 空闲阈值与检查范围由 `rules.auditHealth` 决定；链断裂一律 high（不可调），因为那不是"少几条记录"而是"之后一条都写不进去" |
+
+### 5.4 事故记录：2026-09-09 审计链分叉（G16 的由来）
+
+**症状**：`pod sync` 报 `哈希链断裂（409）`，云端拒收 `codex/codex-tools` 这条链。
+
+**根因**：`pod ingest` 的"读链尾 → 算 seq/prevHash → 落盘"三步之间没有跨进程互斥。
+Codex 的 PostToolUse 钩子每次工具调用起一个新进程，并发时两个进程读到同一个链尾，
+各自写了 `seq=5`、`prevHash` 相同的两条记录，链从此分叉：
+
+```
+行5  seq=5  ts=2026-09-09T14:54:31.420Z  prev=b274124f41  hash=d6165a9219
+行6  seq=5  ts=2026-09-09T14:54:31.420Z  prev=b274124f41  hash=73e99e9b0e
+```
+
+**连带后果（比 409 严重得多）**：`loadAuditFile` 每次追加前都会校验整条链，断链后
+**拒绝一切后续写入**；而钩子脚本刻意 `stderr=DEVNULL` + `except: pass`（"绝不阻塞
+agent"），于是失败完全静默——本地审计从 09-09 22:54 到 09-12 00:28 停了约 2.5 天。
+
+**修复**：
+
+1. `appendEntryExclusive`（`packages/audit`）：把整段读-改-写放进文件锁
+   （`open(...,'wx')` 原子创建 + PID/锁龄判活，崩溃后能自愈）。`pod ingest` 与
+   控制平面事件写入都改走它。
+2. `rules.auditHealth`：`pod posture` 检查每条链的完整性与空闲时长——链断裂报 high，
+   超过 `maxIdleHours` 无写入报 medium。**把"静默失败"变成每次 posture 都能看见的告警。**
+3. 已经分叉的文件按 `mv <file>{,.broken-<date>}` 归档：不重算 hash 去"修链"
+   （那等于篡改审计历史），归档后新链从 seq=1 干净开始。
 
 ### 5.1 新增/改动的文件
 

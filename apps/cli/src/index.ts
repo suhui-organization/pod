@@ -18,7 +18,14 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { AuditLog, appendToAuditFile, hashValue, loadAuditFile, type AuditEntry } from '@podsec/audit';
+import {
+  AuditLog,
+  appendEntryExclusive,
+  appendToAuditFile,
+  hashValue,
+  loadAuditFile,
+  type AuditEntry,
+} from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { capabilityMapFromGraph, type CapabilityGraph } from '@podsec/graph';
 import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
@@ -736,11 +743,9 @@ function cmdIngest(opts: IngestOptions): void {
   }
   const path = join(opts.auditDir, opts.agent, `${opts.server}.jsonl`);
   mkdirSync(dirname(path), { recursive: true });
-  const onAppend = (entry: AuditEntry): void => appendToAuditFile(path, entry);
-  const auditLog = existsSync(path)
-    ? loadAuditFile(path, 'external', { onAppend })
-    : new AuditLog('external', { onAppend });
-  const entry = auditLog.append({
+  // 跨进程锁：Codex PostToolUse 钩子并发触发时，多个 pod ingest 会同时追加
+  // 同一个文件；没有锁就会算出相同的 seq/prevHash，把链写分叉（2026-09-09 事故）。
+  const entry = appendEntryExclusive(path, 'external', () => ({
     agent: opts.agent,
     session: opts.session ?? 'external',
     server: opts.server,
@@ -750,7 +755,7 @@ function cmdIngest(opts: IngestOptions): void {
     outcome: opts.outcome,
     reason: opts.reason,
     policyVersion: 'external',
-  });
+  }));
   log(`ingested #${entry.seq} ${opts.agent}/${opts.server}.${opts.tool} (${opts.decision}/${opts.outcome})`);
 }
 

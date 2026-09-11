@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { withFileLock, type LockOptions } from './lock.js';
+
+export * from './lock.js';
 
 export type Decision = 'allow' | 'deny' | 'approve';
 export type Outcome = 'ok' | 'error' | 'blocked';
@@ -160,6 +163,27 @@ export function hashEntryBody(entry: Omit<AuditEntry, 'hash'>): string {
 export function appendToAuditFile(path: string, entry: AuditEntry): void {
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
+}
+
+/**
+ * 在跨进程锁保护下追加一条记录（链不存在则新建链首）。
+ *
+ * 只有把"读链尾 + 算 seq/prevHash + 落盘"整段放进同一个锁里，并发写入
+ * 才不会分叉。所有往既有链追加的调用方都应该走这里，而不是自己
+ * loadAuditFile → append → appendToAuditFile。
+ */
+export function appendEntryExclusive(
+  path: string,
+  policyVersion: string,
+  build: (log: AuditLog) => NewAuditEntry,
+  opts: LockOptions = {},
+): AuditEntry {
+  return withFileLock(`${path}.lock`, opts, () => {
+    const log = existsSync(path) ? loadAuditFile(path, policyVersion) : new AuditLog(policyVersion);
+    const entry = log.append(build(log));
+    appendToAuditFile(path, entry);
+    return entry;
+  });
 }
 
 /** 从 JSONL 文件加载并校验（校验失败抛出）；options 用于恢复 onAppend（续链场景） */

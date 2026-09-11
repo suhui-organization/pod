@@ -104,6 +104,15 @@ export interface GrantRules {
   requiredForApprove: boolean;
 }
 
+export interface AuditHealthRules {
+  /** true = 检查审计链本身（断裂 / 长时间无写入） */
+  enabled: boolean;
+  /** 超过这个小时数没有新记录就告警（钩子静默失败的主要信号） */
+  maxIdleHours: number;
+  /** 只检查这些 agent；空数组 = 审计目录里发现的所有 agent */
+  agents: string[];
+}
+
 export interface RuleSet {
   version: string;
   hookRisk: HookRiskRules;
@@ -118,6 +127,7 @@ export interface RuleSet {
   egress: EgressRules;
   quarantine: QuarantineRules;
   grant: GrantRules;
+  auditHealth: AuditHealthRules;
 }
 
 export const DEFAULT_RULES: RuleSet = {
@@ -193,6 +203,7 @@ export const DEFAULT_RULES: RuleSet = {
   },
   quarantine: { file: '~/.pod/quarantine.json' },
   grant: { dir: '~/.pod/grants', requiredForApprove: false },
+  auditHealth: { enabled: true, maxIdleHours: 72, agents: [] },
 };
 
 type DeepPartial<T> = {
@@ -263,6 +274,7 @@ export function validateRules(rules: RuleSet): void {
     ['delegation.maxDepth', rules.delegation.maxDepth],
     ['anomaly.windowMinutes', rules.anomaly.windowMinutes],
     ['memory.maxFileBytes', rules.memory.maxFileBytes],
+    ['auditHealth.maxIdleHours', rules.auditHealth.maxIdleHours],
   ] as const) {
     if (typeof value !== 'number' || Number.isNaN(value) || value < 0) {
       throw new RuleSetError(`${where} 必须是非负数`);

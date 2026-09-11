@@ -34,6 +34,10 @@ export function renderPostureReport(result: PostureResult): string {
   lines.push(`- MCP server：${result.facts.packages.length} 个`);
   lines.push(`- Agent 身份：${result.facts.identities.filter((i) => i.hasIdentity).length}/${result.facts.identities.length} 已建立`);
   lines.push(`- 委托链：${result.facts.delegations.length} 条`);
+  lines.push(
+    `- 审计链：${result.facts.audits.length} 条` +
+      `${result.facts.audits.some((a) => !a.valid) ? `（${result.facts.audits.filter((a) => !a.valid).length} 条断裂）` : ''}`,
+  );
   lines.push('');
   lines.push('---');
   lines.push('判定规则来自用户规则文件（默认 ~/.pod/rules.json），改规则即改判定。');

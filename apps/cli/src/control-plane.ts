@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import {
   AuditLog,
+  appendEntryExclusive,
   appendToAuditFile,
   hashValue,
   loadAuditFile,
@@ -103,9 +104,8 @@ export const CONTROL_CHAIN = 'control';
 export function appendControlEvent(event: ControlEvent): AuditEntry {
   const path = join(event.auditDir, event.agent, 'control.jsonl');
   mkdirSync(dirname(path), { recursive: true });
-  const onAppend = (entry: AuditEntry): void => appendToAuditFile(path, entry);
-  const audit = existsSync(path) ? loadAuditFile(path, 'control', { onAppend }) : new AuditLog('control', { onAppend });
-  return audit.append({
+  // 与 pod ingest 同样的并发约束：多条命令可能同时往同一 agent 的 control.jsonl 追加
+  return appendEntryExclusive(path, 'control', () => ({
     kind: event.kind,
     agent: event.agent,
     session: 'control-plane',
@@ -116,11 +116,16 @@ export function appendControlEvent(event: ControlEvent): AuditEntry {
     outcome: event.outcome ?? 'ok',
     reason: clamp(event.reason, 2000),
     policyVersion: 'control',
-  });
+  }));
 }
 
 function agentOf(finding: Finding): string {
   if (finding.category === 'identity' || finding.category === 'delegation') return finding.subject.split('/')[0] ?? '_control';
+  // 审计链类发现：subject 是 <audit-dir>/<agent>/<server>.jsonl，取倒数第二段
+  if (finding.category === 'audit') {
+    const parts = finding.subject.split('/');
+    return parts[parts.length - 2] ?? '_control';
+  }
   return '_control';
 }
 
@@ -155,27 +160,39 @@ export function readBaseline(path: string): Baseline | null {
 
 export function runPosture(opts: PostureOptions & { strict?: boolean }): PostureRun {
   const home = opts.home ?? HOMEDIR;
+  const now = opts.now ?? new Date();
   const baseline = readBaseline(opts.baselinePath);
-  const facts = collectFacts(opts.rules, { home, auditDir: opts.auditDir });
-  const findings = evaluatePosture(opts.rules, facts, baseline, { home });
+  const facts = collectFacts(opts.rules, { home, auditDir: opts.auditDir, now });
+  const findings = evaluatePosture(opts.rules, facts, baseline, { home, now });
   const result: PostureResult = {
-    generatedAt: (opts.now ?? new Date()).toISOString(),
+    generatedAt: now.toISOString(),
     findings,
     facts,
     baselineMissing: baseline === null,
   };
   if (opts.writeAudit) {
+    const failures: string[] = [];
     for (const finding of findings) {
-      appendControlEvent({
-        auditDir: opts.auditDir,
-        agent: agentOf(finding),
-        kind: kindOf(finding),
-        reason: `posture:${finding.id}:${finding.message}`,
-        // tool 只放短标签：完整定位串在 reason 里（云端 tool 上限 128 字符）
-        tool: finding.category,
-        decision: 'allow',
-        payload: { severity: finding.severity, subject: finding.subject },
-      });
+      try {
+        appendControlEvent({
+          auditDir: opts.auditDir,
+          agent: agentOf(finding),
+          kind: kindOf(finding),
+          reason: `posture:${finding.id}:${finding.message}`,
+          // tool 只放短标签：完整定位串在 reason 里（云端 tool 上限 128 字符）
+          tool: finding.category,
+          decision: 'allow',
+          payload: { severity: finding.severity, subject: finding.subject },
+        });
+      } catch (err) {
+        // 记不上账不能等于整个检查失败：比如控制平面链自己就断了（append 会被拒绝）。
+        // 收集失败原因一并报出来，避免"看起来跑完了、其实没落盘"。
+        failures.push(`${finding.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (failures.length > 0) {
+      console.error(`⚠️ ${failures.length} 条发现未能写入审计链：`);
+      for (const f of failures.slice(0, 5)) console.error(`   - ${f}`);
     }
   }
   const hasHigh = findings.some((f) => f.severity === 'high');
@@ -194,6 +211,8 @@ function kindOf(finding: Finding): AuditKind {
       return 'memory';
     case 'package':
       return 'package';
+    case 'audit':
+      return 'anomaly';
     default:
       return 'config-change';
   }

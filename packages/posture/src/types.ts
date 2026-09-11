@@ -57,6 +57,21 @@ export interface DelegationFact {
   hops: string[];
 }
 
+/** 审计链健康（G16）：链是否完整、最后一次写入距今多久 */
+export interface AuditFact {
+  agent: string;
+  server: string;
+  path: string;
+  entries: number;
+  /** 最后一条记录的 ts；空链为 null */
+  lastTs: string | null;
+  idleHours: number;
+  /** 链校验是否通过——false 意味着该 agent 之后的写入会被拒绝（静默丢数据） */
+  valid: boolean;
+  /** 断链位置（seq），valid=false 时有值 */
+  brokenAt?: number;
+}
+
 export interface Facts {
   hooks: HookFact[];
   configs: ConfigFact[];
@@ -64,6 +79,7 @@ export interface Facts {
   packages: PackageFact[];
   identities: IdentityFact[];
   delegations: DelegationFact[];
+  audits: AuditFact[];
 }
 
 export type FindingCategory =
@@ -72,7 +88,8 @@ export type FindingCategory =
   | 'memory'
   | 'package'
   | 'identity'
-  | 'delegation';
+  | 'delegation'
+  | 'audit';
 
 export interface Finding {
   /** 稳定 id：category:subject[:ruleId]，便于 CI 做基线豁免 */

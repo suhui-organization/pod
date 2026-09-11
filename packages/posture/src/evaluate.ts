@@ -278,8 +278,48 @@ export function evaluateDelegations(facts: Facts): Finding[] {
   return findings;
 }
 
+/**
+ * 审计链健康（G16）。
+ * - 链断裂 → high：这不是"少了几条记录"，而是**从那一点之后一条都写不进去**
+ *   （追加前会校验整条链），而 agent 侧完全无感。
+ * - 长时间没有新写入 → medium：钩子/网关可能已经静默停摆。
+ */
+export function evaluateAudits(rules: RuleSet, facts: Facts, now: Date = new Date()): Finding[] {
+  const findings: Finding[] = [];
+  if (!rules.auditHealth.enabled) return findings;
+  for (const audit of facts.audits) {
+    if (!audit.valid) {
+      findings.push({
+        id: shortId('audit', `${audit.agent}/${audit.server}`, 'broken'),
+        category: 'audit',
+        severity: 'high',
+        subject: audit.path,
+        message:
+          `审计链在 seq ${audit.brokenAt ?? '?'} 处断裂——追加会被拒绝，` +
+          `该链自断点起不再记录任何事件（云端也会以 409 拒收）`,
+      });
+      continue;
+    }
+    if (audit.entries === 0) continue;
+    if (audit.idleHours > rules.auditHealth.maxIdleHours) {
+      findings.push({
+        id: shortId('audit', `${audit.agent}/${audit.server}`, 'idle'),
+        category: 'audit',
+        severity: 'medium',
+        subject: audit.path,
+        message:
+          `审计链已 ${Math.floor(audit.idleHours)} 小时没有新记录` +
+          `（阈值 ${rules.auditHealth.maxIdleHours}h）——钩子或网关可能在静默失败`,
+        evidence: [`last=${audit.lastTs ?? '—'}`, `entries=${audit.entries}`],
+      });
+    }
+  }
+  return findings;
+}
+
 export interface EvaluateOptions {
   home: string;
+  now?: Date;
 }
 
 export function evaluatePosture(
@@ -295,6 +335,7 @@ export function evaluatePosture(
     ...evaluatePackages(rules, facts, baseline),
     ...evaluateIdentities(rules, facts),
     ...evaluateDelegations(facts),
+    ...evaluateAudits(rules, facts, opts.now ?? new Date()),
   ];
   return findings.sort(
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.id.localeCompare(b.id),
