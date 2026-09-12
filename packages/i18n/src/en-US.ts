@@ -364,4 +364,52 @@ export const enUS: Record<string, string> = {
     'Found {n} agent platforms on this machine that appear in neither policies nor audit: {list}',
   'agent 配置里有 {n} 处明文密钥（{list}），运行 pod scan 查看掩码报告':
     'Agent configuration holds {n} plaintext secrets ({list}); run pod scan for the masked report',
+
+  // ── 证据包与审计自检报告（pod verify-audit / export-evidence）──
+  '# pod 审计完整性自检报告': '# pod audit integrity report',
+  '审计目录：{dir}': 'Audit directory: {dir}',
+  '- 状态：{status}': '- Status: {status}',
+  '❌ 哈希链断裂（seq {seq}）': '❌ hash chain broken (seq {seq})',
+  '- 条目数：{n}': '- Entries: {n}',
+  '- 链首 hash：{hash}': '- Head hash: {hash}',
+  '- 链尾 hash：{hash}': '- Tail hash: {hash}',
+  '（审计目录为空）': '(the audit directory is empty)',
+  '**结论：{verdict}**': '**Conclusion: {verdict}**',
+  '存在损坏记录，请排查。': 'Some records are damaged; please investigate.',
+  'format 不是 pod-evidence-v1': 'format is not pod-evidence-v1',
+  '顶层哈希不匹配（包被修改过）': 'Top-level hash mismatch (the bundle was modified)',
+  '# AI Agent 操作审计证据包': '# AI agent action audit evidence bundle',
+  '> 由 pod 本地生成，数据未上传任何第三方。导出时间：{ts}':
+    '> Generated locally by pod; nothing was uploaded to any third party. Exported at: {ts}',
+  '## 1. 覆盖范围': '## 1. Scope',
+  '- 证据窗口：{from} → {to}': '- Evidence window: {from} → {to}',
+  '- 审计记录：{n} 条（其中被阻断 {blocked} 条）': '- Audit records: {n} ({blocked} blocked)',
+  '- 涉及工具：{n} 个': '- Tools involved: {n}',
+  '- 决策分布：allow {allow} / approve {approve} / deny {deny}':
+    '- Decision mix: allow {allow} / approve {approve} / deny {deny}',
+  '## 2. 完整性自证': '## 2. Integrity self-proof',
+  '- 顶层哈希：`{hash}`': '- Top-level hash: `{hash}`',
+  '| 审计文件 | 哈希链 | 条目 | 链首 hash | 链尾 hash |':
+    '| Audit file | Hash chain | Entries | Head hash | Tail hash |',
+  '✅ 完整': '✅ intact',
+  '❌ 断裂@{seq}': '❌ broken at {seq}',
+  '## 3. 控制措施': '## 3. Controls',
+  '| 控制项 | pod 机制 | 本证据包中的对应记录 |': '| Control | pod mechanism | Where it shows in this bundle |',
+  '| 工具调用授权 | 策略引擎，`deny > approve > allow`，未授权默认拒绝 | 每条记录的 decision / reason |':
+    '| Tool-call authorisation | Policy engine, `deny > approve > allow`, unlisted calls denied by default | decision / reason on every record |',
+  '| 高风险操作审批 | 审批闸门，超时按拒绝处理（fail-closed） | approver / reason 字段 |':
+    '| Approval for high-risk actions | Approval gate, timeouts count as denial (fail-closed) | approver / reason fields |',
+  '| 审计不可篡改 | SHA-256 哈希链，逐条前后链接 | 上方完整性自证 + 链首/链尾 hash |':
+    '| Tamper-evident audit | SHA-256 hash chain, each record linked to the previous | integrity self-proof above + head/tail hashes |',
+  '| 敏感数据防外泄 | 敏感路径输入拦截 + 输出密钥正则拦截 | 被阻断记录（blocked） |':
+    '| Leak prevention | Sensitive-path input blocking + secret regex on output | blocked records |',
+  '| 供应链来源校验 | server 启动来源白名单（command/package/version） | 策略快照中的 source 字段 |':
+    '| Supply-chain origin checks | Allowlist on server launch source (command/package/version) | source field in the policy snapshot |',
+  '## 4. 独立验证方式': '## 4. How to verify independently',
+  '# 验证证据包未被修改': '# verify the bundle has not been modified',
+  '# 重新校验原始审计哈希链': '# re-verify the original audit hash chain',
+  'pod 只记录工具调用的哈希与元数据，不存储参数/输出原文。':
+    'pod records only hashes and metadata of tool calls; it never stores argument or output bodies.',
+  '- Agent：{list}': '- Agent: {list}',
+  '- MCP server：{list}': '- MCP servers: {list}',
 }

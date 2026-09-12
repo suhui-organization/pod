@@ -187,23 +187,25 @@ export function verifyAll(auditDir: string): VerifyResult[] {
 }
 
 export function renderVerifyReport(results: VerifyResult[], auditDir: string): string {
-  const lines: string[] = ['# pod 审计完整性自检报告', ''];
-  lines.push(`生成时间：${new Date().toISOString()}`);
-  lines.push(`审计目录：${auditDir}`);
+  const lines: string[] = [t('# pod 审计完整性自检报告'), ''];
+  lines.push(t('生成时间：{ts}', { ts: new Date().toISOString() }));
+  lines.push(t('审计目录：{dir}', { dir: auditDir }));
   lines.push('');
   const allOk = results.every((r) => r.ok);
   for (const r of results) {
     lines.push(`## ${r.server}.jsonl`);
     lines.push('');
-    lines.push(`- 状态：${r.ok ? '✅ 哈希链完整' : `❌ 哈希链断裂（seq ${r.firstBrokenSeq}）`}`);
-    lines.push(`- 条目数：${r.entries}`);
-    if (r.headHash) lines.push(`- 链首 hash：${r.headHash}`);
-    if (r.tailHash) lines.push(`- 链尾 hash：${r.tailHash}`);
+    lines.push(
+      t('- 状态：{status}', { status: r.ok ? t('✅ 哈希链完整') : t('❌ 哈希链断裂（seq {seq}）', { seq: r.firstBrokenSeq ?? '?' }) }),
+    );
+    lines.push(t('- 条目数：{n}', { n: r.entries }));
+    if (r.headHash) lines.push(t('- 链首 hash：{hash}', { hash: r.headHash }));
+    if (r.tailHash) lines.push(t('- 链尾 hash：{hash}', { hash: r.tailHash }));
     lines.push('');
   }
-  if (results.length === 0) lines.push('（审计目录为空）');
+  if (results.length === 0) lines.push(t('（审计目录为空）'));
   lines.push('---');
-  lines.push(`**结论：${allOk ? '全部审计记录可验证、不可篡改。' : '存在损坏记录，请排查。'}**`);
+  lines.push(t('**结论：{verdict}**', { verdict: allOk ? t('全部审计记录可验证、不可篡改。') : t('存在损坏记录，请排查。') }));
   return lines.join('\n');
 }
 
@@ -267,9 +269,9 @@ export function exportEvidence(opts: {
 export function verifyEvidenceBundle(path: string): { ok: boolean; reason?: string } {
   try {
     const bundle = JSON.parse(readFileSync(path, 'utf8')) as EvidenceBundle;
-    if (bundle.format !== 'pod-evidence-v1') return { ok: false, reason: 'format 不是 pod-evidence-v1' };
+    if (bundle.format !== 'pod-evidence-v1') return { ok: false, reason: t('format 不是 pod-evidence-v1') };
     const expected = sha256Hex(stableStringify({ ...bundle, top_level_hash: '' }));
-    if (expected !== bundle.top_level_hash) return { ok: false, reason: '顶层哈希不匹配（包被修改过）' };
+    if (expected !== bundle.top_level_hash) return { ok: false, reason: t('顶层哈希不匹配（包被修改过）') };
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -332,57 +334,61 @@ function fmtTs(ts: string | undefined): string {
  */
 export function renderEvidenceReport(bundle: EvidenceBundle): string {
   const s = summarizeEvidence(bundle);
-  const lines: string[] = ['# AI Agent 操作审计证据包', ''];
-  lines.push(`> 由 pod 本地生成，数据未上传任何第三方。导出时间：${bundle.exported_at}`);
+  const lines: string[] = [t('# AI Agent 操作审计证据包'), ''];
+  lines.push(t('> 由 pod 本地生成，数据未上传任何第三方。导出时间：{ts}', { ts: bundle.exported_at }));
   lines.push('');
-  lines.push('## 1. 覆盖范围');
+  lines.push(t('## 1. 覆盖范围'));
   lines.push('');
-  lines.push(`- 证据窗口：${fmtTs(s.firstTs)} → ${fmtTs(s.lastTs)}`);
-  lines.push(`- 审计记录：${s.entries} 条（其中被阻断 ${s.blocked} 条）`);
-  lines.push(`- Agent：${s.agents.length > 0 ? s.agents.join('、') : '—'}`);
-  lines.push(`- MCP server：${s.servers.length > 0 ? s.servers.join('、') : '—'}`);
-  lines.push(`- 涉及工具：${s.tools.length} 个`);
+  lines.push(t('- 证据窗口：{from} → {to}', { from: fmtTs(s.firstTs), to: fmtTs(s.lastTs) }));
+  lines.push(t('- 审计记录：{n} 条（其中被阻断 {blocked} 条）', { n: s.entries, blocked: s.blocked }));
+  lines.push(t('- Agent：{list}', { list: s.agents.length > 0 ? s.agents.join('、') : '—' }));
+  lines.push(t('- MCP server：{list}', { list: s.servers.length > 0 ? s.servers.join('、') : '—' }));
+  lines.push(t('- 涉及工具：{n} 个', { n: s.tools.length }));
   lines.push(
-    `- 决策分布：allow ${s.decisions.allow ?? 0} / approve ${s.decisions.approve ?? 0} / deny ${s.decisions.deny ?? 0}`,
+    t('- 决策分布：allow {allow} / approve {approve} / deny {deny}', {
+      allow: s.decisions.allow ?? 0,
+      approve: s.decisions.approve ?? 0,
+      deny: s.decisions.deny ?? 0,
+    }),
   );
   lines.push('');
 
-  lines.push('## 2. 完整性自证');
+  lines.push(t('## 2. 完整性自证'));
   lines.push('');
-  lines.push(`- 顶层哈希：\`${bundle.top_level_hash}\``);
+  lines.push(t('- 顶层哈希：`{hash}`', { hash: bundle.top_level_hash }));
   lines.push('');
-  lines.push('| 审计文件 | 哈希链 | 条目 | 链首 hash | 链尾 hash |');
+  lines.push(t('| 审计文件 | 哈希链 | 条目 | 链首 hash | 链尾 hash |'));
   lines.push('|----------|--------|-----:|-----------|-----------|');
   for (const [file, r] of Object.entries(bundle.verify)) {
     lines.push(
-      `| ${file} | ${r.ok ? '✅ 完整' : `❌ 断裂@${r.firstBrokenSeq}`} | ${r.entries} | ` +
+      `| ${file} | ${r.ok ? t('✅ 完整') : t('❌ 断裂@{seq}', { seq: r.firstBrokenSeq ?? '?' })} | ${r.entries} | ` +
         `${r.headHash ? r.headHash.slice(0, 12) + '…' : '—'} | ${r.tailHash ? r.tailHash.slice(0, 12) + '…' : '—'} |`,
     );
   }
   lines.push('');
 
-  lines.push('## 3. 控制措施');
+  lines.push(t('## 3. 控制措施'));
   lines.push('');
-  lines.push('| 控制项 | pod 机制 | 本证据包中的对应记录 |');
+  lines.push(t('| 控制项 | pod 机制 | 本证据包中的对应记录 |'));
   lines.push('|--------|----------|----------------------|');
-  lines.push('| 工具调用授权 | 策略引擎，`deny > approve > allow`，未授权默认拒绝 | 每条记录的 decision / reason |');
-  lines.push('| 高风险操作审批 | 审批闸门，超时按拒绝处理（fail-closed） | approver / reason 字段 |');
-  lines.push('| 审计不可篡改 | SHA-256 哈希链，逐条前后链接 | 上方完整性自证 + 链首/链尾 hash |');
-  lines.push('| 敏感数据防外泄 | 敏感路径输入拦截 + 输出密钥正则拦截 | 被阻断记录（blocked） |');
-  lines.push('| 供应链来源校验 | server 启动来源白名单（command/package/version） | 策略快照中的 source 字段 |');
+  lines.push(t('| 工具调用授权 | 策略引擎，`deny > approve > allow`，未授权默认拒绝 | 每条记录的 decision / reason |'));
+  lines.push(t('| 高风险操作审批 | 审批闸门，超时按拒绝处理（fail-closed） | approver / reason 字段 |'));
+  lines.push(t('| 审计不可篡改 | SHA-256 哈希链，逐条前后链接 | 上方完整性自证 + 链首/链尾 hash |'));
+  lines.push(t('| 敏感数据防外泄 | 敏感路径输入拦截 + 输出密钥正则拦截 | 被阻断记录（blocked） |'));
+  lines.push(t('| 供应链来源校验 | server 启动来源白名单（command/package/version） | 策略快照中的 source 字段 |'));
   lines.push('');
 
-  lines.push('## 4. 独立验证方式');
+  lines.push(t('## 4. 独立验证方式'));
   lines.push('');
   lines.push('```bash');
-  lines.push('# 验证证据包未被修改');
+  lines.push(t('# 验证证据包未被修改'));
   lines.push('pod verify-evidence <bundle.json>');
-  lines.push('# 重新校验原始审计哈希链');
+  lines.push(t('# 重新校验原始审计哈希链'));
   lines.push('pod verify-audit --audit-dir <audit-dir>');
   lines.push('```');
   lines.push('');
   lines.push('---');
-  lines.push('pod 只记录工具调用的哈希与元数据，不存储参数/输出原文。');
+  lines.push(t('pod 只记录工具调用的哈希与元数据，不存储参数/输出原文。'));
   lines.push('');
   return lines.join('\n');
 }
