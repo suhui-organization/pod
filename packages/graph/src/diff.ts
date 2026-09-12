@@ -1,5 +1,6 @@
 import type { Policy } from '@podsec/policy';
 import type { PathEndpoint, PolicyDiffHint, ToxicGroup, ToxicPath } from './types.js';
+import { t } from '@podsec/i18n';
 
 export function decisionFor(
   policy: Policy,
@@ -22,7 +23,7 @@ export function suggestDiff(path: ToxicPath, policy: Policy): PolicyDiffHint | n
       target: `${path.sink.server}.${path.sink.tool}`,
       from: sink,
       to: 'approve',
-      rationale: 'sink 是链路末端；改为审批可保留可用性，同时阻断自动外发。',
+      rationale: t('sink 是链路末端；改为审批可保留可用性，同时阻断自动外发。'),
     };
   }
   const source = decisionFor(policy, path.source.server, path.source.tool);
@@ -31,7 +32,7 @@ export function suggestDiff(path: ToxicPath, policy: Policy): PolicyDiffHint | n
       target: `${path.source.server}.${path.source.tool}`,
       from: source,
       to: 'approve',
-      rationale: 'sink 已需审批，收紧 source 可进一步降低自动触发的风险。',
+      rationale: t('sink 已需审批，收紧 source 可进一步降低自动触发的风险。'),
     };
   }
   if (source === 'approve') {
@@ -39,7 +40,7 @@ export function suggestDiff(path: ToxicPath, policy: Policy): PolicyDiffHint | n
       target: `${path.source.server}.${path.source.tool}`,
       from: 'approve',
       to: 'deny',
-      rationale: '两端均已需审批；若要彻底断链，需 deny source（会改变工作流，需人工确认）。',
+      rationale: t('两端均已需审批；若要彻底断链，需 deny source（会改变工作流，需人工确认）。'),
     };
   }
   return null;
@@ -92,8 +93,16 @@ export function suggestChainDiff(group: ToxicGroup, policy: Policy): ChainDiffHi
       to: from === 'approve' ? 'deny' : 'approve',
       rationale:
         strategy === 'tighten-sinks'
-          ? `断链：收紧 sink ${target.server}.${target.tool}（${target.capability}）`
-          : `断链：收紧 source ${target.server}.${target.tool}（${target.capability}）`,
+        ? t('断链：收紧 sink {server}.{tool}（{capability}）', {
+            server: target.server,
+            tool: target.tool,
+            capability: target.capability,
+          })
+          : t('断链：收紧 source {server}.{tool}（{capability}）', {
+              server: target.server,
+              tool: target.tool,
+              capability: target.capability,
+            }),
     });
   }
   if (changes.length === 0) return null;
@@ -107,7 +116,10 @@ export function suggestChainDiff(group: ToxicGroup, policy: Policy): ChainDiffHi
       capability_recommendation: {
         capability,
         action: 'approve',
-        reason: `工具级最小割需要改 ${targets.length} 个 ${side}；建议加入 capabilityRules.approve: ["${capability}"]，并运行 pod graph apply 生成 capabilityMap`,
+        reason: t(
+          '工具级最小割需要改 {n} 个 {side}；建议加入 capabilityRules.approve: ["{capability}"]，并运行 pod graph apply 生成 capabilityMap',
+          { n: targets.length, side, capability },
+        ),
         needs_capability_policy: false,
         policy_patch: { capabilityRules: { approve: [capability] } },
       },

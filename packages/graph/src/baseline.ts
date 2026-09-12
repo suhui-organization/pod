@@ -2,6 +2,7 @@ import { DEFAULT_SECRET_RULES, type Policy, type ServerPolicy } from '@podsec/po
 import { buildToolRefs } from './toxic.js';
 import type { GraphDiffEntry } from './graph-diff.js';
 import type { CapabilityGraph, ToolRef } from './types.js';
+import { t } from '@podsec/i18n';
 
 export interface BaselineOptions {
   agent: string;
@@ -98,22 +99,40 @@ export function renderBaselineReport(agent: string, result: BaselineResult): str
   const lines = [
     `# pod graph baseline — ${agent}`,
     '',
-    `allow ${counts.allow} · approve ${counts.approve} · deny ${counts.deny} · 省略（权限过载）${counts.omitted}`,
+    t('allow {allow} · approve {approve} · deny {deny} · 省略（权限过载）{omitted}', {
+      allow: counts.allow,
+      approve: counts.approve,
+      deny: counts.deny,
+      omitted: counts.omitted,
+    }),
     '',
   ];
   if (shadow.length > 0) {
-    lines.push(`## 影子能力（需人工确认）：${shadow.length}`);
+    lines.push(t('## 影子能力（需人工确认）：{n}', { n: shadow.length }));
     for (const entry of shadow) {
-      lines.push(`- ${entry.server}.${entry.tool}（${entry.capabilities.join(', ') || '未分类'}，调用 ${entry.calls ?? 0}）`);
+      lines.push(
+        t('- {server}.{tool}（{caps}，调用 {n}）', {
+          server: entry.server,
+          tool: entry.tool,
+          caps: entry.capabilities.join(', ') || t('未分类'),
+          n: entry.calls ?? 0,
+        }),
+      );
     }
     lines.push('');
   }
   if (overPrivileged.length > 0) {
-    lines.push(`## 已从基线移除（潜在 − 实际）：${overPrivileged.length}`);
+    lines.push(t('## 已从基线移除（潜在 − 实际）：{n}', { n: overPrivileged.length }));
     for (const entry of overPrivileged.slice(0, 30)) {
-      lines.push(`- ${entry.server}.${entry.tool}（${entry.capabilities.join(', ') || '未分类'}）`);
+      lines.push(
+        t('- {server}.{tool}（{caps}）', {
+          server: entry.server,
+          tool: entry.tool,
+          caps: entry.capabilities.join(', ') || t('未分类'),
+        }),
+      );
     }
-    if (overPrivileged.length > 30) lines.push(`- … 还有 ${overPrivileged.length - 30} 条`);
+    if (overPrivileged.length > 30) lines.push(t('- … 还有 {n} 条', { n: overPrivileged.length - 30 }));
     lines.push('');
   }
   lines.push('## 策略', '', '```json', JSON.stringify(policy, null, 2), '```');

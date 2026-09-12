@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { readFeedback } from './feedback.js';
+import { t } from '@podsec/i18n';
 
 /**
  * H4 留存信号（设计文档 8. Phase 3：连续 2 周主动使用）。
@@ -113,7 +114,7 @@ export function activeDays(usage: UsageEntry[], cmds: readonly string[] = ACTIVE
 export function parseDay(day: string): Date {
   const [y, m, d] = day.split('-').map((part) => Number.parseInt(part, 10));
   if (y === undefined || m === undefined || d === undefined || [y, m, d].some(Number.isNaN)) {
-    throw new Error(`invalid day: ${day}（期望 YYYY-MM-DD）`);
+    throw new Error(t('invalid day: {day}（期望 YYYY-MM-DD）', { day }));
   }
   return new Date(y, m - 1, d);
 }
@@ -210,17 +211,21 @@ export function judgeRetention({ activeDays: days, today, window }: RetentionInp
 /** 人读输出。 */
 export function renderRetention(report: RetentionReport): string {
   const label: Record<RetentionStatus, string> = {
-    met: '✅ H4 达成：连续使用已满窗口',
-    'on-track': '⏳ 进行中',
-    broken: '❌ 已中断',
+    met: t('✅ H4 达成：连续使用已满窗口'),
+    'on-track': t('⏳ 进行中'),
+    broken: t('❌ 已中断'),
   };
   return [
-    `H4 留存（窗口 ${report.window} 天，今天 ${report.today}）`,
+    t('H4 留存（窗口 {window} 天，今天 {today}）', { window: report.window, today: report.today }),
     '',
-    `- 结论：${label[report.status]}`,
-    `- 连续活跃：${report.streak} 天`,
-    `- 窗口内活跃：${report.activeDays.length}/${report.window} 天（缺 ${report.missingDays} 天）`,
-    `- 上次使用：${report.lastActive ?? '无记录'}`,
+    t('- 结论：{verdict}', { verdict: label[report.status] }),
+    t('- 连续活跃：{n} 天', { n: report.streak }),
+    t('- 窗口内活跃：{active}/{window} 天（缺 {missing} 天）', {
+      active: report.activeDays.length,
+      window: report.window,
+      missing: report.missingDays,
+    }),
+    t('- 上次使用：{last}', { last: report.lastActive ?? t('无记录') }),
     `- 反馈：confirmed ${report.feedback.confirmed} · false-positive ${report.feedback.falsePositive}`,
   ].join('\n');
 }

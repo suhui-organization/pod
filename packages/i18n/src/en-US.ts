@@ -471,4 +471,49 @@ export const enUS: Record<string, string> = {
   '证据:   {evidence}': 'Evidence:   {evidence}',
   '建议:   {target} {from} → {to}': 'Suggestion:   {target} {from} → {to}',
   '{id}  {rule}（{kind}，置信度 {confidence}）': '{id}  {rule} ({kind}, confidence {confidence})',
+
+  // ── graph 的理由与说明文案（explain / rationale / baseline / retention）──
+  '敏感数据可被读取，同时存在外发通道，构成数据外泄链。':
+    'Sensitive data can be read and there is an outbound channel, forming a data-exfiltration chain.',
+  '可读外部不可信内容，同时可执行命令，构成注入→执行链。':
+    'Untrusted external content can be read and commands can be executed, forming an injection→execution chain.',
+  '可读外部内容并可外发，存在被注入后外泄的风险。':
+    'External content can be read and data can be sent out, so an injection could lead to exfiltration.',
+  '可获取凭据并具备执行/外发能力，构成凭据滥用链。':
+    'Credentials can be read and there is execution/egress capability, forming a credential-abuse chain.',
+  '{sourceAgent} 的 {sourceTool} 具备 {sourceCapability}，{sinkAgent} 的 {sinkTool} 具备 {sinkCapability}；{rationale}':
+    '{sourceAgent} {sourceTool} has {sourceCapability}, and {sinkAgent} {sinkTool} has {sinkCapability}; {rationale}',
+  '{agent} 同时具备写能力与破坏性工具 {tool}': '{agent} has both write access and the destructive tool {tool}',
+  '{agent} 同时具备写能力与破坏性工具，存在不可逆破坏风险。':
+    '{agent} has both write access and destructive tools, risking irreversible damage.',
+  'sink 是链路末端；改为审批可保留可用性，同时阻断自动外发。':
+    'The sink is the end of the chain; requiring approval keeps it usable while stopping automatic egress.',
+  'sink 已需审批，收紧 source 可进一步降低自动触发的风险。':
+    'The sink already needs approval; tightening the source further reduces automatic triggering.',
+  '两端均已需审批；若要彻底断链，需 deny source（会改变工作流，需人工确认）。':
+    'Both ends already need approval; breaking the chain completely means denying the source (this changes the workflow and needs human sign-off).',
+  '断链：收紧 sink {server}.{tool}（{capability}）': 'Break the chain: tighten sink {server}.{tool} ({capability})',
+  '断链：收紧 source {server}.{tool}（{capability}）':
+    'Break the chain: tighten source {server}.{tool} ({capability})',
+  '工具级最小割需要改 {n} 个 {side}；建议加入 capabilityRules.approve: ["{capability}"]，并运行 pod graph apply 生成 capabilityMap':
+    'A tool-level min-cut means changing {n} {side} tools; consider adding capabilityRules.approve: ["{capability}"] and running pod graph apply to generate the capabilityMap',
+  'allow {allow} · approve {approve} · deny {deny} · 省略（权限过载）{omitted}':
+    'allow {allow} · approve {approve} · deny {deny} · omitted (over-privileged) {omitted}',
+  '## 影子能力（需人工确认）：{n}': '## Shadow capabilities (need human review): {n}',
+  '- {server}.{tool}（{caps}，调用 {n}）': '- {server}.{tool} ({caps}, {n} calls)',
+  '未分类': 'uncategorised',
+  '## 已从基线移除（潜在 − 实际）：{n}': '## Removed from the baseline (potential − observed): {n}',
+  '- {server}.{tool}（{caps}）': '- {server}.{tool} ({caps})',
+  '- … 还有 {n} 条': '- … {n} more',
+  'invalid day: {day}（期望 YYYY-MM-DD）': 'invalid day: {day} (expected YYYY-MM-DD)',
+  '✅ H4 达成：连续使用已满窗口': '✅ H4 reached: active for a full window',
+  '⏳ 进行中': '⏳ in progress',
+  '❌ 已中断': '❌ broken',
+  'H4 留存（窗口 {window} 天，今天 {today}）': 'H4 retention (window {window} days, today {today})',
+  '- 结论：{verdict}': '- Verdict: {verdict}',
+  '- 连续活跃：{n} 天': '- Active streak: {n} days',
+  '- 窗口内活跃：{active}/{window} 天（缺 {missing} 天）':
+    '- Active days in window: {active}/{window} ({missing} missing)',
+  '- 上次使用：{last}': '- Last used: {last}',
+  '无记录': 'no record',
 }

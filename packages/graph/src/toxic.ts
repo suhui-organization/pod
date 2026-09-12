@@ -7,6 +7,7 @@ import type {
   ToxicGroup,
   ToxicPath,
 } from './types.js';
+import { t } from '@podsec/i18n';
 
 export interface ToxicRule {
   id: string;
@@ -22,28 +23,28 @@ export const TOXIC_RULES: ToxicRule[] = [
     severity: 'high',
     sources: ['read-secret', 'read-private-data'],
     sinks: ['external-communication'],
-    rationale: '敏感数据可被读取，同时存在外发通道，构成数据外泄链。',
+    rationale: t('敏感数据可被读取，同时存在外发通道，构成数据外泄链。'),
   },
   {
     id: 'injection-exec',
     severity: 'high',
     sources: ['read-untrusted-input'],
     sinks: ['exec'],
-    rationale: '可读外部不可信内容，同时可执行命令，构成注入→执行链。',
+    rationale: t('可读外部不可信内容，同时可执行命令，构成注入→执行链。'),
   },
   {
     id: 'injection-exfil',
     severity: 'medium',
     sources: ['read-untrusted-input'],
     sinks: ['external-communication'],
-    rationale: '可读外部内容并可外发，存在被注入后外泄的风险。',
+    rationale: t('可读外部内容并可外发，存在被注入后外泄的风险。'),
   },
   {
     id: 'credential-abuse',
     severity: 'high',
     sources: ['credential-access'],
     sinks: ['exec', 'external-communication'],
-    rationale: '可获取凭据并具备执行/外发能力，构成凭据滥用链。',
+    rationale: t('可获取凭据并具备执行/外发能力，构成凭据滥用链。'),
   },
 ];
 
@@ -212,9 +213,15 @@ export function findToxicPaths(
         `${source.agent}.${source.server}.${source.tool} → ${source.capability} (${source.confidence})`,
         `${sink.agent}.${sink.server}.${sink.tool} → ${sink.capability} (${sink.confidence})`,
       ],
-      explain:
-        `${source.agent} 的 ${source.tool} 具备 ${source.capability}，` +
-        `${sink.agent} 的 ${sink.tool} 具备 ${sink.capability}；${rule.rationale}`,
+      explain: t('{sourceAgent} 的 {sourceTool} 具备 {sourceCapability}，{sinkAgent} 的 {sinkTool} 具备 {sinkCapability}；{rationale}', {
+        sourceAgent: source.agent,
+        sourceTool: source.tool,
+        sourceCapability: source.capability,
+        sinkAgent: sink.agent,
+        sinkTool: sink.tool,
+        sinkCapability: sink.capability,
+        rationale: rule.rationale,
+      }),
       suggested_diff: null,
     };
   };
@@ -278,8 +285,8 @@ export function findToxicPaths(
         source: endpoint(ref, assertion),
         sink: endpoint(ref, assertion),
         amplifier: null,
-        evidence: [`${agent} 同时具备写能力与破坏性工具 ${ref.tool}`],
-        explain: `${agent} 同时具备写能力与破坏性工具，存在不可逆破坏风险。`,
+        evidence: [t('{agent} 同时具备写能力与破坏性工具 {tool}', { agent, tool: ref.tool })],
+        explain: t('{agent} 同时具备写能力与破坏性工具，存在不可逆破坏风险。', { agent }),
         suggested_diff: null,
       });
     }
