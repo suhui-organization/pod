@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@podsec/graph": "workspace:*",
+    "@podsec/i18n": "workspace:*",
     "@podsec/policy": "workspace:*",
     "@podsec/scan": "workspace:*"
   }

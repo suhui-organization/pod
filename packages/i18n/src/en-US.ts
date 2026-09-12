@@ -325,4 +325,43 @@ export const enUS: Record<string, string> = {
   '无': 'none',
   'pod digest 只读本地审计，不联网、不上传任何数据。':
     'pod digest only reads local audit data; it does not use the network and uploads nothing.',
+
+  // ── pod ui 控制台（packages/console）──
+  'pod 控制台（只读）已启动：{url}': 'pod console (read-only) started at {url}',
+  '数据目录：{path}': 'Data directory: {path}',
+  '收到 {signal}，正在停止控制台…': 'Received {signal}; stopping the console…',
+  'pod ui listening on http://{host}:{port} (只读)': 'pod ui listening on http://{host}:{port} (read-only)',
+  '文件超过 {max} 字节，已跳过': 'File is larger than {max} bytes; skipped',
+  '未找到策略目录 {dir}：还没有登记任何 agent 策略（先跑 pod policy draft）':
+    'Policy directory {dir} not found: no agent policies registered yet (run pod policy draft first)',
+  '策略文件 {file} 无法解析，已跳过（{error}）': 'Policy file {file} could not be parsed; skipped ({error})',
+  '策略文件 {file} 缺少 agent 字段，已跳过': 'Policy file {file} has no agent field; skipped',
+  'agent "{agent}" 有多份策略（{first}、{second}），按后者展示':
+    'Agent "{agent}" has more than one policy ({first}, {second}); showing the latter',
+  '未找到审计目录 {dir}：还没有记录到真实调用（pod record / pod serve 会写入）':
+    'Audit directory {dir} not found: no real calls recorded yet (pod record / pod serve write it)',
+  '审计文件 {file} 超过 {max} 字节，已跳过（后续可做分页读取）':
+    'Audit file {file} is larger than {max} bytes; skipped (paging is a later improvement)',
+  '审计文件 {file} 读取失败，已跳过（{error}）': 'Audit file {file} could not be read; skipped ({error})',
+  '审计文件中有 {n} 行无法解析，已跳过（哈希链可用 pod verify-audit 校验）':
+    '{n} lines in the audit files could not be parsed; skipped (verify the hash chain with pod verify-audit)',
+  '未找到 {path}：毒性链列需要先跑 pod graph toxic（能力图分析）':
+    '{path} not found: the toxic-path column needs pod graph toxic (capability graph analysis) first',
+  '{path} 无法解析为毒性链列表，已跳过': '{path} is not a parseable toxic-path list; skipped',
+  '存在毒性链': 'Toxic path present',
+  '{rule}：{explain}': '{rule}: {explain}',
+  '来自 capability graph 的毒性链分析': 'From the capability graph toxic-path analysis',
+  'MCP server 未锁定版本': 'MCP server is not version-pinned',
+  '触发敏感路径拒绝': 'Triggered a sensitive-path denial',
+  '审计中存在敏感路径拒绝': 'Sensitive-path denials appear in the audit',
+  '未登记策略': 'No policy registered',
+  '有真实调用记录，但 ~/.pod/policies 下没有它的策略——权限不受约束':
+    'There are real calls, but no policy for it under ~/.pod/policies — its permissions are unconstrained',
+  '未观测到调用': 'No calls observed',
+  '策略已登记，但审计里没有它的调用记录（策略从行为编译，未观测 = 依据不足）':
+    'A policy is registered, but the audit has no calls for it (policies compile from behaviour; no observations means weak evidence)',
+  '本机发现 {n} 个 agent 平台尚未出现在策略或审计里：{list}':
+    'Found {n} agent platforms on this machine that appear in neither policies nor audit: {list}',
+  'agent 配置里有 {n} 处明文密钥（{list}），运行 pod scan 查看掩码报告':
+    'Agent configuration holds {n} plaintext secrets ({list}); run pod scan for the masked report',
 }

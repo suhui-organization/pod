@@ -86,6 +86,9 @@ importers:
       '@podsec/graph':
         specifier: workspace:*
         version: link:../graph
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@podsec/policy':
         specifier: workspace:*
         version: link:../policy

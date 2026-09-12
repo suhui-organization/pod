@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { scanMachine } from '@podsec/scan';
+import { t } from '@podsec/i18n';
 import type { Policy } from '@podsec/policy';
 import type { ToxicPath } from '@podsec/graph';
 import type {
@@ -58,7 +59,9 @@ const SEVERITY_ORDER: Record<RiskSeverity, number> = { high: 0, medium: 1, low: 
 function readJsonFile<T>(path: string): { ok: true; value: T } | { ok: false; error: string } {
   try {
     const raw = readFileSync(path);
-    if (raw.byteLength > MAX_BYTES) return { ok: false, error: `文件超过 ${MAX_BYTES} 字节，已跳过` };
+    if (raw.byteLength > MAX_BYTES) {
+      return { ok: false, error: t('文件超过 {max} 字节，已跳过', { max: MAX_BYTES }) };
+    }
     return { ok: true, value: JSON.parse(raw.toString('utf8')) as T };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -83,24 +86,30 @@ function readPolicies(dir: string, notes: string[]): Map<string, PolicyEntry> {
   const out = new Map<string, PolicyEntry>();
   const files = readDirectory(dir);
   if (!files) {
-    notes.push(`未找到策略目录 ${dir}：还没有登记任何 agent 策略（先跑 pod policy draft）`);
+    notes.push(t('未找到策略目录 {dir}：还没有登记任何 agent 策略（先跑 pod policy draft）', { dir }));
     return out;
   }
   for (const file of files.filter((f) => f.endsWith('.json'))) {
     const path = join(dir, file);
     const res = readJsonFile<Policy>(path);
     if (!res.ok) {
-      notes.push(`策略文件 ${file} 无法解析，已跳过（${res.error}）`);
+      notes.push(t('策略文件 {file} 无法解析，已跳过（{error}）', { file, error: res.error }));
       continue;
     }
     const policy = res.value;
     if (typeof policy?.agent !== 'string' || policy.agent.length === 0) {
-      notes.push(`策略文件 ${file} 缺少 agent 字段，已跳过`);
+      notes.push(t('策略文件 {file} 缺少 agent 字段，已跳过', { file }));
       continue;
     }
     const existing = out.get(policy.agent);
     if (existing) {
-      notes.push(`agent "${policy.agent}" 有多份策略（${existing.file}、${file}），按后者展示`);
+      notes.push(
+        t('agent "{agent}" 有多份策略（{first}、{second}），按后者展示', {
+          agent: policy.agent,
+          first: existing.file,
+          second: file,
+        }),
+      );
     }
     out.set(policy.agent, { file, policy });
   }
@@ -112,7 +121,7 @@ function readAudit(dir: string, notes: string[]): { rows: AuditRow[]; files: num
   let skipped = 0;
   const files = readDirectory(dir);
   if (!files) {
-    notes.push(`未找到审计目录 ${dir}：还没有记录到真实调用（pod record / pod serve 会写入）`);
+    notes.push(t('未找到审计目录 {dir}：还没有记录到真实调用（pod record / pod serve 会写入）', { dir }));
     return { rows, files: 0, skipped };
   }
   const jsonl = files.filter((f) => f.endsWith('.jsonl'));
@@ -121,12 +130,17 @@ function readAudit(dir: string, notes: string[]): { rows: AuditRow[]; files: num
     try {
       const raw = readFileSync(join(dir, file));
       if (raw.byteLength > MAX_BYTES) {
-        notes.push(`审计文件 ${file} 超过 ${MAX_BYTES} 字节，已跳过（后续可做分页读取）`);
+        notes.push(t('审计文件 {file} 超过 {max} 字节，已跳过（后续可做分页读取）', { file, max: MAX_BYTES }));
         continue;
       }
       text = raw.toString('utf8');
     } catch (err) {
-      notes.push(`审计文件 ${file} 读取失败，已跳过（${err instanceof Error ? err.message : String(err)}）`);
+      notes.push(
+        t('审计文件 {file} 读取失败，已跳过（{error}）', {
+          file,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
       continue;
     }
     for (const line of text.split('\n')) {
@@ -162,7 +176,7 @@ function readAudit(dir: string, notes: string[]): { rows: AuditRow[]; files: num
     }
   }
   if (skipped > 0) {
-    notes.push(`审计文件中有 ${skipped} 行无法解析，已跳过（哈希链可用 pod verify-audit 校验）`);
+    notes.push(t('审计文件中有 {n} 行无法解析，已跳过（哈希链可用 pod verify-audit 校验）', { n: skipped }));
   }
   return { rows, files: jsonl.length, skipped };
 }
@@ -170,12 +184,12 @@ function readAudit(dir: string, notes: string[]): { rows: AuditRow[]; files: num
 function readToxicPaths(dir: string, notes: string[]): ToxicPath[] {
   const path = join(dir, 'paths.json');
   if (!existsSync(path)) {
-    notes.push(`未找到 ${path}：毒性链列需要先跑 pod graph toxic（能力图分析）`);
+    notes.push(t('未找到 {path}：毒性链列需要先跑 pod graph toxic（能力图分析）', { path }));
     return [];
   }
   const res = readJsonFile<ToxicPath[]>(path);
   if (!res.ok || !Array.isArray(res.value)) {
-    notes.push(`${path} 无法解析为毒性链列表，已跳过`);
+    notes.push(t('{path} 无法解析为毒性链列表，已跳过', { path }));
     return [];
   }
   return res.value;
@@ -296,8 +310,10 @@ function buildRisks(input: {
     risks.push({
       kind: 'toxic-path',
       severity: worst,
-      label: '存在毒性链',
-      detail: sample ? `${sample.rule}：${sample.explain}` : '来自 capability graph 的毒性链分析',
+      label: t('存在毒性链'),
+      detail: sample
+        ? t('{rule}：{explain}', { rule: sample.rule, explain: sample.explain })
+        : t('来自 capability graph 的毒性链分析'),
       count: owned.length,
     });
   }
@@ -307,7 +323,7 @@ function buildRisks(input: {
     risks.push({
       kind: 'unpinned-package',
       severity: 'medium',
-      label: 'MCP server 未锁定版本',
+      label: t('MCP server 未锁定版本'),
       detail: unpinned.join('、'),
       count: unpinned.length,
     });
@@ -323,8 +339,8 @@ function buildRisks(input: {
     risks.push({
       kind: 'sensitive-path',
       severity: 'high',
-      label: '触发敏感路径拒绝',
-      detail: [...paths].slice(0, 3).join('、') || '审计中存在敏感路径拒绝',
+      label: t('触发敏感路径拒绝'),
+      detail: [...paths].slice(0, 3).join('、') || t('审计中存在敏感路径拒绝'),
       count: sensitive.length,
     });
   }
@@ -333,8 +349,8 @@ function buildRisks(input: {
     risks.push({
       kind: 'unregistered',
       severity: 'high',
-      label: '未登记策略',
-      detail: '有真实调用记录，但 ~/.pod/policies 下没有它的策略——权限不受约束',
+      label: t('未登记策略'),
+      detail: t('有真实调用记录，但 ~/.pod/policies 下没有它的策略——权限不受约束'),
       count: rows.length,
     });
   }
@@ -343,8 +359,8 @@ function buildRisks(input: {
     risks.push({
       kind: 'no-activity',
       severity: 'low',
-      label: '未观测到调用',
-      detail: '策略已登记，但审计里没有它的调用记录（策略从行为编译，未观测 = 依据不足）',
+      label: t('未观测到调用'),
+      detail: t('策略已登记，但审计里没有它的调用记录（策略从行为编译，未观测 = 依据不足）'),
       count: 0,
     });
   }
@@ -429,13 +445,18 @@ export function aggregateAgents(opts: AggregateOptions): AgentAssetsPayload {
   const discovered = platforms.filter((p) => !registeredPlatforms.has(normalizeId(p.platform)));
   if (discovered.length > 0) {
     notes.push(
-      `本机发现 ${discovered.length} 个 agent 平台尚未出现在策略或审计里：` +
-        discovered.map((p) => p.platform).join('、'),
+      t('本机发现 {n} 个 agent 平台尚未出现在策略或审计里：{list}', {
+        n: discovered.length,
+        list: discovered.map((p) => p.platform).join('、'),
+      }),
     );
   }
   if (scan.secrets.length > 0) {
     notes.push(
-      `agent 配置里有 ${scan.secrets.length} 处明文密钥（${[...new Set(scan.secrets.map((s) => s.category))].join('、')}），运行 pod scan 查看掩码报告`,
+      t('agent 配置里有 {n} 处明文密钥（{list}），运行 pod scan 查看掩码报告', {
+        n: scan.secrets.length,
+        list: [...new Set(scan.secrets.map((s) => s.category))].join('、'),
+      }),
     );
   }
 

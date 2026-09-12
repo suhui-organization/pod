@@ -39,13 +39,13 @@ export async function cmdUi(opts: UiCommandOptions): Promise<void> {
     log,
   });
 
-  log(`pod 控制台（只读）已启动：${handle.url}`);
-  log(`数据目录：${opts.podHome}`);
+  log(t('pod 控制台（只读）已启动：{url}', { url: handle.url }));
+  log(t('数据目录：{path}', { path: opts.podHome }));
   log(t('token 只在本机终端出现；页面加载后会从地址栏移除。按 Ctrl+C 停止。'));
 
   await new Promise<void>((resolvePromise) => {
     const stop = (signal: string) => {
-      log(`收到 ${signal}，正在停止控制台…`);
+      log(t('收到 {signal}，正在停止控制台…', { signal }));
       void handle.close().then(resolvePromise);
     };
     process.once('SIGINT', () => stop('SIGINT'));

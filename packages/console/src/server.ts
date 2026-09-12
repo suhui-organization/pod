@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { aggregateAgents } from './aggregate.js';
+import { t } from '@podsec/i18n';
 
 export interface UiServerOptions {
   home: string;
@@ -204,7 +205,7 @@ export function serveConsole(opts: UiServerOptions): Promise<UiServerHandle> {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : (opts.port ?? 8787);
       const url = `http://${host}:${port}/?token=${token}`;
-      log(`pod ui listening on http://${host}:${port} (只读)`);
+      log(t('pod ui listening on http://{host}:{port} (只读)', { host, port }));
       resolvePromise({
         url,
         token,
