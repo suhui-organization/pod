@@ -576,4 +576,77 @@ export const enUS: Record<string, string> = {
   '请输入邮箱和密码': 'Enter your email and password',
   '邮箱格式不正确(如 you@company.com)': 'Invalid email format (e.g. you@company.com)',
   '暂无告警': 'No alerts yet',
+
+  // ── 规则包下发 / 加固报告（HardenView / RulesView）──
+  'schema 必须是 pod-rules-pack/v1': 'schema must be pod-rules-pack/v1',
+  '{\n  &quot;schema&quot;: &quot;pod-rules-pack/v1&quot;,\n  &quot;packVersion&quot;: &quot;2026.09.12&quot;,\n  &quot;signature&quot;: &quot;...&quot;\n}':
+    '{\n  &quot;schema&quot;: &quot;pod-rules-pack/v1&quot;,\n  &quot;packVersion&quot;: &quot;2026.09.12&quot;,\n  &quot;signature&quot;: &quot;...&quot;\n}',
+  '{n} 个 MCP server · {s} 处密钥': '{n} MCP servers · {s} secrets',
+  '{n} 条断裂': '{n} broken',
+  '上传是显式动作：机器上跑 pod harden --upload。只传 report.md 与 findings.json（已脱敏），原始审计链 evidence.json 不会上传。':
+    'Uploading is an explicit action: run pod harden --upload on the machine. Only report.md and findings.json are sent (already redacted); the raw audit chain in evidence.json is never uploaded.',
+  '下发是期望状态：机器下次 pod sync 时生效（不是实时推送到机器）。':
+    'Publishing sets desired state: it takes effect on the machine\u2019s next pod sync (nothing is pushed in real time).',
+  '下发熔断': 'Publish quarantine',
+  '下载 .md': 'Download .md',
+  '不是合法 JSON：{err}': 'Not valid JSON: {err}',
+  '云端只负责存与分发，不做判定：机器拉取后由本地 pod 验签 + 过放宽守卫才生效。放宽已有规则的包默认会被本地拒绝。':
+    'The cloud only stores and distributes — it makes no verdicts: locally, pod verifies the signature and passes the loosening guard before anything takes effect. A pack that loosens your existing rules is refused by default.',
+  '你是只读成员：可以查看下发过的版本；发布与撤回需要管理员权限。':
+    'You are a read-only member: you can view published versions; publishing and revoking need admin rights.',
+  '公钥需在机器的 ~/.pod/cloud.json 里配 rules_public_key（或 policy_public_key）——公钥不与包同路，否则验签形同虚设。':
+    'The public key must be set as rules_public_key (or policy_public_key) in ~/.pod/cloud.json on the machine — the key must not travel the same path as the pack, or signature verification is theatre.',
+  '加固报告': 'Hardening report',
+  '原因（必填）：例如「疑似被提示注入，先切断」': 'Reason (required): e.g. "suspected prompt injection — cut it off first"',
+  '发布并生效': 'Publish and activate',
+  '发布时间': 'Published at',
+  '发布规则包': 'Publish rule pack',
+  '完整': 'Intact',
+  '审计链': 'Audit chain',
+  '将 {v} 设为生效版本？机器下次拉取时会换成这一版（本地仍会验签 + 过放宽守卫）。':
+    'Make {v} the active version? Machines switch to it on their next pull (they still verify the signature and pass the loosening guard locally).',
+  '已下发熔断：{name} 下次 pod sync 时生效': 'Quarantine published: takes effect for {name} on the next pod sync',
+  '已切回 {v}': 'Switched back to {v}',
+  '已发布并生效：{v}': 'Published and active: {v}',
+  '已熔断': 'Quarantined',
+  '已解除云端熔断：{name}': 'Cloud quarantine lifted: {name}',
+  '把签发好的整包 JSON 粘进来（含 signature）。签发在本机用 pod rules pack 完成——私钥不离开你的机器。':
+    'Paste the signed pack JSON (including the signature). Signing happens on your machine with pod rules pack — the private key never leaves it.',
+  '撤回确认': 'Confirm revocation',
+  '撤回至此版本': 'Revoke back to this version',
+  '暴露面': 'Exposure',
+  '机器 / Agent': 'Machine / agent',
+  '机器上执行 pod harden 得到的审计交付物：暴露面 + 控制平面姿态 + 最小权限草稿 + 证据自检。':
+    'The audit deliverable from running pod harden on the machine: exposure + control-plane posture + least-privilege draft + evidence self-check.',
+  '机器侧上传': 'Uploaded from machines',
+  '机器侧拉取（用接入时的同一份 sync token）': 'Pulled by machines (same sync token as onboarding)',
+  '查看': 'View',
+  '浏览器不允许自动复制，请手动选中': 'The browser blocked automatic copying — select it manually',
+  '熔断后该 agent 的全部工具调用会被本地网关拒绝，直到你在这里解除（或到机器上手工解除）。':
+    'While quarantined, every tool call from this agent is denied by the local gateway until you lift it here (or manually on the machine).',
+  '生成时间': 'Generated at',
+  '生效中': 'Active',
+  '确认熔断': 'Confirm quarantine',
+  '签发者': 'Issuer',
+  '缺少 signature：请先用 pod rules pack 签发': 'Missing signature: sign it first with pod rules pack',
+  '网关会拒绝它的一切调用。原因：{reason}（{who} · {at}）':
+    'The gateway will deny every call it makes. Reason: {reason} ({who} · {at})',
+  '规则包': 'Rule pack',
+  '规则包内容': 'Pack contents',
+  '规则包必须是 JSON 对象': 'A rule pack must be a JSON object',
+  '规则版本': 'Rule version',
+  '解除': 'Lift',
+  '解除对 {name} 的云端熔断？机器下次 pod sync 时恢复放行。注意：人工在机器上手工加的熔断不会被这里解除。':
+    'Lift the cloud quarantine on {name}? Machines allow it again on the next pod sync. Note: quarantines added by hand on a machine are not lifted from here.',
+  '解除熔断': 'Lift quarantine',
+  '订阅式加固：把新的对抗知识（注入词表、钩子风险模式、供应链指纹）作为已签名的包下发给机器。':
+    'Subscribed hardening: ship new adversarial knowledge (injection wordlists, hook risk patterns, supply-chain fingerprints) to machines as signed packs.',
+  '说明（可选，写给未来的自己）': 'Notes (optional — a note to your future self)',
+  '请填写原因': 'Enter a reason',
+  '还没有发布过规则包：机器侧 pod rules pull 会拿到 404。':
+    'No rule pack has been published yet: machines running pod rules pull will get a 404.',
+  '还没有报告：在机器上跑 pod harden --upload。': 'No report yet: run pod harden --upload on the machine.',
+  '这是期望状态，不是实时指令：机器下次 pod sync 时才生效。机器离线时，它会一直保持当前状态。':
+    'This is desired state, not a live command: it takes effect on the machine\u2019s next pod sync. While a machine is offline it simply keeps its current state.',
+  '风险': 'Risk',
 }
