@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { t } from '@podsec/i18n';
 import {
   baselineForAgent,
   capabilityMapFromGraph,
@@ -65,7 +66,7 @@ export async function cmdGraphBuild(opts: GraphBuildOptions): Promise<number> {
     process.stdout.write(JSON.stringify({ out: opts.out, graph }, null, 2) + '\n');
   } else {
     process.stdout.write(renderGraphSummary(graph) + '\n');
-    process.stdout.write(`\n已写入：${opts.out}\n`);
+    process.stdout.write(t('\n已写入：{path}\n', { path: opts.out }));
   }
   return 0;
 }
@@ -96,7 +97,7 @@ export function cmdGraphToxic(opts: GraphToxicOptions): number {
   if (Number.isFinite(ageMs) && ageMs > 7 * 24 * 60 * 60 * 1000) {
     graph.meta.warnings.push({
       code: 'stale_graph',
-      message: `graph 生成于 ${graph.generated_at}，超过 7 天，结论仅供参考`,
+      message: t('graph 生成于 {ts}，超过 7 天，结论仅供参考', { ts: graph.generated_at }),
     });
   }
   const { paths, total, groups } = findToxicPaths(graph, {
@@ -206,7 +207,7 @@ export function cmdGraphObserve(opts: GraphObserveOptions): number {
     process.stdout.write(JSON.stringify({ out: opts.out, entries, graph }, null, 2) + '\n');
   } else {
     process.stdout.write(renderGraphSummary(graph) + '\n');
-    process.stdout.write(`\n观测记录：${entries} 条，已写入：${opts.out}\n`);
+    process.stdout.write(t('\n观测记录：{n} 条，已写入：{path}\n', { n: entries, path: opts.out }));
   }
   return 0;
 }
@@ -224,7 +225,7 @@ export function cmdGraphDiff(opts: GraphDiffOptions): number {
     return 2;
   }
   if (!existsSync(opts.observedPath)) {
-    process.stderr.write(`observed graph not found: ${opts.observedPath}（先运行 pod graph observe）\n`);
+    process.stderr.write(t('observed graph not found: {path}（先运行 pod graph observe）\n', { path: opts.observedPath }));
     return 2;
   }
   let potential;
@@ -271,7 +272,7 @@ export function cmdGraphBaseline(opts: GraphBaselineOptions): number {
     return 2;
   }
   if (!existsSync(opts.observedPath)) {
-    process.stderr.write(`observed graph not found: ${opts.observedPath}（先运行 pod graph observe）\n`);
+    process.stderr.write(t('observed graph not found: {path}（先运行 pod graph observe）\n', { path: opts.observedPath }));
     return 2;
   }
   let potential;
@@ -304,7 +305,7 @@ export function cmdGraphBaseline(opts: GraphBaselineOptions): number {
     const result = baselineForAgent(potential, observed, { agent, capabilityRules });
     const observedTools = result.counts.allow + result.counts.approve + result.counts.deny;
     if (observedTools === 0) {
-      process.stderr.write(`跳过 ${agent}：没有观测数据（先 pod record/observe）\n`);
+      process.stderr.write(t('跳过 {agent}：没有观测数据（先 pod record/observe）\n', { agent }));
       continue;
     }
     const policyPath = join(opts.outDir, 'baselines', `${agent}.json`);
@@ -315,7 +316,7 @@ export function cmdGraphBaseline(opts: GraphBaselineOptions): number {
   }
 
   if (written.length === 0) {
-    process.stderr.write('没有任何 agent 有观测数据；先运行 pod record 或 pod graph observe\n');
+    process.stderr.write(t('没有任何 agent 有观测数据；先运行 pod record 或 pod graph observe\n'));
     return 2;
   }
   if (opts.json) {
@@ -401,7 +402,9 @@ export function cmdGraphApply(opts: GraphApplyOptions): number {
   if (opts.json) {
     process.stdout.write(JSON.stringify({ out: opts.out, tools: Object.keys(map).length }, null, 2) + '\n');
   } else {
-    process.stdout.write(`已写入 ${opts.out}：capabilityMap 覆盖 ${Object.keys(map).length} 个工具\n`);
+    process.stdout.write(
+      t('已写入 {path}：capabilityMap 覆盖 {n} 个工具\n', { path: opts.out, n: Object.keys(map).length }),
+    );
   }
   return 0;
 }
@@ -432,17 +435,27 @@ export function cmdGraphExplain(opts: GraphExplainOptions): number {
       process.stdout.write(JSON.stringify(chain, null, 2) + '\n');
     } else {
       const lines = [
-        `${chain.id}  ${chain.rule}（score ${chain.score} / ${chain.risk}，路径 ${chain.count}，跨 agent ${chain.crossAgent}）`,
+        t('{id}  {rule}（score {score} / {risk}，路径 {count}，跨 agent {cross}）', {
+          id: chain.id,
+          rule: chain.rule,
+          score: chain.score,
+          risk: chain.risk,
+          count: chain.count,
+          cross: chain.crossAgent,
+        }),
         `source: ${chain.sourceCapability}（${chain.sourceTools.join(', ')}）`,
         `sink:   ${chain.sinkCapability}（${chain.sinkTools.join(', ')}）`,
       ];
       if (chain.chain_diff) {
         if (chain.chain_diff.strategy === 'capability-level' && chain.chain_diff.capability_recommendation) {
-          lines.push(`断链（能力级）：${chain.chain_diff.capability_recommendation.reason}`);
-          lines.push('示例改动：');
+          lines.push(t('断链（能力级）：{reason}', { reason: chain.chain_diff.capability_recommendation.reason }));
+          lines.push(t('示例改动：'));
         } else {
           lines.push(
-            `断链：收紧 ${chain.chain_diff.strategy === 'tighten-sinks' ? 'sink' : 'source'} 的 ${chain.chain_diff.changes.length} 个工具`,
+            t('断链：收紧 {side} 的 {n} 个工具', {
+              side: chain.chain_diff.strategy === 'tighten-sinks' ? 'sink' : 'source',
+              n: chain.chain_diff.changes.length,
+            }),
           );
         }
         for (const change of chain.chain_diff.changes) {
@@ -464,13 +477,24 @@ export function cmdGraphExplain(opts: GraphExplainOptions): number {
   } else {
     process.stdout.write(
       [
-        `${path.id}  ${path.rule}（${path.kind}，置信度 ${path.confidence}）`,
+        t('{id}  {rule}（{kind}，置信度 {confidence}）', {
+          id: path.id,
+          rule: path.rule,
+          kind: path.kind,
+          confidence: path.confidence,
+        }),
         `source: ${path.source.agent}.${path.source.server}.${path.source.tool} [${path.source.capability}]`,
         `sink:   ${path.sink.agent}.${path.sink.server}.${path.sink.tool} [${path.sink.capability}]`,
-        `说明:   ${path.explain}`,
-        ...path.evidence.map((e) => `证据:   ${e}`),
+        t('说明:   {explain}', { explain: path.explain }),
+        ...path.evidence.map((e) => t('证据:   {evidence}', { evidence: e })),
         ...(path.suggested_diff
-          ? [`建议:   ${path.suggested_diff.target} ${path.suggested_diff.from} → ${path.suggested_diff.to}`]
+          ? [
+              t('建议:   {target} {from} → {to}', {
+                target: path.suggested_diff.target,
+                from: path.suggested_diff.from,
+                to: path.suggested_diff.to,
+              }),
+            ]
           : []),
       ].join('\n') + '\n',
     );

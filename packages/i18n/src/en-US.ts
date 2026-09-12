@@ -412,4 +412,63 @@ export const enUS: Record<string, string> = {
     'pod records only hashes and metadata of tool calls; it never stores argument or output bodies.',
   '- Agent：{list}': '- Agent: {list}',
   '- MCP server：{list}': '- MCP servers: {list}',
+
+  // ── pod graph（能力图报表与 CLI 输出）──
+  '# pod graph（{source}）': '# pod graph ({source})',
+  'agent：{agents} · server：{servers} · tool：{tools}':
+    'agents: {agents} · servers: {servers} · tools: {tools}',
+  '配置指纹：{fp}': 'Config fingerprint: {fp}',
+  '## 警告': '## Warnings',
+  '（{where}）': ' ({where})',
+  '# pod graph toxic — 毒性路径': '# pod graph toxic — toxic paths',
+  '阈值：min-confidence={min} · max-paths={max}': 'Thresholds: min-confidence={min} · max-paths={max}',
+  '## 风险排序（按 score）': '## Risk ranking (by score)',
+  '| score | 风险 | 规则 | source → sink | 路径数 | 跨 agent | 主要理由 |':
+    '| score | risk | rule | source → sink | paths | cross-agent | main reasons |',
+  '## 断链建议': '## How to break the chain',
+  '### {id}（score {score}，{rule}）{verdict}': '### {id} (score {score}, {rule}){verdict}',
+  '**能力级建议**：{reason}': '**Capability-level advice**: {reason}',
+  '示例改动（前 {n} 个）：': 'Example changes (first {n}):',
+  '收紧 {side} 的 {n} 个工具，覆盖 {paths} 条路径：':
+    'Tighten {n} {side} tools, covering {paths} paths:',
+  '未发现毒性路径。': 'No toxic paths found.',
+  '## 高危（{n}）': '## High ({n})',
+  '## 中危（{n}）': '## Medium ({n})',
+  '> 还有 {n} 条路径未显示；用 --max-paths 调整。':
+    '> {n} more paths are not shown; adjust with --max-paths.',
+  '# pod graph diff — 潜在 vs 观测': '# pod graph diff — potential vs observed',
+  '潜在工具：{potential} · 观测工具：{observed}':
+    'Potential tools: {potential} · observed tools: {observed}',
+  '## 权限过载（潜在 − 实际）：{n}': '## Over-privileged (potential − observed): {n}',
+  '| server | tool | agents | 能力 |': '| server | tool | agents | capabilities |',
+  '| … | 还有 {n} 条 | … | … |': '| … | {n} more | … | … |',
+  '## 影子能力（实际 − 潜在）：{n}': '## Shadow capabilities (observed − potential): {n}',
+  '| server | tool | agents | 能力 | 调用 |': '| server | tool | agents | capabilities | calls |',
+  '| … | 还有 {n} 条 | … | … | … |': '| … | {n} more | … | … | … |',
+  '### {id}  {rule}（{kind}，置信度 {confidence}）':
+    '### {id}  {rule} ({kind}, confidence {confidence})',
+  '  说明：{explain}': '  Explanation: {explain}',
+  '  建议：将 {target} 从 {from} 改为 {to}': '  Suggestion: change {target} from {from} to {to}',
+  '  理由：{rationale}': '  Why: {rationale}',
+  '\n已写入：{path}\n': '\nWritten to: {path}\n',
+  'graph 生成于 {ts}，超过 7 天，结论仅供参考':
+    'Graph was generated at {ts}; older than 7 days, so treat the findings as indicative',
+  '\n观测记录：{n} 条，已写入：{path}\n': '\n{n} observations written to: {path}\n',
+  'observed graph not found: {path}（先运行 pod graph observe）\n':
+    'observed graph not found: {path} (run pod graph observe first)\n',
+  '跳过 {agent}：没有观测数据（先 pod record/observe）\n':
+    'Skipping {agent}: no observations yet (run pod record/observe first)\n',
+  '没有任何 agent 有观测数据；先运行 pod record 或 pod graph observe\n':
+    'No agent has observations yet; run pod record or pod graph observe first\n',
+  '已写入 {path}：capabilityMap 覆盖 {n} 个工具\n':
+    'Written to {path}: capabilityMap covers {n} tools\n',
+  '{id}  {rule}（score {score} / {risk}，路径 {count}，跨 agent {cross}）':
+    '{id}  {rule} (score {score} / {risk}, paths {count}, cross-agent {cross})',
+  '断链（能力级）：{reason}': 'Break the chain (capability level): {reason}',
+  '示例改动：': 'Example changes:',
+  '断链：收紧 {side} 的 {n} 个工具': 'Break the chain: tighten {n} {side} tools',
+  '说明:   {explain}': 'Explanation:   {explain}',
+  '证据:   {evidence}': 'Evidence:   {evidence}',
+  '建议:   {target} {from} → {to}': 'Suggestion:   {target} {from} → {to}',
+  '{id}  {rule}（{kind}，置信度 {confidence}）': '{id}  {rule} ({kind}, confidence {confidence})',
 }

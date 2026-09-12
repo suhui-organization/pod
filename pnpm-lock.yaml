@@ -116,6 +116,9 @@ importers:
 
   packages/graph:
     dependencies:
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@podsec/policy':
         specifier: workspace:*
         version: link:../policy
