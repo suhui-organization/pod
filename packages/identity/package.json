@@ -9,7 +9,8 @@
     }
   },
   "dependencies": {
-    "@podsec/audit": "workspace:*"
+    "@podsec/audit": "workspace:*",
+    "@podsec/i18n": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

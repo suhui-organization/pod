@@ -579,4 +579,30 @@ export const enUS: Record<string, string> = {
     'capabilityRules is configured but there is no capabilityMap/capabilities, so no tool will ever match; run pod graph apply first',
   'capabilityRules.allow 是放宽规则（未在 servers 显式登记的工具会按能力放行）；请确保 capabilityMap 覆盖准确':
     'capabilityRules.allow loosens things (tools not explicitly listed under servers are allowed by capability); make sure the capabilityMap is accurate',
+
+  // ── 身份与委托校验（packages/identity）──
+  '非法 agent 名: {agent}（只允许 A-Za-z0-9._-）':
+    'Invalid agent name: {agent} (only A-Za-z0-9._- are allowed)',
+  'agent "{agent}" 没有私钥（先跑 pod identity init --agent {agent}）':
+    'Agent "{agent}" has no private key (run pod identity init --agent {agent} first)',
+  '委托必须由 parent 自己签名：parent={parent} signer={signer}':
+    'A delegation must be signed by the parent itself: parent={parent} signer={signer}',
+  '找不到 {agent} 的公钥': 'Public key for {agent} not found',
+  '{parent} → {child} 的签名不成立': 'Signature for {parent} → {child} does not verify',
+  '深度字段与实际链长不符：depth={depth} chain={chain}':
+    'Depth field does not match the actual chain length: depth={depth} chain={chain}',
+  '委托深度 {depth} 超过上限 {max}': 'Delegation depth {depth} exceeds the limit of {max}',
+  '本跳委托已过期（{ts}）': 'This delegation hop has expired ({ts})',
+  '找不到 {agent} 的公钥（链第 {i} 跳）': 'Public key for {agent} not found (hop {i} of the chain)',
+  '{parent} → {child} 的签名不成立（链第 {i} 跳）':
+    'Signature for {parent} → {child} does not verify (hop {i} of the chain)',
+  '{parent} → {child} 已过期（链第 {i} 跳）': '{parent} → {child} has expired (hop {i} of the chain)',
+  '{parent} → {child} 扩大了权限（父 {prevParent}→{prevChild} 没有：{escaped}）':
+    '{parent} → {child} widened its capabilities (the parent {prevParent}→{prevChild} did not have: {escaped})',
+  '{parent} → {child} 下放了不可委托的能力：{bad}':
+    '{parent} → {child} delegated capabilities that cannot be delegated: {bad}',
+  '找不到签发者 {issuer} 的公钥': 'Public key for issuer {issuer} not found',
+  '令牌签名不成立': 'Token signature does not verify',
+  '令牌已过期（{ts}）': 'Token has expired ({ts})',
+  '令牌是单次使用，已经在 {ts} 被消费': 'Token is single-use and was already consumed at {ts}',
 }

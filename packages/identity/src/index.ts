@@ -17,6 +17,7 @@ import {
 } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { t } from '@podsec/i18n';
 import { stableStringify } from '@podsec/audit';
 
 export const IDENTITY_ALGORITHM = 'ed25519';
@@ -46,7 +47,7 @@ export function identityDir(root: string, agent: string): string {
 function sanitizeAgent(agent: string): string {
   const safe = agent.replace(/[^A-Za-z0-9._-]/g, '_');
   if (!safe || safe === '.' || safe === '..' || safe !== agent) {
-    throw new Error(`非法 agent 名: ${agent}（只允许 A-Za-z0-9._-）`);
+    throw new Error(t('非法 agent 名: {agent}（只允许 A-Za-z0-9._-）', { agent }));
   }
   return safe;
 }
@@ -142,7 +143,9 @@ export function verifyWithPem(publicKeyPem: string, payload: unknown, signatureB
 /** 用某个 agent 的私钥签名；未初始化身份时抛错（fail-closed） */
 export function signAsAgent(agent: string, root: string, payload: unknown): string {
   const file = privateKeyPath(root, agent);
-  if (!existsSync(file)) throw new Error(`agent "${agent}" 没有私钥（先跑 pod identity init --agent ${agent}）`);
+  if (!existsSync(file)) {
+    throw new Error(t('agent "{agent}" 没有私钥（先跑 pod identity init --agent {agent}）', { agent }));
+  }
   return signWithPem(readFileSync(file, 'utf8'), payload);
 }
 
@@ -235,7 +238,7 @@ export interface IssueDelegationInput {
 /** 由 parent 签发一跳委托；能力必须已收敛（越权检查在 verifyDelegation 里做） */
 export function issueDelegation(input: IssueDelegationInput, signer: { agent: string; root: string }): DelegationToken {
   if (signer.agent !== input.parent) {
-    throw new Error(`委托必须由 parent 自己签名：parent=${input.parent} signer=${signer.agent}`);
+    throw new Error(t('委托必须由 parent 自己签名：parent={parent} signer={signer}', { parent: input.parent, signer: signer.agent }));
   }
   const now = input.now ?? new Date();
   const chain = input.chain ?? [];
@@ -279,19 +282,19 @@ export function verifyDelegation(
   const forbidden = new Set(opts.rules.forbiddenEscalation ?? []);
 
   const parentKey = opts.resolvePublicKey(token.parent);
-  if (!parentKey) errors.push(`找不到 ${token.parent} 的公钥`);
+  if (!parentKey) errors.push(t('找不到 {agent} 的公钥', { agent: token.parent }));
   else if (!verifyWithPem(parentKey, linkBody(token), token.signature)) {
-    errors.push(`${token.parent} → ${token.child} 的签名不成立`);
+    errors.push(t('{parent} → {child} 的签名不成立', { parent: token.parent, child: token.child }));
   }
 
   if (token.depth !== token.chain.length) {
-    errors.push(`深度字段与实际链长不符：depth=${token.depth} chain=${token.chain.length}`);
+    errors.push(t('深度字段与实际链长不符：depth={depth} chain={chain}', { depth: token.depth, chain: token.chain.length }));
   }
   if (token.depth > opts.rules.maxDepth) {
-    errors.push(`委托深度 ${token.depth} 超过上限 ${opts.rules.maxDepth}`);
+    errors.push(t('委托深度 {depth} 超过上限 {max}', { depth: token.depth, max: opts.rules.maxDepth }));
   }
   if (new Date(token.expiresAt).getTime() <= now.getTime()) {
-    errors.push(`本跳委托已过期（${token.expiresAt}）`);
+    errors.push(t('本跳委托已过期（{ts}）', { ts: token.expiresAt }));
   }
 
   // 祖先链：逐环验签，且时间上必须早于后继
@@ -299,12 +302,12 @@ export function verifyDelegation(
   for (let i = 0; i < token.chain.length; i++) {
     const link = token.chain[i]!;
     const key = opts.resolvePublicKey(link.parent);
-    if (!key) errors.push(`找不到 ${link.parent} 的公钥（链第 ${i} 跳）`);
+    if (!key) errors.push(t('找不到 {agent} 的公钥（链第 {i} 跳）', { agent: link.parent, i }));
     else if (!verifyWithPem(key, linkBody(link), link.signature)) {
-      errors.push(`${link.parent} → ${link.child} 的签名不成立（链第 ${i} 跳）`);
+      errors.push(t('{parent} → {child} 的签名不成立（链第 {i} 跳）', { parent: link.parent, child: link.child, i }));
     }
     if (new Date(link.expiresAt).getTime() <= now.getTime()) {
-      errors.push(`${link.parent} → ${link.child} 已过期（链第 ${i} 跳）`);
+      errors.push(t('{parent} → {child} 已过期（链第 {i} 跳）', { parent: link.parent, child: link.child, i }));
     }
   }
 
@@ -319,7 +322,13 @@ export function verifyDelegation(
       const escaped = subset(cur.capabilities, prev.capabilities);
       if (escaped.length > 0) {
         errors.push(
-          `${cur.parent} → ${cur.child} 扩大了权限（父 ${prev.parent}→${prev.child} 没有：${escaped.join('、')}）`,
+          t('{parent} → {child} 扩大了权限（父 {prevParent}→{prevChild} 没有：{escaped}）', {
+            parent: cur.parent,
+            child: cur.child,
+            prevParent: prev.parent,
+            prevChild: prev.child,
+            escaped: escaped.join('、'),
+          }),
         );
       }
     }
@@ -331,7 +340,13 @@ export function verifyDelegation(
       const link = links[i]!;
       const bad = link.capabilities.filter((c) => forbidden.has(c));
       if (bad.length > 0) {
-        errors.push(`${link.parent} → ${link.child} 下放了不可委托的能力：${bad.join('、')}`);
+        errors.push(
+          t('{parent} → {child} 下放了不可委托的能力：{bad}', {
+            parent: link.parent,
+            child: link.child,
+            bad: bad.join('、'),
+          }),
+        );
       }
     }
   }
@@ -391,13 +406,13 @@ export function verifyGrant(
   const errors: string[] = [];
   const { signature: _sig, ...body } = grant;
   const key = opts.resolvePublicKey(grant.claims.issuedBy);
-  if (!key) errors.push(`找不到签发者 ${grant.claims.issuedBy} 的公钥`);
-  else if (!verifyWithPem(key, body.claims, grant.signature)) errors.push('令牌签名不成立');
+  if (!key) errors.push(t('找不到签发者 {issuer} 的公钥', { issuer: grant.claims.issuedBy }));
+  else if (!verifyWithPem(key, body.claims, grant.signature)) errors.push(t('令牌签名不成立'));
   if (new Date(grant.claims.expiresAt).getTime() <= now.getTime()) {
-    errors.push(`令牌已过期（${grant.claims.expiresAt}）`);
+    errors.push(t('令牌已过期（{ts}）', { ts: grant.claims.expiresAt }));
   }
   if (grant.claims.singleUse && opts.consumedAt) {
-    errors.push(`令牌是单次使用，已经在 ${opts.consumedAt} 被消费`);
+    errors.push(t('令牌是单次使用，已经在 {ts} 被消费', { ts: opts.consumedAt }));
   }
   return { ok: errors.length === 0, errors };
 }
