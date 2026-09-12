@@ -15,8 +15,8 @@
 #   WEB_PORT_FWD     本地访问端口（默认 18088）
 #   PUBLIC_BASE_URL  后端对外地址（默认 http://127.0.0.1:18088）
 #   KIND_CLUSTER     kind 集群名（默认自动探测，恰好一个时使用；kind 不可用时跳过 load）
-#   SERVER_REPO      podcloud-server 仓库根（默认本脚本位置 ../..）
-#   WEB_REPO         podcloud-web  仓库根（默认 <SERVER_REPO>/../podcloud-web）
+#   SERVER_REPO      server 源码根（默认本脚本位置 ../..，即 cloud/server）
+#   WEB_REPO         web 源码根（默认 <SERVER_REPO>/../web，即 cloud/web）
 #   ADMIN_EMAIL      设置后自动创建管理员（已存在则跳过）
 #   ADMIN_PASSWORD   同上（与 ADMIN_EMAIL 成对）
 #   FORCE_BUILD=1    即使源码指纹未变化也强制重建
@@ -30,7 +30,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_REPO="${SERVER_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-WEB_REPO="${WEB_REPO:-$SERVER_REPO/../podcloud-web}"
+WEB_REPO="${WEB_REPO:-$SERVER_REPO/../web}"
 NS="podcloud"
 IMAGE_TAG="${IMAGE_TAG:-}"
 WEB_PORT_FWD="${WEB_PORT_FWD:-18088}"
