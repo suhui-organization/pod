@@ -61,11 +61,12 @@ Two details matter here: `read_file` is locked down because it touched `.env` **
 
 ```bash
 # macOS / Linux — builds from source, no npm account needed
-curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/main/scripts/install.sh | sh
+# 链接钉在发布版上（可复现）：想跟主干就把 v0.2.0 换成 main
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.2.0/scripts/install.sh | sh
 pod --help
 ```
 
-The installer clones to `~/.pod/src`, builds, and puts `pod` in `~/.local/bin`. Override with `POD_SRC`, `POD_BIN_DIR`, `POD_REPO_URL`, `POD_VERSION`.
+The installer clones `v0.2.0` to `~/.pod/src`, builds, and puts `pod` in `~/.local/bin`. Override with `POD_SRC`, `POD_BIN_DIR`, `POD_REPO_URL`, `POD_VERSION`（`POD_VERSION=main` 跟主干）。
 
 Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 
@@ -88,7 +89,7 @@ Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 From source:
 
 ```bash
-git clone https://gitee.com/suhuisoftwares/pod.git && cd pod
+git clone --branch v0.2.0 --depth 1 https://gitee.com/suhuisoftwares/pod.git && cd pod
 pnpm install && pnpm build
 node apps/cli/dist/index.js --help
 ```

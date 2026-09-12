@@ -6,9 +6,12 @@
 ## 一键部署（单机 Docker Compose）
 
 ```bash
-git clone <repo> && cd pod
+git clone --branch v0.2.0 --depth 1 https://gitee.com/suhuisoftwares/pod.git && cd pod
 bash deploy/install.sh
 ```
+
+> 想跟主干就把 `v0.2.0` 换成 `main`。钉版本的意义是：安装脚本、本地 CLI、
+> 云端镜像来自同一份代码，出问题时能对上号。
 
 脚本会：预检 docker → 生成 `.env`（含随机 JWT 密钥）→ 构建镜像 → 起服务 → 等健康检查 → 打印访问地址。
 首次约 2–5 分钟。
