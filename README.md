@@ -207,6 +207,9 @@ pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 
 - [能做什么、给你带来什么](docs/FEATURES.md) ← 先看这个
 - [部署 Pod Cloud（云端控制平面）](docs/deploy-cloud.md) ← 部署与"你需要提供什么"
+
+> 云端控制平面原先分两个独立仓库（`podcloud-server` / `podcloud-web`），
+> 已并入本仓库 `cloud/` 下并**归档原仓库**——历史链接会看到指向这里的告示。
 - [Positioning & wedge](docs/positioning.md)
 - [Threat model](docs/threat-model.md)
 - [Egress defense](docs/egress-defense.md)
