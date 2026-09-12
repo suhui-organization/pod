@@ -183,7 +183,10 @@ def dashboard_summary(db: Session = Depends(get_db), tenant_id: int = Depends(ge
 
     sub = db.query(Subscription).filter(Subscription.tenant_id == tenant_id).first()
     plan = sub.plan if sub else "free"
-    agent_limit = sub.agent_limit if sub else 3
+    # 计费关闭时显示不限量口径（与 /subscription 一致，避免两处口径打架）
+    from app.services.billing import billing_enabled, effective_agent_limit
+
+    agent_limit = effective_agent_limit(sub.agent_limit if sub else 3)
 
     return {
         "agents": {"total": agent_count, "online": online_count},

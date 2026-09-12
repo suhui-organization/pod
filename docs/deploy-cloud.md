@@ -37,8 +37,33 @@ WEB_PORT=18089 bash deploy/install.sh
 | `PODCLOUD_IS_PRIVATE` | 否 | `true` = 关闭公开注册 |
 | SMTP（`PODCLOUD_SMTP_*`） | 否 | 留空则重置链接写服务端日志（`docker compose logs` 可见），自托管下是既定行为 |
 | `PODCLOUD_DB_URL` | 否 | 默认 SQLite（存在卷 `podcloud-data`）。要 PostgreSQL 时填连接串 |
-| `PADDLE_*` / `STRIPE_*` | 否 | 计费。**不填即完全关闭**，不影响其它功能 |
+| `PODCLOUD_BILLING_ENABLED` | 否 | `auto`（默认，配了支付通道才启用）/ `off`（强制关闭）/ `on`（强制启用） |
+| `PADDLE_*` / `STRIPE_*` | 否 | 计费凭据。**不填即完全关闭**，不影响其它功能 |
 | `PODCLOUD_LLM_*` | 否 | AI 摘要类接口。不填则该功能提示未配置，其余正常 |
+
+### 计费开关（自托管请保持关闭）
+
+本地/私有化部署不需要收费能力。计费关闭时：
+
+- 前端**不显示订阅入口**，订阅页改为一句说明（不会出现点了报错的付费按钮）；
+- `POST /subscription/checkout` 返回 **400**「本部署未启用计费」，语义明确；
+- **agent 数量不再受套餐限制**（默认免费套餐是 3 个，自托管不该被它卡住）；
+- 支付平台回调仍然接收并验签——关掉计费是"不再卖新订阅"，不是"抹掉已发生的交易"，
+  已订阅客户的续费/取消事件照常落库（否则支付平台会因 404 一直重试）。
+
+开启方式：`PODCLOUD_BILLING_ENABLED=on` + 填好对应平台的凭据（如 Paddle 的
+`PADDLE_API_KEY` / `PADDLE_PRICE_PRO` / `PADDLE_WEBHOOK_SECRET` / `PADDLE_CLIENT_TOKEN`），
+重启后订阅入口自动出现。provider 名字写错时会**保持启用并大声报错**（503 带原因），
+不会被 auto 悄悄降级成"免费无限"。
+
+### 界面语言
+
+控制台支持中英切换：登录页右上角与登录后的用户菜单里都有开关，选择记在浏览器
+本地（`localStorage.podcloud_locale`），未选过时跟随浏览器语言。Element Plus 的
+内置文案（日期选择、分页等）一并切换。
+
+实现上是**中文原文即词条键**：没翻译的字符串原样显示中文，不会出现空白或 key 名，
+所以可以按页面逐步补齐英文，不存在"必须一次翻完才能发版"的阻塞。
 
 配置都在 `deploy/.env`（由 `.env.example` 复制而来，每个字段都有注释）。
 

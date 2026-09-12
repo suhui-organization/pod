@@ -76,16 +76,19 @@ def register_agent(
     """注册 agent，返回一次性 sync token（仅此一次返回，服务端只存哈希）。"""
     require_admin(db, tenant_id, user)
     # 计划硬校验: 注册端强制 agent_limit(不只靠前端),超出返回 402
+    # 计费关闭（本地/自托管）时不限量——否则自托管用户第 4 个 agent 就装不进来
     from app.models import Subscription
+    from app.services.billing import billing_enabled
 
     sub = db.query(Subscription).filter(Subscription.tenant_id == tenant_id).first()
-    limit = sub.agent_limit if sub else 3
-    cnt = db.query(func.count(Agent.id)).filter(Agent.tenant_id == tenant_id).scalar() or 0
-    if cnt >= limit:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"当前计划最多 {limit} 个 agent（已用 {cnt}）；升级计划后再注册",
-        )
+    if billing_enabled():
+        limit = sub.agent_limit if sub else 3
+        cnt = db.query(func.count(Agent.id)).filter(Agent.tenant_id == tenant_id).scalar() or 0
+        if cnt >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"当前计划最多 {limit} 个 agent（已用 {cnt}）；升级计划后再注册",
+            )
     sync_token = token_urlsafe(32)
     platform = body.platform or _infer_platform(body.name)
     agent = Agent(

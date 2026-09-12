@@ -47,6 +47,8 @@ def fake_stripe(monkeypatch):
 def test_checkout_without_stripe_returns_503(client):
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(settings, "stripe_secret_key", "")
+    # 计费开关显式打开：这里测的是"启用了但没配好"（503），不是"没启用计费"（400）
+    monkeypatch.setattr(settings, "billing_enabled_setting", "on")
     token = register_and_login(client)
     r = client.post(
         "/api/v1/subscription/checkout",
@@ -55,6 +57,40 @@ def test_checkout_without_stripe_returns_503(client):
     )
     assert r.status_code == 503
     monkeypatch.undo()
+
+
+def test_checkout_when_billing_disabled_returns_400(client, monkeypatch):
+    """计费关闭（自托管默认）时，结账接口明确说"本部署不收费"，而不是 503 装傻。"""
+    monkeypatch.setattr(settings, "billing_enabled_setting", "off")
+    token = register_and_login(client)
+    r = client.post(
+        "/api/v1/subscription/checkout",
+        json={"plan": "pro"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 400
+    assert "未启用计费" in r.json()["error"]["message"]
+
+
+def test_billing_disabled_lifts_agent_limit(client, monkeypatch):
+    """关掉计费后 agent 数量不再受套餐限制——否则自托管第 4 个 agent 就装不进来。"""
+    monkeypatch.setattr(settings, "billing_enabled_setting", "off")
+    token = register_and_login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    for i in range(5):  # free 套餐上限是 3
+        r = client.post("/api/v1/agents", json={"name": f"agent-{i}"}, headers=headers)
+        assert r.status_code in (200, 201), r.text
+    sub = client.get("/api/v1/subscription", headers=headers).json()
+    assert sub["billing_enabled"] is False
+    assert sub["agent_limit"] > 5
+
+
+def test_auth_config_exposes_billing_switch(client, monkeypatch):
+    """/auth/config 要告诉前端本部署是否收费（前端据此隐藏订阅入口）。"""
+    monkeypatch.setattr(settings, "billing_enabled_setting", "off")
+    body = client.get("/api/v1/auth/config").json()
+    assert body["billing_enabled"] is False
+    assert body["billing_provider"] == ""
 
 
 def test_plan_switch_disabled_outside_dev(client, monkeypatch):
@@ -167,6 +203,8 @@ def test_webhook_without_secret_rejected(client):
 def test_webhook_checkout_completed_upgrades_subscription(client, monkeypatch):
     token = register_and_login(client)
     monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
+    # 这两个用例验证的是"计费启用时"的订阅状态机，显式打开开关
+    monkeypatch.setattr(settings, "billing_enabled_setting", "on")
 
     def fake_construct(payload, sig, secret):
         assert secret == "whsec_test"
@@ -199,6 +237,7 @@ def test_webhook_checkout_completed_upgrades_subscription(client, monkeypatch):
 def test_webhook_subscription_deleted_downgrades(client, monkeypatch):
     token = register_and_login(client)
     monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
+    monkeypatch.setattr(settings, "billing_enabled_setting", "on")
 
     # 先升级
     client.post("/api/v1/subscription/plan", json={"plan": "pro"}, headers={"Authorization": f"Bearer {token}"})

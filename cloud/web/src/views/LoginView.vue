@@ -1,41 +1,42 @@
 <template>
   <div class="login-page">
     <div class="login-card">
+      <div class="login-lang"><LangSwitch /></div>
       <div class="login-logo"><img src="/logo.svg" alt="Pod Cloud" /></div>
       <h1 class="title">Pod Cloud</h1>
-      <p class="subtitle">金融垂直智能助手 · SaaS / 私有化</p>
+      <p class="subtitle">{{ t('AI Agent 安全控制平面 · 本地优先，云端可选') }}</p>
       <el-tabs v-if="mode !== 'forgot'" v-model="mode" stretch>
-        <el-tab-pane label="登录" name="login" />
-        <el-tab-pane v-if="registerEnabled" label="注册" name="register" />
+        <el-tab-pane :label="t('登录')" name="login" />
+        <el-tab-pane v-if="registerEnabled" :label="t('注册')" name="register" />
       </el-tabs>
-      <p v-else class="subtitle subtitle--forgot">输入注册时用的邮箱，我们发一条重置链接给你。</p>
+      <p v-else class="subtitle subtitle--forgot">{{ t('输入注册时用的邮箱，我们发一条重置链接给你。') }}</p>
       <el-form label-position="top" @submit.prevent>
-        <el-form-item v-if="showServer" label="服务地址(私有化实例填写,留空为公有 SaaS)">
-          <el-input v-model="serverUrl" placeholder="如 https://podcloud.your-company.com" />
+        <el-form-item v-if="showServer" :label="t('服务地址（私有化实例填写，留空为公有 SaaS）')">
+          <el-input v-model="serverUrl" :placeholder="t('如 https://podcloud.your-company.com')" />
         </el-form-item>
-        <el-form-item label="邮箱">
+        <el-form-item :label="t('邮箱')">
           <el-input v-model="email" type="email" placeholder="you@company.com" />
         </el-form-item>
-        <el-form-item v-if="mode !== 'forgot'" label="密码">
-          <el-input v-model="password" type="password" show-password placeholder="请输入密码" @keyup.enter="submit" />
+        <el-form-item v-if="mode !== 'forgot'" :label="t('密码')">
+          <el-input v-model="password" type="password" show-password :placeholder="t('请输入密码')" @keyup.enter="submit" />
         </el-form-item>
-        <el-form-item v-if="mode === 'register'" label="姓名">
-          <el-input v-model="fullName" placeholder="您的姓名" />
+        <el-form-item v-if="mode === 'register'" :label="t('姓名')">
+          <el-input v-model="fullName" :placeholder="t('您的姓名')" />
         </el-form-item>
         <el-button type="primary" class="submit" :loading="loading" @click="submit">
           {{ submitLabel }}
         </el-button>
         <div class="links">
-          <el-link v-if="mode === 'login'" type="info" @click="mode = 'forgot'">忘记密码？</el-link>
-          <el-link v-else-if="mode === 'forgot'" type="info" @click="mode = 'login'">返回登录</el-link>
+          <el-link v-if="mode === 'login'" type="info" @click="mode = 'forgot'">{{ t('忘记密码？') }}</el-link>
+          <el-link v-else-if="mode === 'forgot'" type="info" @click="mode = 'login'">{{ t('返回登录') }}</el-link>
         </div>
         <div v-if="mode === 'register'" class="legal-links">
-          注册即表示同意
-          <router-link to="/legal/terms">服务条款</router-link> 与
-          <router-link to="/legal/privacy">隐私政策</router-link>
+          {{ t('注册即表示同意') }}
+          <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> {{ t('与') }}
+          <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link>
         </div>
         <div class="server-toggle">
-          <el-link type="info" @click="showServer = !showServer">{{ showServer ? '隐藏服务地址' : '配置私有化实例地址' }}</el-link>
+          <el-link type="info" @click="showServer = !showServer">{{ showServer ? t('隐藏服务地址') : t('配置私有化实例地址') }}</el-link>
         </div>
       </el-form>
       <!-- 找回密码的受理回执。文案对"账号存不存在"完全一致：这个端点不能当账号枚举器用 -->
@@ -53,6 +54,10 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
+import { useI18n } from 'vue-i18n'
+import LangSwitch from '../components/LangSwitch.vue'
+
+const { t } = useI18n()
 import { useAuthStore } from '../stores/auth'
 import { parseApiError, setBaseUrl, STORAGE_KEYS } from '../api/client'
 
@@ -78,9 +83,9 @@ const resetNotice = ref('')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const submitLabel = computed(() => {
-  if (mode.value === 'login') return '登录'
-  if (mode.value === 'register') return '注册并进入'
-  return '发送重置链接'
+  if (mode.value === 'login') return t('登录')
+  if (mode.value === 'register') return t('注册并进入')
+  return t('发送重置链接')
 })
 
 async function loadAuthConfig() {
@@ -137,7 +142,7 @@ async function submit() {
     } else {
       await auth.register(cleanEmail, password.value, fullName.value)
     }
-    ElMessage.success('欢迎使用 Pod Cloud')
+    ElMessage.success(t('欢迎使用 Pod Cloud'))
     router.push('/')
   } catch (e) {
     errorMsg.value = parseApiError(e)
@@ -163,7 +168,10 @@ async function submit() {
   border: 1px solid var(--pod-border);
   border-radius: var(--pod-radius-lg);
   padding: 32px;
+  position: relative;
 }
+/* 语言开关放在登录卡右上角：登录前就能切——英文用户第一眼就能读 */
+.login-lang { position: absolute; top: 14px; right: 14px; }
 .title {
   margin: 0 0 4px;
   color: var(--pod-text);

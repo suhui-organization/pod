@@ -5,6 +5,7 @@ import 'element-plus/dist/index.css'
 import './styles/theme.css'
 import App from './App.vue'
 import router from './router'
+import { i18n } from './i18n'
 import { useDragScroll } from './composables/useDragScroll'
 
 // 持久化主题(暗色默认;设置中心可切换亮色)
@@ -15,7 +16,9 @@ document.documentElement.style.setProperty('--pod-font-scale', localStorage.getI
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+app.use(i18n)
 app.use(ElementPlus)
+document.documentElement.lang = i18n.global.locale.value as string
 app.mount('#app')
 
 // 全局横向拖拽滚动:任何区域内容超出可视范围时按住左键即可左右拖动

@@ -18,6 +18,9 @@ export const api = {
   // ---- 认证 ----
   authConfig(): Promise<{
     is_private: boolean
+    /** 本部署是否启用计费（前端据此隐藏订阅入口） */
+    billing_enabled: boolean
+    billing_provider: string
     /** 找回密码的投递方式：email=已配 SMTP；log=链接写服务端日志 */
     password_reset: 'email' | 'log'
     password_reset_minutes: number

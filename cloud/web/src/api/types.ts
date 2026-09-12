@@ -114,6 +114,11 @@ export interface SubscriptionInfo {
   agent_limit: number
   agent_count: number
   renews_at: string | null
+  /**
+   * 本部署是否启用计费。
+   * false = 自托管：没有付费入口，agent 数量也不受套餐限制（后端返回不限量口径）。
+   */
+  billing_enabled: boolean
   /** 支付通道是否已开通（后端按当前计费平台判定） */
   billing_configured?: boolean
   /** 当前计费平台 id：stripe / paddle / creem / waffo */

@@ -47,12 +47,16 @@ import {
   LayoutDashboard, Boxes, BellRing, History, Network, ShieldAlert, ShieldCheck, CreditCard, Users, Settings, UserRound,
 } from 'lucide-vue-next'
 import UserMenu from './UserMenu.vue'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../../stores/auth'
+import { useDeploymentStore } from '../../stores/deployment'
 
 const route = useRoute()
+const { t } = useI18n()
 const auth = useAuthStore()
 
-const allNavItems = [
+// 定义用中文原文，label 在渲染时过 t()——这样切换语言立刻生效
+const navDefs = [
   { to: '/', label: '总览', icon: LayoutDashboard },
   { to: '/agents', label: 'Agent 资产', icon: Boxes },
   { to: '/alerts', label: '告警', icon: BellRing },
@@ -60,11 +64,16 @@ const allNavItems = [
   { to: '/control-plane', label: '控制平面', icon: ShieldAlert },
   { to: '/traces', label: '调用链', icon: Network },
   { to: '/policies', label: '策略中心', icon: ShieldCheck },
-  { to: '/subscription', label: '订阅', icon: CreditCard },
+  // 计费关闭的部署（自托管默认）不显示订阅入口
+  { to: '/subscription', label: '订阅', icon: CreditCard, billing: true },
   { to: '/users', label: '成员管理', icon: Users, admin: true },
 ]
 
-const visibleNavItems = computed(() => allNavItems.filter((i) => !i.admin || auth.isAdmin))
+const deployment = useDeploymentStore()
+const allNavItems = computed(() => navDefs.map((i) => ({ ...i, label: t(i.label) })))
+const visibleNavItems = computed(() =>
+  allNavItems.value.filter((i) => (!i.admin || auth.isAdmin) && (!i.billing || deployment.billingEnabled)),
+)
 
 function isActive(to: string): boolean {
   if (to === '/') return route.path === '/'

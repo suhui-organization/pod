@@ -3,9 +3,23 @@
     <div class="head">
       <h2>订阅</h2>
       <span class="head__mode">
-        {{ billingConfigured ? `${providerLabel} 在线支付已接入` : '在线支付未开通' }}
+        {{ billingEnabled
+          ? (billingConfigured ? `${providerLabel} 在线支付已接入` : '在线支付未开通')
+          : '本部署未启用计费（自托管）' }}
       </span>
     </div>
+
+    <!-- 自托管部署：没有付费能力，也不受套餐限制。把这件事说清楚，
+         而不是展示一堆点了会报错的升级按钮。 -->
+    <el-alert
+      v-if="!billingEnabled"
+      type="success"
+      :closable="false"
+      show-icon
+      class="selfhost"
+      title="本部署未启用计费：所有功能可用，agent 数量不限"
+      description="自托管部署默认关闭计费。需要收费能力时，在部署配置里设置 PODCLOUD_BILLING_ENABLED=on 并填好支付平台凭据（如 Paddle 的 PADDLE_API_KEY / PADDLE_PRICE_PRO / PADDLE_WEBHOOK_SECRET），重启后这里会出现订阅入口。详见 docs/deploy-cloud.md。"
+    />
 
     <div v-if="error" class="state state--error">
       <p>{{ error }}</p>
@@ -16,7 +30,7 @@
       <el-skeleton :rows="2" animated />
     </div>
 
-    <template v-else>
+    <template v-else-if="billingEnabled">
       <!-- 当前状态：一眼回答“我在哪个套餐、用了几个席位、什么时候续费” -->
       <section class="status" :class="statusClass">
         <div class="status__plan">
@@ -31,15 +45,15 @@
         <div class="status__usage">
           <div class="usage__head">
             <span class="status__label">Agent 席位</span>
-            <span class="usage__count"><b>{{ used }}</b> / {{ limit }}</span>
+            <span class="usage__count"><b>{{ used }}</b> / {{ limitText }}</span>
           </div>
           <div
             class="meter"
             role="progressbar"
             :aria-valuenow="used"
             aria-valuemin="0"
-            :aria-valuemax="limit"
-            :aria-label="`Agent 席位已用 ${used} / ${limit}`"
+            :aria-valuemax="limit === UNLIMITED ? 100 : limit"
+            :aria-label="`Agent 席位已用 ${used} / ${limitText}`"
           >
             <i class="meter__fill" :style="{ width: `${pct}%` }"></i>
           </div>
@@ -161,6 +175,8 @@ const plans = [
 ] as const
 
 const info = ref<SubscriptionInfo | null>(null)
+/** 本部署是否启用计费（自托管默认关闭：不限量、无入口） */
+const billingEnabled = ref(true) // 加载完成前按"启用"渲染，避免闪一下自托管提示
 /** 支付通道是否已开通（后端 billing_configured；旧字段名 stripe_configured 兼容保留） */
 const billingConfigured = ref(false)
 /** 当前计费平台 id（stripe / paddle / creem / waffo） */
@@ -183,6 +199,9 @@ const currentPlan = computed(() => {
 })
 const used = computed(() => info.value?.agent_count ?? 0)
 const limit = computed(() => info.value?.agent_limit ?? 0)
+/** 后端在计费关闭时返回不限量口径；界面上要把这个数字翻译成"不限" */
+const UNLIMITED = 1_000_000
+const limitText = computed(() => (limit.value >= UNLIMITED ? '不限' : String(limit.value)))
 const pct = computed(() => (limit.value > 0 ? Math.min(100, Math.round((used.value / limit.value) * 100)) : 0))
 const full = computed(() => limit.value > 0 && used.value >= limit.value)
 const warn = computed(() => !full.value && pct.value >= 80)
@@ -264,6 +283,7 @@ async function load() {
   error.value = ''
   try {
     info.value = await api.subscription()
+    billingEnabled.value = info.value.billing_enabled !== false
     const raw = info.value as unknown as {
       billing_configured?: boolean
       stripe_configured?: boolean

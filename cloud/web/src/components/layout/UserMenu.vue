@@ -1,5 +1,6 @@
 <template>
   <div class="user-menu">
+    <LangSwitch />
     <button class="um-icon" :title="isDark ? '切换到亮色' : '切换到暗色'" @click="toggleTheme">
       <component :is="isDark ? Sun : Moon" :size="17" :stroke-width="1.8" />
     </button>
@@ -12,9 +13,9 @@
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item disabled>{{ auth.email }}</el-dropdown-item>
-          <el-dropdown-item divided command="profile">个人资料</el-dropdown-item>
-          <el-dropdown-item command="settings">设置</el-dropdown-item>
-          <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+          <el-dropdown-item divided command="profile">{{ t('个人资料') }}</el-dropdown-item>
+          <el-dropdown-item command="settings">{{ t('设置') }}</el-dropdown-item>
+          <el-dropdown-item command="logout">{{ t('退出登录') }}</el-dropdown-item>
         </el-dropdown-menu>
       </template>
     </el-dropdown>
@@ -25,8 +26,11 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Moon, Sun } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+import LangSwitch from '../LangSwitch.vue'
 import { useAuthStore } from '../../stores/auth'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 const router = useRouter()
 const isDark = computed(() => (document.documentElement.dataset.theme || 'dark') === 'dark')

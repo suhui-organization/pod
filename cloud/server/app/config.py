@@ -33,6 +33,11 @@ class Settings:
     )
     # 计费平台：stripe 已实现；paddle / creem / waffo 等 MoR 走同一套接口
     billing_provider: str = os.environ.get("PODCLOUD_BILLING_PROVIDER", "stripe")
+    # 计费开关：auto（默认，有支付通道配置才启用）| on | off
+    #   自托管/本地部署不需要收费能力——关掉之后：前端不显示订阅入口、
+    #   结账与回调接口明确拒绝、agent 数量不再受套餐限制。
+    #   auto 是为了兼容两种现实：配了 Paddle 的实例自动启用，没配的自然关闭。
+    billing_enabled_setting: str = os.environ.get("PODCLOUD_BILLING_ENABLED", "auto").strip().lower()
     # Stripe 计费（provider=stripe 时使用）
     stripe_secret_key: str = os.environ.get("STRIPE_SECRET_KEY", "")
     stripe_webhook_secret: str = os.environ.get("STRIPE_WEBHOOK_SECRET", "")

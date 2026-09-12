@@ -35,6 +35,7 @@ from app.security import (
     verify_password,
 )
 from app.services.mailer import deliver_reset_link, mailer_configured
+from app.services.billing import billing_enabled
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -44,6 +45,9 @@ def auth_config():
     """公开配置:前端据此决定是否展示 Web 自助注册(desktop 不受此开关影响)。"""
     return {
         "is_private": settings.is_private,
+        # 本部署是否启用计费：前端据此隐藏订阅入口（自托管部署没有付费能力）
+        "billing_enabled": billing_enabled(),
+        "billing_provider": settings.billing_provider if billing_enabled() else "",
         # 找回密码的投递方式:email=已配系统 SMTP;log=链接写服务端日志。
         # 这是实例级属性,与"账号是否存在"无关,所以可以公开。
         "password_reset": "email" if mailer_configured() else "log",

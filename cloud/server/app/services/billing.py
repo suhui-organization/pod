@@ -39,6 +39,41 @@ logger = logging.getLogger("podcloud.billing")
 
 PLAN_LIMITS = {"free": 3, "pro": 100}
 
+# 计费关闭时，agent 数量不再限制（自托管不该被套餐卡住）
+UNLIMITED_AGENTS = 1_000_000
+
+
+def billing_enabled() -> bool:
+    """本部署是否启用计费。
+
+    - `PODCLOUD_BILLING_ENABLED=off` → 关闭（本地/自托管部署的推荐值）
+    - `=on` → 强制开启（即使没配好支付通道；结账会明确报"未配置"）
+    - `=auto`（默认）→ 看支付通道是否配好：配了就用，没配就关
+
+    为什么默认 auto 而不是 off：已经在跑的实例（配了 Paddle）不该因为升级
+    而突然失去收费能力；而没配过的自托管实例天然就是关的。想要确定性行为
+    就显式写 on/off。
+
+    provider 名字写错（如 paypal）时返回 True —— 那是"启用了但配错了"，
+    必须让 503 带着原因报出来，不能被 auto 悄悄降级成"免费无限"，否则
+    运维把支付通道配错、用户白用，谁也不知道。
+    """
+    setting = (settings.billing_enabled_setting or "auto").lower()
+    if setting in ("off", "false", "0", "no"):
+        return False
+    if setting in ("on", "true", "1", "yes"):
+        return True
+    try:
+        provider = get_provider()
+    except BillingConfigError:
+        return True
+    return bool(provider and provider.is_configured())
+
+
+def effective_agent_limit(stored_limit: int) -> int:
+    """计费关闭时不限量；开启时按套餐。"""
+    return stored_limit if billing_enabled() else UNLIMITED_AGENTS
+
 # 内部事件类型（与任何支付平台无关）
 EVENT_ACTIVATED = "subscription.activated"
 EVENT_CANCELED = "subscription.canceled"

@@ -1,31 +1,31 @@
 <template>
   <div class="dash">
     <div class="dash-meta">
-      <span v-if="updatedAt">更新于 {{ updatedAt }}　·　每 30 秒自动刷新</span>
+      <span v-if="updatedAt">{{ t('更新于') }} {{ updatedAt }}　·　{{ t('每 30 秒自动刷新') }}</span>
     </div>
     <!-- KPI 行 -->
     <div class="stat-row">
       <div class="stat-card">
         <div class="stat-num">{{ s?.events.total ?? '—' }}</div>
-        <div class="stat-label">审计事件（累计）</div>
+        <div class="stat-label">{{ t('审计事件（累计）') }}</div>
         <div class="stat-sub">决策: allow {{ s?.events.by_decision.allow ?? 0 }} · deny {{ s?.events.by_decision.deny ?? 0 }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">{{ s?.agents.online ?? 0 }}<span class="stat-slash">/ {{ s?.agents.total ?? 0 }}</span></div>
-        <div class="stat-label">Agent 在线 / 总数</div>
-        <div class="stat-sub">跨 Agent 统一视图</div>
+        <div class="stat-label">{{ t('Agent 在线 / 总数') }}</div>
+        <div class="stat-sub">{{ t('跨 Agent 统一视图') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">{{ weekEvents }}</div>
-        <div class="stat-label">近 7 天事件</div>
-        <div class="stat-sub">趋势见下方图表</div>
+        <div class="stat-label">{{ t('近 7 天事件') }}</div>
+        <div class="stat-sub">{{ t('趋势见下方图表') }}</div>
       </div>
       <router-link to="/alerts" class="stat-card link-card" :class="{ danger: (s?.alerts.open ?? 0) > 0 }">
         <div class="stat-num">{{ s?.alerts.open ?? 0 }}</div>
-        <div class="stat-label">未解决告警</div>
+        <div class="stat-label">{{ t('未解决告警') }}</div>
         <div class="stat-sub">
-          <span v-if="(s?.alerts.open_high ?? 0) > 0" class="high-tag">高危 {{ s?.alerts.open_high ?? 0 }}</span>
-          <span v-else>已确认 {{ s?.alerts.acknowledged ?? 0 }} · 已解决 {{ s?.alerts.resolved ?? 0 }}</span>
+          <span v-if="(s?.alerts.open_high ?? 0) > 0" class="high-tag">{{ t('高危') }} {{ s?.alerts.open_high ?? 0 }}</span>
+          <span v-else>{{ t('已确认') }} {{ s?.alerts.acknowledged ?? 0 }} · {{ t('已解决') }} {{ s?.alerts.resolved ?? 0 }}</span>
         </div>
       </router-link>
     </div>
@@ -33,23 +33,23 @@
     <!-- 图表区 -->
     <div class="grid">
       <div class="panel span2">
-        <h3>近 7 天事件趋势</h3>
+        <h3>{{ t('近 7 天事件趋势') }}</h3>
         <ChartBox :option="trendOption" height="240px" />
       </div>
       <div class="panel">
-        <h3>决策分布</h3>
+        <h3>{{ t('决策分布') }}</h3>
         <ChartBox :option="decisionOption" height="240px" />
       </div>
       <div class="panel">
-        <h3>服务器分布</h3>
+        <h3>{{ t('服务器分布') }}</h3>
         <ChartBox :option="serverOption" height="240px" />
       </div>
       <div class="panel">
-        <h3>Agent 活跃度</h3>
+        <h3>{{ t('Agent 活跃度') }}</h3>
         <ChartBox :option="agentOption" height="240px" />
       </div>
       <div class="panel">
-        <h3>近 24h 活动分布（按小时）</h3>
+        <h3>{{ t('近 24h 活动分布（按小时）') }}</h3>
         <ChartBox :option="hourlyOption" height="240px" />
       </div>
     </div>
@@ -57,11 +57,11 @@
     <!-- 告警图表: 趋势(渐变面积线)与类型分布并排一行 -->
     <div class="grid">
       <div class="panel">
-        <h3>近 7 天告警趋势</h3>
+        <h3>{{ t('近 7 天告警趋势') }}</h3>
         <ChartBox :option="alertTrendOption" height="240px" />
       </div>
       <div class="panel">
-        <h3>告警类型分布</h3>
+        <h3>{{ t('告警类型分布') }}</h3>
         <ChartBox :option="alertKindOption" height="240px" />
       </div>
     </div>
@@ -69,11 +69,11 @@
     <!-- 工具 Top + 告警 -->
     <div class="grid">
       <div class="panel">
-        <h3>调用最多的工具 Top 10</h3>
+        <h3>{{ t('调用最多的工具 Top 10') }}</h3>
         <ChartBox :option="toolOption" height="260px" />
       </div>
       <div class="panel">
-        <h3>最近告警</h3>
+        <h3>{{ t('最近告警') }}</h3>
         <div v-if="s?.alerts_recent.length" class="alert-list">
           <div v-for="a in s!.alerts_recent" :key="a.id" class="alert-item">
             <el-tag :type="a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warning' : 'info'" size="small">{{ a.severity }}</el-tag>
@@ -92,11 +92,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api'
 import type { DashboardSummary } from '../api/types'
 import ChartBox from '../components/ChartBox.vue'
 
 const s = ref<DashboardSummary | null>(null)
+const { t } = useI18n()
 const updatedAt = ref('')
 let refreshTimer: number | undefined
 
@@ -154,7 +156,7 @@ const alertTrendOption = computed(() => {
       axisLabel: { color: '#9aa3af' },
     },
     series: [{
-      name: '告警',
+      name: t('告警'),
       type: 'line',
       smooth: 0.35,
       symbol: 'circle',
@@ -191,7 +193,7 @@ const alertKindOption = computed(() => {
     tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
     legend: { bottom: 0, type: 'scroll' },
     series: [{
-      name: '告警类型', type: 'pie', radius: ['35%', '62%'],
+      name: t('告警类型'), type: 'pie', radius: ['35%', '62%'],
       data: rows.map((r) => ({ name: kindLabel(r.kind), value: r.count })),
       label: { formatter: '{b} {c}' },
     }],
@@ -205,7 +207,7 @@ const trendOption = computed(() => ({
   yAxis: { type: 'value', minInterval: 1 },
   series: [
     {
-      name: '事件', type: 'line', smooth: true, areaStyle: { opacity: 0.15 },
+      name: t('事件'), type: 'line', smooth: true, areaStyle: { opacity: 0.15 },
       data: (s.value?.trend_7d ?? []).map((t) => t.events),
       itemStyle: { color: '#4f7cff' }, lineStyle: { color: '#4f7cff', width: 2 },
     },
@@ -264,7 +266,7 @@ const agentOption = computed(() => {
     yAxis: { type: 'value', minInterval: 1 },
     series: [
       {
-        name: '调用（近 7 天）',
+        name: t('调用（近 7 天）'),
         type: 'bar',
         stack: 'activity',
         data: rows.map((r) => r.events_recent),
@@ -272,7 +274,7 @@ const agentOption = computed(() => {
         barWidth: '45%',
       },
       {
-        name: '控制平面（近 7 天）',
+        name: t('控制平面（近 7 天）'),
         type: 'bar',
         stack: 'activity',
         data: rows.map((r) => r.control_recent),

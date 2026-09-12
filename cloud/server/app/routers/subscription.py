@@ -59,9 +59,12 @@ def get_subscription(db: Session = Depends(get_db), tenant_id: int = Depends(get
         provider_name, configured = "", False
     return {
         "plan": sub.plan,
-        "agent_limit": sub.agent_limit,
+        # 计费关闭时返回不限量口径（前端据此显示"不限"而不是"3 个"）
+        "agent_limit": billing.effective_agent_limit(sub.agent_limit),
         "agent_count": agent_count,
         "renews_at": sub.renews_at.isoformat() if sub.renews_at else None,
+        # 本部署是否启用计费：false = 自托管，没有付费入口也不限 agent 数
+        "billing_enabled": billing.billing_enabled(),
         # 保留旧字段名（前端在用）；语义 = "支付通道可用"
         "stripe_configured": configured,
         "billing_provider": provider_name,
@@ -82,6 +85,11 @@ def create_checkout(
 ):
     """创建结账会话；返回 checkout_url 供前端跳转。"""
     require_admin(db, tenant_id, user)
+    if not billing.billing_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="本部署未启用计费（自托管模式）：所有功能可用且不限 agent 数，无需订阅",
+        )
     try:
         provider = billing.get_provider()
     except billing.BillingConfigError as e:
@@ -118,6 +126,9 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
     验签所需的密钥缺失或签名不对一律 400；无法识别的事件正常 200 并标记 ignored
     （否则平台会一直重试）。
     """
+    # 注意：这里**故意不受计费开关限制**。关掉计费 = 不再卖新订阅，
+    # 而不是"抹掉已经发生的交易"——已订阅客户的续费/取消事件仍要能落库，
+    # 否则订阅状态会永远停在旧值，而且支付平台会因 404 一直重试。
     try:
         provider = billing.get_provider()
     except billing.BillingConfigError as e:
