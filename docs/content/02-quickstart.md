@@ -7,6 +7,8 @@
 
 ```bash
 curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.2.0/scripts/install.sh | sh
+# 主源连不上时用镜像：
+# curl -fsSL https://raw.githubusercontent.com/suhui-organization/pod/v0.2.0/scripts/install.sh | sh
 pod scan        # 看看你的风险面（只读、不联网）
 ```
 

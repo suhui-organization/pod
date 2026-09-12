@@ -63,6 +63,8 @@ Two details matter here: `read_file` is locked down because it touched `.env` **
 # macOS / Linux — builds from source, no npm account needed
 # 链接钉在发布版上（可复现）：想跟主干就把 v0.2.0 换成 main
 curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.2.0/scripts/install.sh | sh
+# 主源连不上时用 GitHub 镜像（同一个脚本）：
+# curl -fsSL https://raw.githubusercontent.com/suhui-organization/pod/v0.2.0/scripts/install.sh | sh
 pod --help
 ```
 
