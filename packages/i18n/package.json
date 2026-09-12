@@ -1,5 +1,5 @@
 {
-  "name": "@podsec/policy",
+  "name": "@podsec/i18n",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -12,8 +12,5 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@podsec/audit": "workspace:*"
   }
 }

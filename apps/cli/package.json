@@ -17,6 +17,7 @@
     "@podsec/gateway": "workspace:*",
     "@podsec/graph": "workspace:*",
     "@podsec/identity": "workspace:*",
+    "@podsec/i18n": "workspace:*",
     "@podsec/policy": "workspace:*",
     "@podsec/posture": "workspace:*",
     "@podsec/scan": "workspace:*"

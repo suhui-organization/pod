@@ -15,7 +15,7 @@
  */
 import { parseArgs } from 'node:util';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -31,9 +31,20 @@ import type { Policy } from '@podsec/policy';
 import { capabilityMapFromGraph, type CapabilityGraph } from '@podsec/graph';
 import { createStdioProxy, createHttpProxy } from '@podsec/gateway';
 import { scanMachine, renderMarkdown } from '@podsec/scan';
-import { DEFAULT_RULES, lintPolicy } from '@podsec/policy';
+import {
+  DEFAULT_RULES,
+  applyRulePack,
+  buildRulePack,
+  lintPolicy,
+  parseRulePack,
+  signRulePack,
+  verifyRulePack,
+  type RuleSetOverride,
+  type SignedRulePack,
+} from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
-import { diffPolicies, draftPolicy, renderPolicyDiff } from './policy-draft.js';
+import { diffPolicies, draftPolicy, mostCommonAgent, renderPolicyDiff } from './policy-draft.js';
+import { runHarden } from './harden.js';
 import { signPolicy, verifyPolicy } from './policy-sign.js';
 import { applyOnboard, computeCoverage, discoverTargets, revertOnboard } from './onboard.js';
 import { notifyApproval } from './notify.js';
@@ -69,6 +80,7 @@ import {
 import { graphDir } from './graph/io.js';
 import { recordUsage } from './graph/retention.js';
 import { cmdUi } from './ui.js';
+import { getLocale, normalizeLocale, setLocale, t, type Locale } from '@podsec/i18n';
 import {
   appendControlEvent,
   buildTrace,
@@ -214,7 +226,7 @@ async function cmdInit(template: string | undefined): Promise<void> {
       writeFileSync(policyFile, JSON.stringify(TEMPLATES[template]!.policy, null, 2) + '\n', 'utf8');
       log(`template "${template}": ${TEMPLATES[template]!.label}`);
     } else if (template && !TEMPLATES[template]) {
-      log(`未知模板 "${template}"，可用: ${Object.keys(TEMPLATES).join(', ')}`);
+      log(t('未知模板 "{name}"，可用: {list}', { name: template, list: Object.keys(TEMPLATES).join(', ') }));
       return;
     } else {
       writeFileSync(policyFile, JSON.stringify(EXAMPLE_POLICY, null, 2) + '\n', 'utf8');
@@ -226,9 +238,9 @@ async function cmdInit(template: string | undefined): Promise<void> {
   const rulesFile = podPath('rules.json');
   if (!existsSync(rulesFile)) {
     writeFileSync(rulesFile, JSON.stringify(DEFAULT_RULES, null, 2) + '\n', 'utf8');
-    log(`rules:  ${rulesFile}（判定规则归你，改这里即改判定；写错会 fail-closed 报错）`);
+    log(t('rules:  {path}（判定规则归你，改这里即改判定；写错会 fail-closed 报错）', { path: rulesFile }));
   } else {
-    log(`rules:  ${rulesFile}（已存在，未覆盖）`);
+    log(t('rules:  {path}（已存在，未覆盖）', { path: rulesFile }));
   }
 }
 
@@ -368,7 +380,7 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
       log,
     });
     if (!opts.authToken) {
-      log('⚠️ HTTP 网关未设置 --auth-token：本机任意进程都可连接（建议设置）');
+      log(t('⚠️ HTTP 网关未设置 --auth-token：本机任意进程都可连接（建议设置）'));
     }
     log(`gateway ready on ${result.url} (HTTP, resident)`);
     log('agent-side config: point your agent\'s MCP server at the URL above');
@@ -523,7 +535,7 @@ function cmdLint(policyPath: string): void {
   const policy = JSON.parse(readFileSync(policyPath, 'utf8')) as Policy;
   const issues = lintPolicy(policy);
   if (issues.length === 0) {
-    log(`✅ ${policyPath}: 策略检查通过（无问题）`);
+    log(t('✅ {path}: 策略检查通过（无问题）', { path: policyPath }));
     return;
   }
   for (const i of issues) {
@@ -535,23 +547,23 @@ function cmdLint(policyPath: string): void {
 }
 
 function cmdDoctor(policyPath: string | undefined): void {
-  log('pod doctor — 环境与配置自检');
+  log(t('pod doctor — 环境与配置自检'));
   if (policyPath) {
     try {
       cmdLint(policyPath);
     } catch (e) {
-      log(`❌ 策略文件不可读: ${e instanceof Error ? e.message : String(e)}`);
+      log(t('❌ 策略文件不可读: {error}', { error: e instanceof Error ? e.message : String(e) }));
       process.exitCode = 1;
     }
   }
   // 防绕过检查（T 边界完整性）：用 onboard 的精确解析替代 scan 的启发式字符串匹配
   const coverage = computeCoverage(discoverTargets({ home: homedir() }));
   if (coverage.unmanaged.length === 0) {
-    log(`✅ 未发现绕过网关的 MCP server（受管 ${coverage.managed.length} 个）`);
+    log(t('✅ 未发现绕过网关的 MCP server（受管 {managed} 个）', { managed: coverage.managed.length }));
   } else {
-    log(`⚠️ ${coverage.unmanaged.length} 个 MCP server 未经过 pod 网关（agent 可直连绕过策略/审计）:`);
+    log(t('⚠️ {count} 个 MCP server 未经过 pod 网关（agent 可直连绕过策略/审计）:', { count: coverage.unmanaged.length }));
     for (const b of coverage.unmanaged) log(`   - ${b.configPath} → "${b.server}" (${b.command})`);
-    log('   修复: pod onboard --yes（或先 pod onboard 看计划）');
+    log(t('   修复: pod onboard --yes（或先 pod onboard 看计划）'));
   }
   if (coverage.unsupported.length > 0) {
     log(`ℹ️ ${coverage.unsupported.length} 个 server 因非 stdio transport 暂不支持包装`);
@@ -563,10 +575,10 @@ function cmdDoctor(policyPath: string | undefined): void {
       const cfg = JSON.parse(readFileSync(cloudPath, 'utf8')) as { api_url?: string; agent_id?: number };
       log(`✅ cloud.json: api=${cfg.api_url} agent=${cfg.agent_id}`);
     } catch {
-      log('❌ cloud.json 解析失败');
+      log(t('❌ cloud.json 解析失败'));
     }
   } else {
-    log('ℹ️ 未配置 cloud.json（pod sync/pull-policy 不可用，本地功能不受影响）');
+    log(t('ℹ️ 未配置 cloud.json（pod sync/pull-policy 不可用，本地功能不受影响）'));
   }
   // 审计目录
   const auditDir = podPath('audit');
@@ -584,7 +596,7 @@ function cmdVerifyAudit(auditDir: string, out: string | undefined): void {
   const report = renderVerifyReport(results, auditDir);
   if (out) {
     writeFileSync(out, report, 'utf8');
-    log(`自检报告已写入: ${out}`);
+    log(t('自检报告已写入: {path}', { path: out }));
   }
   process.stdout.write(report + '\n');
   if (results.some((r) => !r.ok)) process.exitCode = 1;
@@ -592,21 +604,21 @@ function cmdVerifyAudit(auditDir: string, out: string | undefined): void {
 
 function cmdExportEvidence(auditDir: string, policyDir: string, outPath: string, reportPath?: string): void {
   const bundle = exportEvidence({ auditDir, policyDir, outPath });
-  log(`证据包已导出: ${outPath}`);
-  log(`  审计文件: ${Object.keys(bundle.audits).length} 个 | 策略快照: ${Object.keys(bundle.policies).length} 个`);
-  log(`  顶层哈希: ${bundle.top_level_hash.slice(0, 16)}…`);
+  log(t('证据包已导出: {path}', { path: outPath }));
+  log(t('  审计文件: {files} 个 | 策略快照: {policies} 个', { files: Object.keys(bundle.audits).length, policies: Object.keys(bundle.policies).length }));
+  log(t('  顶层哈希: {hash}', { hash: `${bundle.top_level_hash.slice(0, 16)}…` }));
   const report = reportPath ?? `${outPath}.md`;
   mkdirSync(dirname(report), { recursive: true });
   writeFileSync(report, renderEvidenceReport(bundle), 'utf8');
-  log(`  一页式报告: ${report}`);
-  log(`  验证: pod verify-evidence ${outPath}`);
+  log(t('  一页式报告: {path}', { path: report }));
+  log(t('  验证: {cmd}', { cmd: `pod verify-evidence ${outPath}` }));
 }
 
 function cmdVerifyEvidence(path: string): void {
   const r = verifyEvidenceBundle(path);
-  if (r.ok) log(`✅ 证据包有效（顶层哈希匹配，未被修改）: ${path}`);
+  if (r.ok) log(t('✅ 证据包有效（顶层哈希匹配，未被修改）: {path}', { path }));
   else {
-    log(`❌ 证据包校验失败: ${r.reason ?? ''}`);
+    log(t('❌ 证据包校验失败: {reason}', { reason: r.reason ?? '' }));
     process.exitCode = 1;
   }
 }
@@ -648,7 +660,7 @@ function cmdDigest(opts: DigestCliOptions): void {
   if (opts.out) {
     mkdirSync(dirname(opts.out), { recursive: true });
     writeFileSync(opts.out, text + '\n', 'utf8');
-    log(`周报已写入: ${opts.out}`);
+    log(t('周报已写入: {path}', { path: opts.out }));
   }
   process.stdout.write(text + '\n');
 }
@@ -762,22 +774,6 @@ function cmdIngest(opts: IngestOptions): void {
   log(`ingested #${entry.seq} ${opts.agent}/${opts.server}.${opts.tool} (${opts.decision}/${opts.outcome})`);
 }
 
-function mostCommonAgent(input: Array<{ entries: AuditEntry[] }>): string | undefined {
-  const counts = new Map<string, number>();
-  for (const { entries } of input) {
-    for (const e of entries) counts.set(e.agent, (counts.get(e.agent) ?? 0) + 1);
-  }
-  let best: string | undefined;
-  let max = 0;
-  for (const [agent, n] of counts) {
-    if (n > max) {
-      max = n;
-      best = agent;
-    }
-  }
-  return best;
-}
-
 interface PolicyDraftOptions {
   auditDir: string;
   agent?: string;
@@ -805,7 +801,7 @@ function cmdPolicyDraft(opts: PolicyDraftOptions): void {
   const input = [...byServer.entries()].map(([server, entries]) => ({ server, entries }));
   if (input.length === 0) {
     log(`no audit records in ${opts.auditDir}${opts.server ? ` for server "${opts.server}"` : ''}`);
-    log('先采集语料: pod record --config <mcp-manager.json> --server <name>');
+    log(t('先采集语料: pod record --config <mcp-manager.json> --server <name>'));
     process.exitCode = 1;
     return;
   }
@@ -828,10 +824,60 @@ function cmdPolicyDraft(opts: PolicyDraftOptions): void {
       }
     }
   }
-  log(`草稿已写入: ${opts.out}`);
+  log(t('草稿已写入: {path}', { path: opts.out }));
   if (summary.issues.length > 0) {
-    log('lint 提示:');
+    log(t('lint 提示:'));
     for (const i of summary.issues) log(`  [${i.severity}] ${i.where}: ${i.message}`);
+  }
+}
+
+/**
+ * 应用规则包（pod rules apply / pull 共用）。
+ *
+ * 写盘用"临时文件 + rename"而不是直接覆盖：rules.json 写坏会让
+ * loadRules 抛错、整个 pod 进入 fail-closed——半截文件不能留在地上。
+ */
+function cmdRulesApply(input: {
+  pack: SignedRulePack;
+  rulesOverride?: string;
+  auditDir: string;
+  allowRelax: boolean;
+}): void {
+  const target = input.rulesOverride ?? podPath('rules.json');
+  const base = resolveRules(input.rulesOverride, POD_HOME);
+  const { rules, changes, relaxations } = applyRulePack(base, input.pack, { allowRelax: input.allowRelax });
+  const tmp = `${target}.tmp`;
+  writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n', 'utf8');
+  renameSync(tmp, target);
+
+  const tightened = changes.filter((c) => c.impact === 'tighten').length;
+  const unknown = changes.length - tightened - relaxations.length;
+  log(`规则包 ${input.pack.packVersion}（${input.pack.issuedBy}）已应用 → ${target}`);
+  log(`  收紧 ${tightened} 项 · 放宽 ${relaxations.length} 项 · 方向待人工确认 ${unknown} 项`);
+  // 带上具体内容：只说"injection.signals 少了一条"没法判断该不该放行
+  for (const r of relaxations.slice(0, 5)) {
+    const detail = r.from ?? r.to;
+    log(`  ⚠️ 放宽：${r.where}（${r.kind}${detail ? `: ${detail}` : ''}）`);
+  }
+
+  // 配置变更进控制平面审计链（G1）——"这条规则是谁、什么时候换上的"必须可查
+  try {
+    appendControlEvent({
+      auditDir: input.auditDir,
+      agent: '_control',
+      kind: 'config-change',
+      tool: 'rules',
+      reason: `rules-apply:${input.pack.issuedBy}@${input.pack.packVersion}:tighten=${tightened},relax=${relaxations.length}`,
+      payload: {
+        packVersion: input.pack.packVersion,
+        issuedBy: input.pack.issuedBy,
+        issuedAt: input.pack.issuedAt,
+        target,
+      },
+    });
+  } catch (err) {
+    // 记不上账不等于应用失败，但绝不能静默——否则"看起来换上了、其实没进链"
+    console.error(`⚠️ 规则已应用，但未能写入审计链：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -850,15 +896,15 @@ function cmdOnboard(opts: OnboardOptions): void {
   if (opts.revert) {
     const restored = revertOnboard({ home: opts.home, config: opts.config });
     if (restored.length === 0) {
-      log('没有可恢复的 pod 备份');
+      log(t('没有可恢复的 pod 备份'));
       return;
     }
-    for (const r of restored) log(`已恢复 ${r.configPath} ← ${r.backup}`);
+    for (const r of restored) log(t('已恢复 {config} ← {backup}', { config: r.configPath, backup: r.backup }));
     return;
   }
   const targets = discoverTargets({ home: opts.home, config: opts.config, agent: opts.agent });
   if (targets.length === 0) {
-    log('未发现可接管的 MCP 配置（支持 ~/.dsh/mcp-manager.json / ~/.claude.json / ~/.cursor/mcp.json）');
+    log(t('未发现可接管的 MCP 配置（支持 ~/.dsh/mcp-manager.json / ~/.claude.json / ~/.cursor/mcp.json）'));
     return;
   }
   const result = applyOnboard(targets, {
@@ -881,10 +927,10 @@ function cmdOnboard(opts: OnboardOptions): void {
   for (const p of result.policies) log(`  策略: ${p}${opts.dryRun ? '（dry-run 未写入）' : ''}`);
   for (const s of result.skipped) log(`  跳过: ${s}`);
   if (opts.dryRun) {
-    log('确认无误后执行: pod onboard --yes');
+    log(t('确认无误后执行: pod onboard --yes'));
   } else {
-    log('下一步: 正常使用 agent 采集语料 → pod policy draft → 复核后切换执法模式');
-    log('回滚: pod onboard --revert');
+    log(t('下一步: 正常使用 agent 采集语料 → pod policy draft → 复核后切换执法模式'));
+    log(t('回滚: pod onboard --revert'));
   }
 }
 
@@ -894,6 +940,8 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: {
       agent: { type: 'string' },
+      // 输出语言：--lang en-US / zh-CN；也可以 POD_LANG / LANG 环境变量兜底
+      lang: { type: 'string' },
       server: { type: 'string' },
       policy: { type: 'string' },
       config: { type: 'string' },
@@ -912,6 +960,9 @@ async function main(): Promise<void> {
       'sync-token': { type: 'string' },
       'policy-public-key': { type: 'string' },
       'require-signature': { type: 'boolean' },
+      url: { type: 'string' },
+      'allow-relax': { type: 'boolean' },
+      'no-evidence': { type: 'boolean' },
       'out-dir': { type: 'string' },
       home: { type: 'string' },
       'no-exec': { type: 'boolean' },
@@ -973,6 +1024,15 @@ async function main(): Promise<void> {
   });
 
   const cmd = positionals[0];
+  // 语言要在任何输出之前定下来（包括 --help）
+  if (values.lang) {
+    const parsed = normalizeLocale(values.lang);
+    if (!parsed) {
+      console.error(`Unknown language "${values.lang}"; supported: zh-CN, en-US`);
+      process.exit(1);
+    }
+    setLocale(parsed);
+  }
   if (values.help) {
     console.error(usage());
     process.exit(0);
@@ -1198,7 +1258,7 @@ async function main(): Promise<void> {
       requireSignature: values['require-signature'] === true,
       outDir: values['out-dir'] ?? podPath('policies'),
     });
-    if (result.policies.length === 0) log('云端无策略（可先在 Pod Cloud 策略中心创建模板或绑定本 agent）');
+    if (result.policies.length === 0) log(t('云端无策略（可先在 Pod Cloud 策略中心创建模板或绑定本 agent）'));
     for (const p of result.policies) {
       log(`pulled "${p.name}" v${p.version}${p.agent_id ? ` (agent #${p.agent_id})` : ' (template)'} -> ${p.path}`);
     }
@@ -1223,7 +1283,7 @@ async function main(): Promise<void> {
       log(
         `  冻结项 ${r.counts.configs} · 记忆 ${r.counts.memory} · 钩子 ${r.counts.hooks} · MCP 来源 ${r.counts.packages}`,
       );
-      log('  之后任何变更都会在 pod posture 里报出来（规则决定严重级别）。');
+      log(t('  之后任何变更都会在 pod posture 里报出来（规则决定严重级别）。'));
       return;
     }
     const run = runPosture({
@@ -1236,6 +1296,38 @@ async function main(): Promise<void> {
     });
     process.stdout.write((values.json ? JSON.stringify(run.result, null, 2) : run.report) + '\n');
     if (run.exitCode !== 0) process.exitCode = run.exitCode;
+    return;
+  }
+
+  // ---------- 加固审计交付（方向 A：一次性审计服务） ----------
+
+  if (cmd === 'harden') {
+    const result = runHarden({
+      home: values.home ?? homedir(),
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+      policyDir: values['policy-dir'] ?? podPath('policies'),
+      baselinePath: values.baseline ?? podPath('posture', 'baseline.json'),
+      rules: resolveRules(values.rules, POD_HOME),
+      outDir: values.out ?? podPath('harden', new Date().toISOString().replace(/[:.]/g, '-')),
+      agent: values.agent,
+      server: values.server,
+      includeEvidence: values['no-evidence'] !== true,
+      writeAudit: values.audit === true,
+    });
+    if (values.json) {
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      return;
+    }
+    const s = result.summary;
+    log(`加固审计报告已生成：${result.reportPath}`);
+    log(`  🔴 high ${s.high} · 🟠 medium ${s.medium} · 🟡 low ${s.low}`);
+    log(`  agent 平台 ${s.platforms.length} · MCP server ${s.mcpServers} · 疑似暴露密钥 ${s.exposedSecrets}`);
+    log(
+      `  审计链 ${s.auditChains} 条 / ${s.auditEntries} 条记录` +
+        (s.brokenChains > 0 ? `（⚠️ ${s.brokenChains} 条断裂）` : ''),
+    );
+    if (s.baselineMissing) log('  ⚠️ 未建立姿态基线：漂移类检查未生效，建议先跑 pod posture freeze');
+    log(`  交付目录：${result.outDir}`);
     return;
   }
 
@@ -1258,7 +1350,7 @@ async function main(): Promise<void> {
     if (sub === 'verify') {
       const targets = values.agent ? [values.agent] : identityList(dir).map((i) => i.agent);
       if (targets.length === 0) {
-        log('没有可校验的身份（先 pod identity init --agent <name>）');
+        log(t('没有可校验的身份（先 pod identity init --agent <name>）'));
         process.exitCode = 1;
         return;
       }
@@ -1276,7 +1368,7 @@ async function main(): Promise<void> {
       process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
       return;
     }
-    if (rows.length === 0) log('没有已建立的 agent 身份（pod identity init --agent <name>）');
+    if (rows.length === 0) log(t('没有已建立的 agent 身份（pod identity init --agent <name>）'));
     for (const row of rows) log(`${row.ok ? '✅' : '⚠️'} ${row.agent}  fingerprint=${row.fingerprint ?? '-'}`);
     return;
   }
@@ -1377,7 +1469,7 @@ async function main(): Promise<void> {
       process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
       return;
     }
-    if (rows.length === 0) log('没有已签发的令牌（pod grant issue ...）');
+    if (rows.length === 0) log(t('没有已签发的令牌（pod grant issue ...）'));
     for (const row of rows) {
       log(
         `${row.valid ? '✅' : '❌'} ${row.id} agent=${row.agent} ` +
@@ -1404,7 +1496,7 @@ async function main(): Promise<void> {
           : quarantineRemove({ file, agent: values.agent, by, auditDir });
       log(sub === 'add' ? `已熔断：${values.agent}` : `已解除熔断：${values.agent}`);
       log(`  当前熔断 ${Object.keys(state.agents).length} 个 agent`);
-      log('  网关下一次调用即生效（无需重启）。');
+      log(t('  网关下一次调用即生效（无需重启）。'));
       return;
     }
     const state = readQuarantineFile(file);
@@ -1413,7 +1505,7 @@ async function main(): Promise<void> {
       process.stdout.write(JSON.stringify(state, null, 2) + '\n');
       return;
     }
-    if (agents.length === 0) log('没有处于熔断状态的 agent');
+    if (agents.length === 0) log(t('没有处于熔断状态的 agent'));
     for (const [agent, entry] of agents) {
       log(`⛔ ${agent} — ${entry.reason ?? ''}（${entry.at ?? ''} by ${entry.by ?? ''}）`);
     }
@@ -1448,7 +1540,7 @@ async function main(): Promise<void> {
           payload: { severity: f.severity },
         });
       }
-      log('（已写入审计链）');
+      log(t('（已写入审计链）'));
     }
     if (findings.some((f) => f.severity === 'high')) process.exitCode = 1;
     return;
@@ -1472,16 +1564,16 @@ async function main(): Promise<void> {
     }
     log(`# pod trace — ${agent}`);
     log('');
-    log('## 委托链（上游）');
-    if (report.hops.length === 0) log('- 没有记录到委托关系（该 agent 不是任何委托的接收方）');
+    log(t('## 委托链（上游）'));
+    if (report.hops.length === 0) log(t('- 没有记录到委托关系（该 agent 不是任何委托的接收方）'));
     for (const hop of report.hops) {
       log(`- ${hop.parent} → ${hop.child} [${hop.capabilities.join('、') || '无能力'}] @ ${hop.issuedAt}`);
     }
     log('');
-    log('## 下游（可能被影响的 agent）');
+    log(t('## 下游（可能被影响的 agent）'));
     log(report.downstream.length === 0 ? '- 无' : report.downstream.map((d) => `- ${d}`).join('\n'));
     log('');
-    log('## 审计时间线');
+    log(t('## 审计时间线'));
     log(`- 相关事件 ${report.entries.length} 条，其中被拒绝/阻断 ${report.blocked.length} 条`);
     for (const entry of report.blocked.slice(-10)) {
       log(`  - ${entry.ts} ${entry.agent} ${entry.server}.${entry.tool} → ${entry.decision}（${entry.reason ?? ''}）`);
@@ -1535,13 +1627,124 @@ async function main(): Promise<void> {
       const policy = JSON.parse(readFileSync(values.in, 'utf8')) as Policy;
       const ok = verifyPolicy(policy, readFileSync(values.sig, 'utf8').trim(), readFileSync(values.key, 'utf8'));
       if (!ok) {
-        console.error('签名无效：策略内容与签名不匹配（可能被篡改）');
+        console.error(t('签名无效：策略内容与签名不匹配（可能被篡改）'));
         process.exit(1);
       }
-      log('签名有效');
+      log(t('签名有效'));
       return;
     }
     console.error(`unknown policy subcommand: ${sub ?? '(none)'} (available: draft, sign, verify)`);
+    console.error(usage());
+    process.exit(1);
+  }
+
+  // ---------- 规则包（方向 B：订阅式加固） ----------
+
+  if (cmd === 'rules') {
+    const sub = positionals[1] ?? 'show';
+    const rulesPath = values.rules ?? podPath('rules.json');
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+
+    if (sub === 'show') {
+      const rules = resolveRules(values.rules, POD_HOME);
+      const counts = {
+        frozenPaths: rules.freeze.paths.length,
+        hookPatterns: rules.hookRisk.riskPatterns.length,
+        injectionSignals: rules.injection.signals.length,
+        metadataPatterns: rules.toolMetadata.suspiciousPatterns.length,
+        memoryPaths: rules.memory.paths.length,
+        egress: rules.egress.enabled,
+      };
+      if (values.json) {
+        process.stdout.write(
+          JSON.stringify({ path: rulesPath, exists: existsSync(rulesPath), version: rules.version, counts }, null, 2) + '\n',
+        );
+        return;
+      }
+      log(`判定规则：${existsSync(rulesPath) ? rulesPath : '（尚未创建，当前使用代码内置默认值）'}`);
+      log(`  version ${rules.version}`);
+      log(
+        `  冻结项 ${counts.frozenPaths} · 钩子模式 ${counts.hookPatterns} · 注入词 ${counts.injectionSignals}` +
+          ` · 元数据模式 ${counts.metadataPatterns} · 记忆路径 ${counts.memoryPaths}`,
+      );
+      log(`  egress 判定：${counts.egress ? '开启' : '关闭（默认）'}`);
+      return;
+    }
+
+    if (sub === 'pack') {
+      if (!values.key || !values.in || !values.out || !values.version || !values['issued-by']) {
+        console.error(
+          'pod rules pack requires --key <private.pem> --in <rules.json> --out <pack.json> --version <pack-version> --issued-by <who>',
+        );
+        process.exit(1);
+      }
+      const override = JSON.parse(readFileSync(values.in, 'utf8')) as RuleSetOverride;
+      const pack = buildRulePack(override, {
+        packVersion: values.version,
+        issuedBy: values['issued-by'],
+        note: values.note,
+      });
+      const signed = signRulePack(pack, readFileSync(values.key, 'utf8'));
+      writeFileSync(values.out, JSON.stringify(signed, null, 2) + '\n', 'utf8');
+      log(`规则包已签名并写入：${values.out}`);
+      log(`  ${signed.issuedBy} · ${signed.packVersion} · ${signed.issuedAt}`);
+      return;
+    }
+
+    if (sub === 'verify') {
+      if (!values.in || !values.key) {
+        console.error('pod rules verify requires --in <pack.json> --key <public.pem>');
+        process.exit(1);
+      }
+      const pack = parseRulePack(readFileSync(values.in, 'utf8'));
+      if (!verifyRulePack(pack, readFileSync(values.key, 'utf8'))) {
+        console.error(t('签名无效：包内容与签名不匹配（可能被篡改），或公钥不对'));
+        process.exit(1);
+      }
+      log(`✅ 签名有效（${pack.issuedBy} · ${pack.packVersion} · ${pack.issuedAt}）`);
+      return;
+    }
+
+    if (sub === 'apply' || sub === 'pull') {
+      let text: string;
+      if (sub === 'pull') {
+        // 网络来源必须验签：这是信任边界，不留"跳过验签"的口子
+        if (!values.url || !values.key) {
+          console.error('pod rules pull requires --url <pack-url> --key <public.pem>（网络来源必须验签）');
+          process.exit(1);
+        }
+        const resp = await fetch(values.url);
+        if (!resp.ok) {
+          console.error(`规则包下载失败：HTTP ${resp.status} ${values.url}`);
+          process.exit(1);
+        }
+        text = await resp.text();
+      } else {
+        if (!values.in) {
+          console.error('pod rules apply requires --in <pack.json>');
+          process.exit(1);
+        }
+        text = readFileSync(values.in, 'utf8');
+      }
+      const pack = parseRulePack(text);
+      if (values.key) {
+        if (!verifyRulePack(pack, readFileSync(values.key, 'utf8'))) {
+          console.error('规则包验签失败——拒绝应用（包内容与签名不匹配，或公钥不对）');
+          process.exit(1);
+        }
+      } else {
+        log('⚠️ 未提供 --key：跳过验签。本地文件适用，但无法证明这个包确实来自签发方。');
+      }
+      cmdRulesApply({
+        pack,
+        rulesOverride: values.rules,
+        auditDir,
+        allowRelax: values['allow-relax'] === true,
+      });
+      return;
+    }
+
+    console.error(`unknown rules subcommand: ${sub} (available: show, pack, verify, apply, pull)`);
     console.error(usage());
     process.exit(1);
   }
@@ -1717,7 +1920,106 @@ function normalizePodArgs(argv: string[]): string[] {
   return out;
 }
 
-function usage(): string {
+main().catch((err: unknown) => {
+  log(`fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(1);
+});
+/**
+ * 帮助文本按语言给两套完整文档，而不是逐行查词表。
+ * 理由：用法说明是一篇**对齐排版**的文档（列宽、缩进都有意义），
+ * 按句子拆开翻译会破坏排版；整体给一份反而更准、更好维护。
+ * 其余输出仍走 `t()`（中文原文即 key）。
+ */
+function usage(locale: Locale = getLocale()): string {
+  return locale === 'en-US' ? usageEn() : usageZh();
+}
+
+function usageEn(): string {
+  return `pod — least-privilege compiler for AI agents
+
+Usage:
+  pod init [--template baseline|record]
+  pod serve --agent <name> --server <name> --policy <file> \\
+           --command <cmd> [--arg <value> ...] [--audit-dir <dir>] \\
+           [--approval-timeout <sec>] [--pending-dir <dir>] [--alert-config <file>] \\
+           [--transport stdio|http] [--port <n>] [--record-only] [--remember-approvals] \\
+           [--snapshot] [--snapshot-all] [--snapshot-dir <dir>] [--auth-token <token>]
+  pod record --config <mcp-manager.json> --server <name> \\
+             [--agent <name>] [--policy <file>] [--audit-dir <dir>]
+  pod approve --id <approval-id> [--reason <why>] [--approver <who>]
+  pod deny --id <approval-id> [--reason <why>] [--approver <who>]
+  pod pending [--pending-dir <dir>]
+  pod watch [--pending-dir <dir>] [--interval <ms>] [--once] [--approver <who>]
+  pod snapshots [--snapshot-dir <dir>] [--limit <n>]
+  pod rollback --id <snapshot-id> [--snapshot-dir <dir>]
+  pod ingest --agent <name> --server <name> --tool <name> \\
+             [--decision allow|deny|approve] [--outcome ok|error|blocked] \\
+             [--args <json>] [--reason <text>] [--session <id>] [--audit-dir <dir>]
+  pod audit [--server <name>] [--tail <n>] [--audit-dir <dir>]
+  pod timeline [--server <name>] [--agent <name>] [--tool <name>] [--since 2h|24h|7d] [--limit <n>]
+  pod verify-audit [--audit-dir <dir>] [--out <report.md>]
+  pod export-evidence [--audit-dir <dir>] [--policy-dir <dir>] [--out <bundle.json>] [--report <report.md>]
+  pod verify-evidence --out <bundle.json>
+  pod lint --policy <file>
+  pod doctor [--policy <file>]
+  pod sync [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--audit-dir <dir>]
+  pod pull-policy [--config <cloud.json>] [--api-url <url>] [--agent-id <n>] [--sync-token <t>] [--policy-public-key <pem>] [--require-signature] [--out-dir <dir>]
+  pod policy draft [--audit-dir <dir>] [--agent <name>] [--server <name>] [--out <file>] [--diff <baseline.json>]
+  pod policy sign --key <private.pem> --in <policy.json> --out <sig>
+  pod policy verify --key <public.pem> --in <policy.json> --sig <sig>
+  pod onboard [--config <path>] [--agent <name>] [--policy-dir <dir>] [--pod-bin <path>] [--yes] [--revert]
+  pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
+  pod coverage [--json] [--strict]
+  pod scan [--json]
+  pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
+             [--no-evidence] [--audit] [--json]
+  pod rules [show] [--rules <file>] [--json]
+  pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
+                 --version <pack-version> --issued-by <who> [--note <text>]
+  pod rules verify --in <pack.json> --key <public.pem>
+  pod rules apply --in <pack.json> [--key <public.pem>] [--rules <file>] [--allow-relax]
+  pod rules pull --url <pack-url> --key <public.pem> [--rules <file>] [--allow-relax]
+  pod posture [--rules <file>] [--baseline <file>] [--json] [--strict] [--audit]
+  pod posture freeze [--rules <file>] [--baseline <file>]
+  pod identity [list] | init --agent <name> | verify [--agent <name>] [--json]
+  pod delegate issue --parent <agent> --child <agent> --ttl <seconds> [--capability <c> ...] [--parent-token <file>]
+  pod delegate verify --in <token.json>
+  pod delegate check --parent-policy <file> --child-policy <file>
+  pod grant issue --agent <name> --issued-by <signer> [--ttl <seconds>] [--single-use] [--server <s>] [--tool <t>] [--capability <c> ...]
+  pod grant list [--json]
+  pod quarantine [list] | add --agent <name> [--reason <why>] | remove --agent <name>
+  pod anomaly [--rules <file>] [--audit-dir <dir>] [--json] [--audit]
+  pod trace <agent> [--audit-dir <dir>] [--json]
+  pod ui [--port <n>]
+  pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
+  pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
+  pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]
+  pod graph apply --policy <file> [--graph <file>] [--out <file>] [--json]
+  pod graph observe [--audit-dir <dir>] [--since 7d] [--graph <potential.json>] [--out <file>] [--json]
+  pod graph diff [--graph <potential.json>] [--observed <observed.json>] [--out-dir <dir>] [--json]
+  pod graph mark <path-id|chain-id> confirmed|false-positive [--note <text>] [--json]
+  pod graph baseline [--graph <potential.json>] [--observed <observed.json>] [--agent <name>] [--out-dir <dir>] [--capability-diff <file>] [--json]
+  pod graph retention [--days 14] [--out-dir <dir>] [--json]
+  pod --help [--lang zh-CN|en-US]
+
+record: record-only mode (corpus collection) — wrap a real MCP server without blocking anything.
+policy draft: compile a least-privilege policy draft from recorded calls (read-only; --diff against a baseline).
+onboard: discover and take over local MCP servers (dry-run by default; --yes writes, --revert restores).
+digest: local weekly security digest (audit + coverage + hash-chain health; no network).
+coverage: managed coverage and config drift (--strict exits 1 when a server bypasses the gateway).
+posture: control-plane posture (hooks, frozen config, memory, package sources, identities, delegation); rules from --rules or ~/.pod/rules.json.
+harden: one-shot hardening audit deliverable — exposure scan + control-plane posture + least-privilege draft + evidence, all in one report directory (local only, never uploaded).
+rules: rule packs for subscribed hardening (pack/verify/apply/pull). A pack that loosens your existing rules is refused unless --allow-relax.
+identity/delegate/grant/quarantine/anomaly/trace: identities, delegation narrowing, JIT grants, quarantine, trust-propagation anomalies, pollution tracing.
+approve/deny/pending: approval side channel (stdio is occupied by MCP; approve from another terminal).
+watch: resident approval queue — new requests pop up immediately; approve/deny inline on a TTY.
+snapshots/rollback: snapshots of high-risk writes (enable with serve --snapshot).
+ingest: append external agent events (e.g. Codex PostToolUse hook) to the local hash chain.
+audit: inspect the audit trail (with hash-chain verification).
+`;
+}
+
+function usageZh(): string {
   return `pod — AI agent security pod (Phase 0 scaffold)
 
 Usage:
@@ -1754,6 +2056,14 @@ Usage:
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
   pod scan [--json]
+  pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
+             [--no-evidence] [--audit] [--json]
+  pod rules [show] [--rules <file>] [--json]
+  pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
+                 --version <pack-version> --issued-by <who> [--note <text>]
+  pod rules verify --in <pack.json> --key <public.pem>
+  pod rules apply --in <pack.json> [--key <public.pem>] [--rules <file>] [--allow-relax]
+  pod rules pull --url <pack-url> --key <public.pem> [--rules <file>] [--allow-relax]
   pod posture [--rules <file>] [--baseline <file>] [--json] [--strict] [--audit]
   pod posture freeze [--rules <file>] [--baseline <file>]
   pod identity [list] | init --agent <name> | verify [--agent <name>] [--json]
@@ -1783,6 +2093,8 @@ onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--re
 digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
 coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。
 posture: 控制平面姿态检查（钩子/冻结项/记忆/包来源/身份/委托），规则来自 --rules 或 ~/.pod/rules.json。
+harden: 一次性加固审计交付物——暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份报告目录（全程本地，零上报）。
+rules:  规则包（订阅式加固的分发单元）：pack/verify/apply/pull；放宽已有规则的包默认拒绝应用，--allow-relax 才放行。
 identity/delegate/grant/quarantine/anomaly/trace: 身份、委托收窄、JIT 令牌、熔断、信任传播异常、污染溯源。
 approve/deny/pending: 审批旁路通道（stdio 被 MCP 占用，交互在另一个终端进行）。
 watch:  长驻审批队列：新请求立即提示，TTY 下可直接批准/拒绝。
@@ -1791,8 +2103,3 @@ ingest: 把外部 agent 事件（如 Codex PostToolUse hook）追加进本地哈
 audit:  查看审计（含哈希链校验）。
 `;
 }
-
-main().catch((err: unknown) => {
-  log(`fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-  process.exit(1);
-});

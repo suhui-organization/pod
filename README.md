@@ -70,6 +70,10 @@ pod --help
 
 The installer clones `v0.2.0` to `~/.pod/src`, builds, and puts `pod` in `~/.local/bin`. Override with `POD_SRC`, `POD_BIN_DIR`, `POD_REPO_URL`, `POD_VERSION`（`POD_VERSION=main` 跟主干）。
 
+**中文 / English**：CLI 输出支持中英切换——`pod --lang en-US <cmd>`，或设一次
+`POD_LANG=en-US`（也会读 `LC_ALL` / `LANG`）。默认中文；未翻译的句子原样显示，
+不会出现空白或 key 名。
+
 Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 
 ## What's in this repo

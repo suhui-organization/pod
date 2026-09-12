@@ -70,6 +70,27 @@ export function tokenizeToolName(name: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * 语料里出现次数最多的 agent——未显式指定 agent 时用它当策略绑定对象。
+ * 放在这里是因为"策略草稿绑定给谁"属于草稿语义，pod policy draft 与
+ * pod harden 两条路径都依赖它，复制一份迟早会漂移。
+ */
+export function mostCommonAgent(input: Array<{ entries: AuditEntry[] }>): string | undefined {
+  const counts = new Map<string, number>();
+  for (const { entries } of input) {
+    for (const e of entries) counts.set(e.agent, (counts.get(e.agent) ?? 0) + 1);
+  }
+  let best: string | undefined;
+  let max = 0;
+  for (const [agent, n] of counts) {
+    if (n > max) {
+      max = n;
+      best = agent;
+    }
+  }
+  return best;
+}
+
 /** 工具名语义分档（纯函数，可单测；误判方向永远偏保守） */
 export function classifyTool(name: string): { proposed: Proposed; reason: string } {
   const tokens = tokenizeToolName(name);

@@ -38,6 +38,9 @@ importers:
       '@podsec/graph':
         specifier: workspace:*
         version: link:../../packages/graph
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@podsec/identity':
         specifier: workspace:*
         version: link:../../packages/identity
@@ -114,13 +117,19 @@ importers:
         specifier: workspace:*
         version: link:../policy
 
+  packages/i18n: {}
+
   packages/identity:
     dependencies:
       '@podsec/audit':
         specifier: workspace:*
         version: link:../audit
 
-  packages/policy: {}
+  packages/policy:
+    dependencies:
+      '@podsec/audit':
+        specifier: workspace:*
+        version: link:../audit
 
   packages/posture:
     dependencies:

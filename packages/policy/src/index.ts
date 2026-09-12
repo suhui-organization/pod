@@ -11,6 +11,12 @@
 /** 用户可编辑的规则集（控制平面加固规则，见 docs/control-plane-hardening.md） */
 export * from './rules.js';
 
+/** 规则包：订阅式加固的分发单元（签名 + 放宽守卫） */
+export * from './rules-pack.js';
+
+/** 共用 Ed25519 detached 签名（策略与规则包同一条实现） */
+export * from './sign.js';
+
 export type Decision = 'allow' | 'deny' | 'approve';
 
 export interface ToolRule {

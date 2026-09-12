@@ -7,6 +7,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serveConsole, type UiServerHandle } from '@podsec/console';
+import { t } from '@podsec/i18n';
 
 export interface UiCommandOptions {
   /** ~/.pod */
@@ -40,7 +41,7 @@ export async function cmdUi(opts: UiCommandOptions): Promise<void> {
 
   log(`pod 控制台（只读）已启动：${handle.url}`);
   log(`数据目录：${opts.podHome}`);
-  log('token 只在本机终端出现；页面加载后会从地址栏移除。按 Ctrl+C 停止。');
+  log(t('token 只在本机终端出现；页面加载后会从地址栏移除。按 Ctrl+C 停止。'));
 
   await new Promise<void>((resolvePromise) => {
     const stop = (signal: string) => {
