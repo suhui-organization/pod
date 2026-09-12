@@ -107,4 +107,104 @@ export const enUS: Record<string, string> = {
   'nothing to sync': 'nothing to sync',
   '云端无策略（可先在 Pod Cloud 策略中心创建模板或绑定本 agent）':
     'No policies in the cloud (create a template or bind this agent in Pod Cloud first)',
+
+  // ── pod scan 报表 ──
+  '# pod scan 报表 — 你 Agent 的信任基线': '# pod scan report — your agents’ trust baseline',
+  '> 第一步：看清风险面。第二步：装闸门。第三步：每一步都有不可篡改的证据。':
+    '> Step one: see the risk surface. Step two: put a gate in front. Step three: every action leaves tamper-evident evidence.',
+  '扫描时间：{ts}': 'Scanned at: {ts}',
+  '## 1. Agent 清单（影子 agent，T6）': '## 1. Agent inventory (shadow agents, T6)',
+  '| 平台 | 已安装 |': '| Platform | Installed |',
+  '## 2. MCP server（{count} 个）': '## 2. MCP servers ({count})',
+  '未发现（DSH mcp-manager.json 不存在或为空）。': 'None found (DSH mcp-manager.json is missing or empty).',
+  '| server | 来源 | 版本锁定 | 风险 |': '| server | source | version pinned | risk |',
+  '本地 bin': 'local bin',
+  '## 3. 密钥暴露（{count} 处）': '## 3. Secret exposure ({count} findings)',
+  '✅ 未在 agent 配置中发现明文密钥。': '✅ No plaintext secrets found in agent configuration.',
+  '| 位置 | 变量 | 类型 | 掩码 |': '| Location | Variable | Type | Masked |',
+  '> 掩码仅显示前后几位。密钥管理建议：迁移到系统钥匙串 / secret 管理器后从配置中移除。':
+    '> Only the first and last characters are shown. Recommended: move secrets to the system keychain / a secret manager and remove them from config files.',
+  '## 4. 风险汇总': '## 4. Risk summary',
+  '✅ 未发现风险。': '✅ No risks found.',
+  'pod scan 只读、不联网、不上传任何数据。':
+    'pod scan is read-only, does not use the network, and uploads nothing.',
+  '**下一步**：`pod init --template baseline` 装上闸门，':
+    '**Next step**: `pod init --template baseline` to put the gate in place —',
+  '每次工具调用写入 SHA-256 哈希链——从今天起，你的 Agent 每一步都有不可篡改的证据。':
+    'every tool call goes into a SHA-256 hash chain — from today on, every step your agents take is tamper-evident.',
+
+  // ── pod posture 报表与判定 ──
+  '# pod posture — 控制平面姿态': '# pod posture — control-plane posture',
+  '生成时间：{ts}': 'Generated at: {ts}',
+  '> ⚠️ 还没有基线：本次只做静态判定，漂移类检查（配置/记忆/钩子变更）未生效。':
+    '> ⚠️ No baseline yet: this run only does static checks — drift detection (config / memory / hook changes) is inactive.',
+  '> 先跑 `pod posture freeze` 记录当前姿态。':
+    '> Run `pod posture freeze` first to record the current posture.',
+  '汇总：🔴 {high} · 🟠 {medium} · 🟡 {low}': 'Summary: 🔴 {high} · 🟠 {medium} · 🟡 {low}',
+  '✅ 未发现问题。': '✅ No findings.',
+  '  - 位置：{subject}': '  - Where: {subject}',
+  '  - 证据：{evidence}': '  - Evidence: {evidence}',
+  '## 采集到的事实': '## Facts collected',
+  '- 生命周期钩子：{n} 条': '- Lifecycle hooks: {n}',
+  '- 冻结项配置：{n} 个存在': '- Frozen config files: {n} present',
+  '- 记忆文件：{n} 个存在': '- Memory files: {n} present',
+  '- MCP server：{n} 个': '- MCP servers: {n}',
+  '- Agent 身份：{built}/{total} 已建立': '- Agent identities: {built}/{total} established',
+  '- 委托链：{n} 条': '- Delegation chains: {n}',
+  '- 审计链：{n} 条': '- Audit chains: {n}',
+  '- 审计链：{n} 条（{broken} 条断裂）': '- Audit chains: {n} ({broken} broken)',
+  '判定规则来自用户规则文件（默认 ~/.pod/rules.json），改规则即改判定。':
+    'Verdicts come from your rules file (default ~/.pod/rules.json) — change the rules, change the verdicts.',
+  '钩子命中风险规则': 'hook matched a risk rule',
+  '钩子配置没有配套签名（{sig} 不存在），无法验证来源与时效':
+    'Hook config has no signature ({sig} missing); origin and freshness cannot be verified',
+  '基线之后新增了生命周期钩子（hook 以主机权限运行，需人工确认来源）':
+    'A lifecycle hook was added since the baseline (hooks run with host privileges — verify the source)',
+  '生命周期钩子内容与基线不一致（可能被插件更新静默改写）':
+    'Hook content differs from the baseline (a plugin update may have rewritten it silently)',
+  '基线中的钩子已消失（确认是否为正常卸载）':
+    'A hook from the baseline is gone (confirm this was an intentional uninstall)',
+  '基线之后新出现的被冻结配置文件（未经带外审批的变更）':
+    'A frozen config file appeared after the baseline (a change without out-of-band approval)',
+  '冻结项内容与基线不一致（审批模式、网关地址、权限范围可能被降级）':
+    'Frozen config differs from the baseline (approval mode, gateway URL or scope may have been downgraded)',
+  '基线中的配置文件已不存在': 'A config file from the baseline no longer exists',
+  '长期记忆文件与基线不一致——记忆投毒会影响当前与后续会话，需人工确认写入来源':
+    'A long-term memory file differs from the baseline — memory poisoning affects current and future sessions; verify the writer',
+  'MCP server 来源未锁定版本（{source}）——上游更新会直接进入你的机器':
+    'MCP server source is not version-pinned ({source}) — upstream updates land on your machine directly',
+  '同名 MCP server 的启动命令/参数与基线不一致（可能被换成另一个包）':
+    'A same-named MCP server has a different launch command/args than the baseline (possibly swapped for another package)',
+  '这个 agent 没有独立密码学身份（共享凭证无法回答"是谁做的"）':
+    'This agent has no independent cryptographic identity (shared credentials cannot answer “who did it”)',
+  '身份存在但私钥缺失，无法签名（fingerprint={fp}）':
+    'Identity exists but the private key is missing, so it cannot sign (fingerprint={fp})',
+  '委托链校验失败：{errors}': 'Delegation chain failed verification: {errors}',
+  '审计链在 seq {seq} 处断裂——追加会被拒绝，该链自断点起不再记录任何事件（云端也会以 409 拒收）':
+    'Audit chain is broken at seq {seq} — appends are refused, so this chain records nothing after that point (the cloud also rejects it with 409)',
+
+  // ── CLI 控制平面命令的明细行 ──
+  'identity 已建立：{agent}': 'Identity created: {agent}',
+  '  私钥: {path}（0600，不要外传）': '  Private key: {path} (mode 0600 — never share it)',
+  '  能力: {caps}': '  Capabilities: {caps}',
+  '  到期: {ts}': '  Expires: {ts}',
+  '  到期: {ts}{single}': '  Expires: {ts}{single}',
+  '（单次）': ' (single-use)',
+  '（无）': '(none)',
+  '  文件: {path}': '  File: {path}',
+  '  跳: {hop}': '  Hop: {hop}',
+  '  生效能力: {caps}': '  Effective capabilities: {caps}',
+  '委托收窄校验：{parent} → {child}': 'Delegation narrowing: {parent} → {child}',
+  '  父能力: {caps}': '  Parent capabilities: {caps}',
+  '  子能力: {caps}': '  Child capabilities: {caps}',
+  '  策略: {path}{dry}': '  Policy: {path}{dry}',
+  '（dry-run 未写入）': ' (dry-run, not written)',
+  '  跳过: {item}': '  Skipped: {item}',
+  '  回滚: {cmd}': '  Roll back: {cmd}',
+  'ℹ️ {count} 个 server 因非 stdio transport 暂不支持包装':
+    'ℹ️ {count} servers cannot be wrapped yet (non-stdio transport)',
+  'use: pod serve --policy <path> 加载策略': 'use: pod serve --policy <path> to load the policy',
+  '{count} 项失败，其余已照常同步；修好上面这些再跑一次 pod sync。':
+    '{count} items failed; everything else synced. Fix the ones above and run pod sync again.',
+  '{reason}，{label} 退出': '{reason}; {label} exiting',
 }

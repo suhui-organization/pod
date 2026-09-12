@@ -198,7 +198,7 @@ async function connectStdioAndExitOnAgentGone(server: ProxyServer, label: string
   const shutdown = (reason: string): void => {
     if (closing) return;
     closing = true;
-    log(`${reason}，${label} 退出`);
+    log(t('{reason}，{label} 退出', { reason, label }));
     void server.close().catch(() => undefined);
     process.exit(0);
   };
@@ -334,7 +334,7 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
           `SNAPSHOT #${id}: ${manifest.entries.length} 个路径已保存` +
             `${manifest.skipped.length > 0 ? `（跳过 ${manifest.skipped.length} 个）` : ''}`,
         );
-        log(`  回滚: pod rollback --id ${id} --snapshot-dir ${snapshotDir}`);
+        log(t('  回滚: {cmd}', { cmd: `pod rollback --id ${id} --snapshot-dir ${snapshotDir}` }));
         return { snapshotId: id };
       }
     : undefined;
@@ -566,7 +566,7 @@ function cmdDoctor(policyPath: string | undefined): void {
     log(t('   修复: pod onboard --yes（或先 pod onboard 看计划）'));
   }
   if (coverage.unsupported.length > 0) {
-    log(`ℹ️ ${coverage.unsupported.length} 个 server 因非 stdio transport 暂不支持包装`);
+    log(t('ℹ️ {count} 个 server 因非 stdio transport 暂不支持包装', { count: coverage.unsupported.length }));
   }
   // 云配置
   const cloudPath = join(homedir(), '.pod', 'cloud.json');
@@ -924,8 +924,8 @@ function cmdOnboard(opts: OnboardOptions): void {
       log(`    - ${s.name}: ${action}`);
     }
   }
-  for (const p of result.policies) log(`  策略: ${p}${opts.dryRun ? '（dry-run 未写入）' : ''}`);
-  for (const s of result.skipped) log(`  跳过: ${s}`);
+  for (const p of result.policies) log(t('  策略: {path}{dry}', { path: p, dry: opts.dryRun ? t('（dry-run 未写入）') : '' }));
+  for (const s of result.skipped) log(t('  跳过: {item}', { item: s }));
   if (opts.dryRun) {
     log(t('确认无误后执行: pod onboard --yes'));
   } else {
@@ -1192,7 +1192,7 @@ async function main(): Promise<void> {
       log(`✗ agent #${f.agent_id}${f.server ? ` server=${f.server}` : ''}: ${f.message}`);
     }
     if (result.failures.length > 0) {
-      log(`${result.failures.length} 项失败，其余已照常同步；修好上面这些再跑一次 pod sync。`);
+      log(t('{count} 项失败，其余已照常同步；修好上面这些再跑一次 pod sync。', { count: result.failures.length }));
       process.exitCode = 1;
     }
     return;
@@ -1262,7 +1262,7 @@ async function main(): Promise<void> {
     for (const p of result.policies) {
       log(`pulled "${p.name}" v${p.version}${p.agent_id ? ` (agent #${p.agent_id})` : ' (template)'} -> ${p.path}`);
     }
-    log(`use: pod serve --policy <path> 加载策略`);
+    log(t('use: pod serve --policy <path> 加载策略'));
     return;
   }
 
@@ -1342,9 +1342,9 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       const r = identityInit({ agent: values.agent, dir, auditDir });
-      log(`identity 已建立：${values.agent}`);
+      log(t('identity 已建立：{agent}', { agent: values.agent }));
       log(`  fingerprint: ${r.fingerprint}`);
-      log(`  私钥: ${join(dir, values.agent, 'private.pem')}（0600，不要外传）`);
+      log(t('  私钥: {path}（0600，不要外传）', { path: join(dir, values.agent, 'private.pem') }));
       return;
     }
     if (sub === 'verify') {
@@ -1394,10 +1394,10 @@ async function main(): Promise<void> {
         auditDir,
         parentToken: values['parent-token'],
       });
-      log(`委托已签发：${values.parent} → ${values.child}`);
-      log(`  能力: ${r.token.capabilities.join('、') || '（无）'}`);
-      log(`  到期: ${r.token.expiresAt}`);
-      log(`  文件: ${r.file}`);
+      log(t('委托已签发：{parent} → {child}', { parent: values.parent, child: values.child }));
+      log(t('  能力: {caps}', { caps: r.token.capabilities.join('、') || t('（无）') }));
+      log(t('  到期: {ts}', { ts: r.token.expiresAt }));
+      log(t('  文件: {path}', { path: r.file }));
       return;
     }
     if (sub === 'verify') {
@@ -1407,8 +1407,8 @@ async function main(): Promise<void> {
       }
       const r = delegateVerify({ file: values.in, identityDir, rules });
       log(`${r.ok ? '✅' : '❌'} ${values.in}`);
-      for (const hop of r.hops) log(`  跳: ${hop}`);
-      log(`  生效能力: ${r.capabilities.join('、') || '（无）'}`);
+      for (const hop of r.hops) log(t('  跳: {hop}', { hop }));
+      log(t('  生效能力: {caps}', { caps: r.capabilities.join('、') || t('（无）') }));
       for (const err of r.errors) log(`  ✗ ${err}`);
       if (!r.ok) process.exitCode = 1;
       return;
@@ -1421,9 +1421,9 @@ async function main(): Promise<void> {
       const parentPolicy = JSON.parse(readFileSync(values['parent-policy'], 'utf8')) as Policy;
       const childPolicy = JSON.parse(readFileSync(values['child-policy'], 'utf8')) as Policy;
       const r = delegateCheck({ parentPolicy, childPolicy, rules });
-      log(`${r.ok ? '✅' : '❌'} 委托收窄校验：${parentPolicy.agent} → ${childPolicy.agent}`);
-      log(`  父能力: ${r.parent.join('、') || '（无）'}`);
-      log(`  子能力: ${r.child.join('、') || '（无）'}`);
+      log(`${r.ok ? '✅' : '❌'} ${t('委托收窄校验：{parent} → {child}', { parent: parentPolicy.agent, child: childPolicy.agent })}`);
+      log(t('  父能力: {caps}', { caps: r.parent.join('、') || t('（无）') }));
+      log(t('  子能力: {caps}', { caps: r.child.join('、') || t('（无）') }));
       if (r.escaped.length > 0) log(`  ✗ 子 agent 扩大了权限: ${r.escaped.join('、')}`);
       if (r.forbidden.length > 0) log(`  ✗ 命中了不可委托能力: ${r.forbidden.join('、')}`);
       if (!r.ok) process.exitCode = 1;
@@ -1459,9 +1459,9 @@ async function main(): Promise<void> {
         capabilities: values.capability,
         reason: values.reason,
       });
-      log(`令牌已签发：${r.grant.claims.id} → agent=${r.grant.claims.agent}`);
-      log(`  到期: ${r.grant.claims.expiresAt}${r.grant.claims.singleUse ? '（单次）' : ''}`);
-      log(`  文件: ${r.file}`);
+      log(t('令牌已签发：{id} → agent={agent}', { id: r.grant.claims.id, agent: r.grant.claims.agent }));
+      log(t('  到期: {ts}{single}', { ts: r.grant.claims.expiresAt, single: r.grant.claims.singleUse ? t('（单次）') : '' }));
+      log(t('  文件: {path}', { path: r.file }));
       return;
     }
     const rows = grantList(grantDir, identityDir);

@@ -58,4 +58,33 @@ describe('pod --lang', () => {
     expect(ev).toContain('Evidence bundle exported');
     expect(ev).toContain('Audit files: 1');
   });
+
+  it('报表类输出随语言切换（scan / posture）', () => {
+    const scan = run(['scan', '--lang', 'en-US']);
+    expect(scan).toContain('# pod scan report');
+    expect(scan).toContain('## 1. Agent inventory');
+    expect(scan).not.toContain('信任基线');
+
+    const posture = run(['posture', '--lang', 'en-US']);
+    expect(posture).toContain('# pod posture — control-plane posture');
+    expect(posture).toContain('## Facts collected');
+  });
+
+  it('控制平面明细行随语言切换（identity / delegate）', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-i18n-cp-'));
+    const init = run(['identity', 'init', '--agent', 'demo', '--lang', 'en-US'], { HOME: home });
+    expect(init).toContain('Identity created: demo');
+    expect(init).toContain('never share it');
+
+    run(['identity', 'init', '--agent', 'worker'], { HOME: home });
+    const deleg = run(
+      [
+        'delegate', 'issue', '--parent', 'demo', '--child', 'worker',
+        '--capability', 'read-private-data', '--ttl', '600', '--lang', 'en-US',
+      ],
+      { HOME: home },
+    );
+    expect(deleg).toContain('Delegation issued: demo → worker');
+    expect(deleg).toContain('Capabilities: read-private-data');
+  });
 });

@@ -136,6 +136,9 @@ importers:
       '@podsec/audit':
         specifier: workspace:*
         version: link:../audit
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@podsec/identity':
         specifier: workspace:*
         version: link:../identity
@@ -146,7 +149,11 @@ importers:
         specifier: workspace:*
         version: link:../scan
 
-  packages/scan: {}
+  packages/scan:
+    dependencies:
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
 
 packages:
 

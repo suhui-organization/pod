@@ -8,6 +8,9 @@
       "default": "./dist/index.js"
     }
   },
+  "dependencies": {
+    "@podsec/i18n": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",

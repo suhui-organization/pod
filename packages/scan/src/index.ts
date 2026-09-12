@@ -10,6 +10,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { t } from '@podsec/i18n';
 
 // ---------- 类型 ----------
 
@@ -103,8 +104,8 @@ export function inspectMcpServer(input: { name: string; command: string; args: s
   // npx 可能出现在 command 字段（真实 mcp-manager 格式）或 args 里
   const pkg = parseNpxPackage([input.command, ...input.args]);
   if (pkg) {
-    if (pkg.version === null) risks.push(`npm 包 ${pkg.name} 未锁定版本（供应链风险，见 T4）`);
-    else if (pkg.version === 'latest') risks.push(`npm 包 ${pkg.name} 使用 @latest 未锁定版本（供应链风险，见 T4）`);
+    if (pkg.version === null) risks.push(t('npm 包 {pkg} 未锁定版本（供应链风险，见 T4）', { pkg: pkg.name }));
+    else if (pkg.version === 'latest') risks.push(t('npm 包 {pkg} 使用 @latest 未锁定版本（供应链风险，见 T4）', { pkg: pkg.name }));
   }
   return { ...input, npxPackage: pkg ?? undefined, risks };
 }
@@ -153,8 +154,10 @@ export function scanMachine(opts: ScanOptions): ScanResult {
   if (foundCount > 3) {
     findings.push({
       severity: 'medium',
-      message: `发现 ${foundCount} 个 agent 平台（影子 agent 风险，见 T6）：` +
-        agents.filter((a) => a.found).map((a) => a.platform).join('、'),
+      message: t('发现 {count} 个 agent 平台（影子 agent 风险，见 T6）：{list}', {
+          count: foundCount,
+          list: agents.filter((a) => a.found).map((a) => a.platform).join('、'),
+        }),
     });
   }
 
@@ -172,12 +175,12 @@ export function scanMachine(opts: ScanOptions): ScanResult {
         mcpServers.push(info);
       }
     } catch {
-      findings.push({ severity: 'high', message: `${managerFile} 不是合法 JSON，无法盘点 MCP server` });
+      findings.push({ severity: 'high', message: t('{file} 不是合法 JSON，无法盘点 MCP server', { file: managerFile }) });
     }
   }
   for (const s of mcpServers) {
     for (const risk of s.risks) {
-      findings.push({ severity: 'medium', message: `MCP server "${s.name}": ${risk}` });
+      findings.push({ severity: 'medium', message: t('MCP server "{server}": {risk}', { server: s.name, risk }) });
     }
   }
 
@@ -214,7 +217,7 @@ export function scanMachine(opts: ScanOptions): ScanResult {
   for (const s of secrets) {
     findings.push({
       severity: 'high',
-      message: `${s.file} 中发现明文 ${s.category}（${s.masked}）`,
+      message: t('{file} 中发现明文 {category}（{masked}）', { file: s.file, category: s.category, masked: s.masked }),
     });
   }
 
@@ -224,54 +227,54 @@ export function scanMachine(opts: ScanOptions): ScanResult {
 // ---------- 报表渲染 ----------
 
 export function renderMarkdown(result: ScanResult): string {
-  const lines: string[] = ['# pod scan 报表 — 你 Agent 的信任基线', ''];
-  lines.push('> 第一步：看清风险面。第二步：装闸门。第三步：每一步都有不可篡改的证据。');
+  const lines: string[] = [t('# pod scan 报表 — 你 Agent 的信任基线'), ''];
+  lines.push(t('> 第一步：看清风险面。第二步：装闸门。第三步：每一步都有不可篡改的证据。'));
   lines.push('');
-  lines.push(`扫描时间：${new Date().toISOString()}`);
+  lines.push(t('扫描时间：{ts}', { ts: new Date().toISOString() }));
   lines.push('');
-  lines.push('## 1. Agent 清单（影子 agent，T6）');
+  lines.push(t('## 1. Agent 清单（影子 agent，T6）'));
   lines.push('');
-  lines.push('| 平台 | 已安装 |');
+  lines.push(t('| 平台 | 已安装 |'));
   lines.push('|------|--------|');
   for (const a of result.agents) {
     lines.push(`| ${a.platform} | ${a.found ? '✅' : '—'} |`);
   }
   lines.push('');
 
-  lines.push(`## 2. MCP server（${result.mcpServers.length} 个）`);
+  lines.push(t('## 2. MCP server（{count} 个）', { count: result.mcpServers.length }));
   lines.push('');
   if (result.mcpServers.length === 0) {
-    lines.push('未发现（DSH mcp-manager.json 不存在或为空）。');
+    lines.push(t('未发现（DSH mcp-manager.json 不存在或为空）。'));
   } else {
-    lines.push('| server | 来源 | 版本锁定 | 风险 |');
+    lines.push(t('| server | 来源 | 版本锁定 | 风险 |'));
     lines.push('|--------|------|----------|------|');
     for (const s of result.mcpServers) {
-      const src = s.npxPackage ? `npx ${s.npxPackage.name}` : '本地 bin';
+      const src = s.npxPackage ? `npx ${s.npxPackage.name}` : t('本地 bin');
       const pinned = s.npxPackage ? (s.npxPackage.version && s.npxPackage.version !== 'latest' ? '✅' : '❌') : 'n/a';
       lines.push(`| ${s.name} | ${src} | ${pinned} | ${s.risks.join('；') || '—'} |`);
     }
   }
   lines.push('');
 
-  lines.push(`## 3. 密钥暴露（${result.secrets.length} 处）`);
+  lines.push(t('## 3. 密钥暴露（{count} 处）', { count: result.secrets.length }));
   lines.push('');
   if (result.secrets.length === 0) {
-    lines.push('✅ 未在 agent 配置中发现明文密钥。');
+    lines.push(t('✅ 未在 agent 配置中发现明文密钥。'));
   } else {
-    lines.push('| 位置 | 变量 | 类型 | 掩码 |');
+    lines.push(t('| 位置 | 变量 | 类型 | 掩码 |'));
     lines.push('|------|------|------|------|');
     for (const s of result.secrets) {
       lines.push(`| ${s.file} | ${s.key} | ${s.category} | ${s.masked} |`);
     }
     lines.push('');
-    lines.push('> 掩码仅显示前后几位。密钥管理建议：迁移到系统钥匙串 / secret 管理器后从配置中移除。');
+    lines.push(t('> 掩码仅显示前后几位。密钥管理建议：迁移到系统钥匙串 / secret 管理器后从配置中移除。'));
   }
   lines.push('');
 
-  lines.push('## 4. 风险汇总');
+  lines.push(t('## 4. 风险汇总'));
   lines.push('');
   if (result.findings.length === 0) {
-    lines.push('✅ 未发现风险。');
+    lines.push(t('✅ 未发现风险。'));
   } else {
     for (const f of result.findings) {
       const tag = f.severity === 'high' ? '🔴' : f.severity === 'medium' ? '🟠' : '🟡';
@@ -280,10 +283,10 @@ export function renderMarkdown(result: ScanResult): string {
   }
   lines.push('');
   lines.push('---');
-  lines.push('pod scan 只读、不联网、不上传任何数据。');
+  lines.push(t('pod scan 只读、不联网、不上传任何数据。'));
   lines.push('');
-  lines.push('**下一步**：`pod init --template baseline` 装上闸门，');
-  lines.push('每次工具调用写入 SHA-256 哈希链——从今天起，你的 Agent 每一步都有不可篡改的证据。');
+  lines.push(t('**下一步**：`pod init --template baseline` 装上闸门，'));
+  lines.push(t('每次工具调用写入 SHA-256 哈希链——从今天起，你的 Agent 每一步都有不可篡改的证据。'));
   return lines.join('\n');
 }
 

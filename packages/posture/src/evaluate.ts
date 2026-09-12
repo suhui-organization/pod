@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import type { RuleSet, Severity } from '@podsec/policy';
 import { expandHome } from '@podsec/policy';
 import type { Baseline, Facts, Finding } from './types.js';
+import { t } from '@podsec/i18n';
 import { SEVERITY_ORDER } from './types.js';
 
 function shortId(...parts: string[]): string {
@@ -77,7 +78,7 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
         category: 'hook',
         severity,
         subject: `${hook.event} @ ${hook.file}`,
-        message: `${p.why ?? '钩子命中风险规则' }（规则 ${p.id}）：${hook.command}`,
+        message: t('{why}（规则 {rule}）：{command}', { why: p.why ?? t('钩子命中风险规则'), rule: p.id, command: hook.command }),
         evidence: [hook.command],
       });
     }
@@ -89,7 +90,7 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
           category: 'hook',
           severity: 'medium',
           subject: `${hook.event} @ ${hook.file}`,
-          message: `钩子配置没有配套签名（${sigFile} 不存在），无法验证来源与时效`,
+          message: t('钩子配置没有配套签名（{sig} 不存在），无法验证来源与时效', { sig: sigFile }),
         });
       }
     }
@@ -107,7 +108,7 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
           category: 'hook',
           severity: changeSeverity,
           subject: key,
-          message: '基线之后新增了生命周期钩子（hook 以主机权限运行，需人工确认来源）',
+          message: t('基线之后新增了生命周期钩子（hook 以主机权限运行，需人工确认来源）'),
         });
       } else if (before !== hash) {
         findings.push({
@@ -115,7 +116,7 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
           category: 'hook',
           severity: changeSeverity,
           subject: key,
-          message: '生命周期钩子内容与基线不一致（可能被插件更新静默改写）',
+          message: t('生命周期钩子内容与基线不一致（可能被插件更新静默改写）'),
         });
       }
     }
@@ -126,7 +127,7 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
           category: 'hook',
           severity: 'low',
           subject: key,
-          message: '基线中的钩子已消失（确认是否为正常卸载）',
+          message: t('基线中的钩子已消失（确认是否为正常卸载）'),
         });
       }
     }
@@ -150,7 +151,7 @@ export function evaluateConfigs(rules: RuleSet, facts: Facts, baseline: Baseline
         category: 'config',
         severity,
         subject: fact.path,
-        message: '基线之后新出现的被冻结配置文件（未经带外审批的变更）',
+        message: t('基线之后新出现的被冻结配置文件（未经带外审批的变更）'),
       });
     } else if (before !== fact.hash) {
       findings.push({
@@ -158,7 +159,7 @@ export function evaluateConfigs(rules: RuleSet, facts: Facts, baseline: Baseline
         category: 'config',
         severity,
         subject: fact.path,
-        message: '冻结项内容与基线不一致（审批模式、网关地址、权限范围可能被降级）',
+        message: t('冻结项内容与基线不一致（审批模式、网关地址、权限范围可能被降级）'),
       });
     }
   }
@@ -169,7 +170,7 @@ export function evaluateConfigs(rules: RuleSet, facts: Facts, baseline: Baseline
         category: 'config',
         severity: 'low',
         subject: path,
-        message: '基线中的配置文件已不存在',
+        message: t('基线中的配置文件已不存在'),
       });
     }
   }
@@ -191,7 +192,7 @@ export function evaluateMemory(facts: Facts, baseline: Baseline | null): Finding
         category: 'memory',
         severity: 'high',
         subject: fact.path,
-        message: '长期记忆文件与基线不一致——记忆投毒会影响当前与后续会话，需人工确认写入来源',
+        message: t('长期记忆文件与基线不一致——记忆投毒会影响当前与后续会话，需人工确认写入来源'),
       });
     }
   }
@@ -209,7 +210,7 @@ export function evaluatePackages(rules: RuleSet, facts: Facts, baseline: Baselin
         category: 'package',
         severity: 'medium',
         subject: pkg.server,
-        message: `MCP server 来源未锁定版本（${pkg.source}）——上游更新会直接进入你的机器`,
+        message: t('MCP server 来源未锁定版本（{source}）——上游更新会直接进入你的机器', { source: pkg.source }),
         evidence: [pkg.source],
       });
     }
@@ -221,7 +222,7 @@ export function evaluatePackages(rules: RuleSet, facts: Facts, baseline: Baselin
           category: 'package',
           severity: 'high',
           subject: pkg.server,
-          message: '同名 MCP server 的启动命令/参数与基线不一致（可能被换成另一个包）',
+          message: t('同名 MCP server 的启动命令/参数与基线不一致（可能被换成另一个包）'),
           evidence: [pkg.source],
         });
       }
@@ -243,7 +244,7 @@ export function evaluateIdentities(rules: RuleSet, facts: Facts): Finding[] {
         category: 'identity',
         severity: 'high',
         subject: id.agent,
-        message: '这个 agent 没有独立密码学身份（共享凭证无法回答"是谁做的"）',
+        message: t('这个 agent 没有独立密码学身份（共享凭证无法回答"是谁做的"）'),
       });
       continue;
     }
@@ -253,7 +254,7 @@ export function evaluateIdentities(rules: RuleSet, facts: Facts): Finding[] {
         category: 'identity',
         severity: 'medium',
         subject: id.agent,
-        message: `身份存在但私钥缺失，无法签名（fingerprint=${id.fingerprint}）`,
+        message: t('身份存在但私钥缺失，无法签名（fingerprint={fp}）', { fp: id.fingerprint ?? '' }),
       });
     }
   }
@@ -271,7 +272,7 @@ export function evaluateDelegations(facts: Facts): Finding[] {
       category: 'delegation',
       severity: 'high',
       subject: d.file,
-      message: `委托链校验失败：${d.errors.join('；')}`,
+      message: t('委托链校验失败：{errors}', { errors: d.errors.join('；') }),
       evidence: d.hops,
     });
   }
@@ -297,9 +298,7 @@ export function evaluateAudits(rules: RuleSet, facts: Facts, now: Date = new Dat
         category: 'audit',
         severity: 'high',
         subject: audit.path,
-        message:
-          `审计链在 seq ${audit.brokenAt ?? '?'} 处断裂——追加会被拒绝，` +
-          `该链自断点起不再记录任何事件（云端也会以 409 拒收）`,
+        message: t('审计链在 seq {seq} 处断裂——追加会被拒绝，该链自断点起不再记录任何事件（云端也会以 409 拒收）', { seq: String(audit.brokenAt ?? '?') }),
       });
     }
   }

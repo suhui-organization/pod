@@ -9,6 +9,7 @@
     }
   },
   "dependencies": {
+    "@podsec/i18n": "workspace:*",
     "@podsec/audit": "workspace:*",
     "@podsec/identity": "workspace:*",
     "@podsec/policy": "workspace:*",
