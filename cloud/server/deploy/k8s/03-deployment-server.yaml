@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podcloud-server
+  namespace: podcloud
+  labels:
+    app: podcloud-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podcloud-server
+  template:
+    metadata:
+      labels:
+        app: podcloud-server
+    spec:
+      containers:
+        - name: server
+          # 镜像 tag 由 install-local.sh 部署时注入(源码内容指纹 __SERVER_IMAGE_TAG__)
+          image: podcloud-server:__SERVER_IMAGE_TAG__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PODCLOUD_ENV
+              value: "production"
+            - name: PODCLOUD_DB_URL
+              value: "sqlite:////app/data/podcloud.db"
+            - name: PUBLIC_BASE_URL
+              value: "http://127.0.0.1:18088"
+            - name: PODCLOUD_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: podcloud-secrets
+                  key: PODCLOUD_JWT_SECRET
+          # 计费配置整组来自 Secret（PODCLOUD_BILLING_PROVIDER / PADDLE_*）。
+          # 用 envFrom 而不是逐条列：加减平台时不用动清单；值为空就等于没配计费。
+          envFrom:
+            - secretRef:
+                name: podcloud-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /api/v1/auth/config
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: podcloud-data

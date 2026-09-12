@@ -1,0 +1,51 @@
+# Pod Cloud 单机部署（从源码构建，一个仓库搞定）
+#
+#   cd deploy && cp .env.example .env && 编辑 .env && docker compose up -d --build
+#
+# 或者直接用一键脚本（会替你生成密钥、等待健康、引导建管理员）：
+#   bash deploy/install.sh
+#
+# 构建上下文指向仓库内的源码：本地 CLI 与云端控制平面同源同版本。
+services:
+  podcloud-server:
+    build:
+      context: ../cloud/server
+      dockerfile: deploy/Dockerfile
+    image: podcloud-server:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PODCLOUD_ENV: production
+      PODCLOUD_DB_URL: sqlite:////app/data/podcloud.db
+      # 找回密码链接里的地址：部署到域名后改成对外地址
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:18088}
+    volumes:
+      # 审计与账号数据都在这里；删容器不丢数据，除非删卷
+      - podcloud-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/auth/config')
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  podcloud-web:
+    build:
+      context: ../cloud/web
+      dockerfile: deploy/Dockerfile
+    image: podcloud-web:local
+    restart: unless-stopped
+    depends_on:
+      podcloud-server:
+        condition: service_healthy
+    environment:
+      # nginx 把 /api 反代到后端；容器名即服务名
+      PODCLOUD_SERVER_UPSTREAM: podcloud-server:8000
+    ports:
+      - "${WEB_PORT:-18088}:80"
+
+volumes:
+  podcloud-data:

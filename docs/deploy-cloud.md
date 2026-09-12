@@ -1,0 +1,93 @@
+# 部署 Pod Cloud（可选云端控制平面）
+
+> 本地部分（CLI + 网关）装完就能用，**云端是可选的**：不要它，`pod` 依然能编译策略、执法、留证据。
+> 要跨机器/跨 agent 统一看审计、要策略下发与告警，就把它跑起来。
+
+## 一键部署（单机 Docker Compose）
+
+```bash
+git clone <repo> && cd pod
+bash deploy/install.sh
+```
+
+脚本会：预检 docker → 生成 `.env`（含随机 JWT 密钥）→ 构建镜像 → 起服务 → 等健康检查 → 打印访问地址。
+首次约 2–5 分钟。
+
+```bash
+# 想顺手建好管理员，带上这两个变量
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='强密码' bash deploy/install.sh
+
+# 换端口（默认 18088）
+WEB_PORT=18089 bash deploy/install.sh
+```
+
+部署完访问 `http://<主机>:<端口>`。默认公开注册；`PODCLOUD_IS_PRIVATE=true` 可关闭注册，只留管理员建号。
+
+## 你需要提供什么（必填只有一项）
+
+| 项 | 必填 | 说明 |
+|---|---|---|
+| `PODCLOUD_JWT_SECRET` | **是**（脚本自动生成） | 登录签名密钥。**部署后不要再改**，改了所有人被登出 |
+| `WEB_PORT` | 否（默认 18088） | 浏览器访问端口 |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 否 | 想跳过页面注册就带上；不填则在页面自助注册 |
+| `PUBLIC_BASE_URL` | 建议 | 找回密码邮件里的链接地址；部署到域名后**必须**改成对外地址 |
+| `PODCLOUD_IS_PRIVATE` | 否 | `true` = 关闭公开注册 |
+| SMTP（`PODCLOUD_SMTP_*`） | 否 | 留空则重置链接写服务端日志（`docker compose logs` 可见），自托管下是既定行为 |
+| `PODCLOUD_DB_URL` | 否 | 默认 SQLite（存在卷 `podcloud-data`）。要 PostgreSQL 时填连接串 |
+| `PADDLE_*` / `STRIPE_*` | 否 | 计费。**不填即完全关闭**，不影响其它功能 |
+| `PODCLOUD_LLM_*` | 否 | AI 摘要类接口。不填则该功能提示未配置，其余正常 |
+
+配置都在 `deploy/.env`（由 `.env.example` 复制而来，每个字段都有注释）。
+
+**agent 侧需要提供什么**：不需要额外配置——在控制台注册 agent 后，页面会给你一条一键接入命令（`curl ... | bash`），它自动写 `~/.pod/cloud.json` 并验证同步。
+
+## 数据在哪、怎么备份
+
+| 内容 | 位置 |
+|---|---|
+| 账号、agent、审计事件、策略、告警 | 卷 `podcloud-data` → 容器内 `/app/data/podcloud.db`（SQLite） |
+| 审计原文 | **不在云端**。云端只收 SHA-256 哈希与元数据，原文留在 agent 机器上 |
+
+```bash
+# 备份
+docker compose exec -T podcloud-server cp /app/data/podcloud.db /app/data/podcloud.db.bak
+docker cp "$(docker compose ps -q podcloud-server)":/app/data/podcloud.db ./podcloud-backup.db
+
+# 停止（保留数据）
+docker compose down
+
+# 停止并删除数据（不可恢复）
+docker compose down -v
+```
+
+## 运维命令
+
+```bash
+docker compose ps                    # 状态
+docker compose logs -f podcloud-server
+docker compose up -d --build         # 更新代码后重建
+docker compose pull                  # （用预构建镜像时才需要）
+```
+
+## Kubernetes
+
+仓库里保留了 k8s 清单作为参考：`cloud/server/deploy/k8s/`。它面向"本机 kind/Docker-Desktop 集群 + 源码指纹打 tag"的流程，脚本是 `install-local.sh`。
+
+上生产前请注意：那份清单用的是 `imagePullPolicy: IfNotPresent` 与本地构建的镜像，把它接到你自己的镜像仓库（CI 构建推送）更合适——把 Deployment 里的 `image:` 换成你的 registry 地址即可。反过来，如果你的集群能直连本机 docker（如 Docker Desktop），原脚本可以直接用：
+
+```bash
+bash cloud/server/deploy/k8s/install-local.sh
+```
+
+## 与本地 agent 的关系
+
+```
+agent 机器（本地，信任根）                  云端（可选）
+  agent ──▶ pod 网关 ──▶ 真实 MCP server      Pod Cloud
+              │ 策略/审批/审计                  ▲
+              └──── pod sync（只推哈希）────────┘
+```
+
+- `pod serve` 不依赖云端：云端挂了，本地执法与审计照常。
+- 云端挂了只会影响跨机器的可视化与策略下发，不会让 agent 停下来。
+- 数据方向是**单向**的：本地推哈希上云；云端下发策略（可选验签）。

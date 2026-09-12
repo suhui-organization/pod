@@ -1,0 +1,88 @@
+"""Pod Cloud（OPC AI Agent 安全舱）SaaS 后端入口。
+
+基于 FinHarness 骨架裁剪（opc-pod-cloud 分支）：保留租户/鉴权/成员/设置，
+删除对话、外呼、工作流、知识库等与 OPC 无关的能力；新增 agent 注册、
+审计同步、策略中心、订阅。
+"""
+import logging
+
+from fastapi import FastAPI, HTTPException
+from app.database import get_db
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.database import Base, engine
+from app.migrations import migrate
+from app.routers import admin, agents, alerts, auth, control_events, dashboard, policies, reports, settings, subscription, sync, tenants, timeline, traces, users
+
+Base.metadata.create_all(bind=engine)
+migrate(engine)  # 轻量列迁移(幂等,为已有库补新列)
+
+app = FastAPI(title="Pod Cloud", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # MVP;生产按域名收紧
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc: HTTPException):
+    """统一错误信封：{"error": {"code", "message"}}（N1 规范）。"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.status_code, "message": exc.detail}},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request, exc: RequestValidationError):
+    """422 校验错误：统一信封 + 简洁字段信息，不泄漏内部细节。"""
+    msgs = []
+    for e in exc.errors():
+        loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
+        msgs.append(f"{loc or 'body'}: {e.get('msg', 'invalid')}")
+    return JSONResponse(
+        status_code=422,
+        content={"error": {"code": 422, "message": "; ".join(msgs)}},
+    )
+
+
+# agent 失联巡检（后台线程，30 分钟一轮；单副本部署）
+try:
+    from app.services.silence_watch import start_silence_watch
+
+    start_silence_watch(get_db)
+except Exception as e:  # noqa: BLE001 巡检启动失败不影响服务
+    print(f"[podcloud] silence watch failed to start: {e}", flush=True)
+
+try:
+    from app.services.digest_scheduler import start_digest_scheduler
+
+    start_digest_scheduler(get_db)
+except Exception as e:  # noqa: BLE001 日报调度启动失败不影响服务
+    print(f"[podcloud] digest scheduler failed to start: {e}", flush=True)
+
+
+API = "/api/v1"
+app.include_router(auth.router, prefix=API)
+app.include_router(admin.router, prefix=API)
+app.include_router(tenants.router, prefix=API)
+app.include_router(users.router, prefix=API)
+app.include_router(settings.router, prefix=API)
+app.include_router(agents.router, prefix=API)
+app.include_router(agents.setup_router, prefix=API)  # /api/v1/agent-setup/{id}/{token}：一键接入脚本（token 即凭证）
+app.include_router(sync.router, prefix=API)
+app.include_router(policies.router, prefix=API)
+app.include_router(dashboard.router, prefix=API)
+app.include_router(subscription.router, prefix=API)
+app.include_router(reports.router, prefix=API)
+app.include_router(alerts.router, prefix=API)
+app.include_router(timeline.router, prefix=API)
+app.include_router(control_events.router, prefix=API)  # /api/v1/control-events: 控制平面事件（钩子/身份/委托/熔断）
+app.include_router(traces.router, prefix=API)  # /api/v1/traces: 调用链追踪(任务→调用图谱)

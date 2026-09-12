@@ -1,0 +1,9 @@
+# 构建上下文不需要本地依赖与产物：镜像里 npm ci 会自己装。
+# 顺带避开 pnpm 的符号链接覆盖镜像内真实目录（COPY . ./ 报
+# "cannot replace to directory ... with file"）。
+node_modules/
+dist/
+.git/
+*.tsbuildinfo
+.impeccable/
+.DS_Store

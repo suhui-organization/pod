@@ -1,0 +1,25 @@
+[project]
+name = "podcloud-server"
+version = "0.1.6"
+description = "Pod Cloud — AI Agent 安全舱 SaaS 控制平面"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "sqlalchemy>=2.0",
+    "pyjwt>=2.8",
+    "bcrypt>=4.1",
+    "pydantic>=2.6",
+    "email-validator>=2.0",
+    "httpx>=0.27",
+    "psycopg2-binary>=2.9",
+    "reportlab>=4.0",
+    "python-multipart>=0.0.9",
+    "stripe>=9.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

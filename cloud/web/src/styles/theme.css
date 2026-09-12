@@ -1,0 +1,670 @@
+/* FinHarness × Reasonix 设计语言
+ * 暗色优先 + slate 灰蓝(提取自 Reasonix 设计 token 体系)
+ * 背景三级递进 / 前景多级灰阶 / 极淡边框 / accent-soft 底 + accent 前景
+ */
+:root {
+  /* 背景三级递进 */
+  --fh-bg: #090a0c;
+  --fh-bg-soft: #0b0e12;
+  --fh-bg-elev: #101318;
+
+  /* 前景多级灰阶 */
+  --fh-text: #e6e8ec;
+  --fh-text-dim: #9aa2b1;
+  --fh-text-faint: #6b7280;
+
+  /* 边框(极淡,Reasonix --border-soft) */
+  --fh-border: rgba(255, 255, 255, 0.07);
+  --fh-border-strong: rgba(255, 255, 255, 0.12);
+  --fh-divider: rgba(255, 255, 255, 0.05);  /* 更淡的分隔线(Linear 风细分割) */
+  --fh-hover-soft: rgba(255, 255, 255, 0.03);  /* 更柔和的 hover */
+
+  /* 面(surface)层级:此前只被 var() 引用、从未定义,各页面全靠兜底值渲染,
+     导致亮色主题下面板仍是暗色。补齐后暗色视觉不变 */
+  --fh-panel-bg: #161a1f;    /* 卡片/面板底 */
+  --fh-panel-elev: #1c2128;  /* 面板内的次级块(代码块/详情区) */
+
+  /* accent:slate 灰蓝 */
+  --fh-accent: #6ea4f9;
+  --fh-accent-hover: #8ab1fa;
+  --fh-accent-soft: rgba(110, 164, 249, 0.14);
+  --fh-accent-fg: #061129;
+
+  /* 状态色 */
+  --fh-danger: #cc3e44;
+  --fh-success: #8dc149;
+  --fh-warning: #e37933;
+
+  /* 交互态 */
+  --fh-hover: rgba(255, 255, 255, 0.04);
+  --fh-scrollbar: rgba(255, 255, 255, 0.12);
+
+  /* 圆角 */
+  --fh-radius: 10px;
+  --fh-radius-sm: 4px;  /* 小元素(tag/徽标):方角小圆角,与卡片语言一致 */
+  --fh-radius-lg: 12px;
+
+  /* 输入框统一 token(对标对话 composer-card 内层风格:elev 底色 + 细边 + radius-lg + focus accent) */
+  --fh-input-bg: var(--fh-bg-elev);
+  --fh-input-border: var(--fh-border);
+  --fh-input-border-hover: var(--fh-border-strong);
+  --fh-input-border-focus: var(--fh-accent);
+  --fh-input-radius: var(--fh-radius-lg);
+  --fh-input-height: 36px;
+  --fh-input-font-size: calc(14px * var(--fh-font-scale));
+  --fh-input-line-height: 1.5;
+  --fh-input-placeholder: var(--fh-text-faint);
+  --fh-input-color: var(--fh-text);
+  --fh-focus-ring: 0 0 0 3px var(--fh-accent-soft);
+
+  /* 字体与字号(小字号高密度;--fh-font-scale 全局缩放,外观设置可调) */
+  --fh-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --fh-font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code',
+    Consolas, monospace;
+  --fh-font-scale: 1;
+  --fh-size-sm: calc(12px * var(--fh-font-scale));
+  --fh-size-md: calc(13px * var(--fh-font-scale));
+  --fh-size-base: calc(14px * var(--fh-font-scale));
+
+  /* Element Plus 暗色映射 */
+  --el-color-primary: var(--fh-accent);
+  --el-color-primary-light-3: #8ab1fa;
+  --el-color-primary-light-5: rgba(110, 164, 249, 0.5);
+  --el-color-primary-light-7: rgba(110, 164, 249, 0.3);
+  --el-color-primary-light-8: rgba(110, 164, 249, 0.2);
+  --el-color-primary-light-9: var(--fh-accent-soft);
+  --el-color-primary-dark-2: #4d8df6;
+  --el-bg-color: var(--fh-bg);
+  --el-bg-color-page: var(--fh-bg);
+  --el-bg-color-overlay: var(--fh-bg-elev);
+  --el-text-color-primary: var(--fh-text);
+  --el-text-color-regular: var(--fh-text-dim);
+  --el-text-color-secondary: var(--fh-text-faint);
+  --el-text-color-placeholder: var(--fh-text-faint);
+  --el-border-color: var(--fh-border-strong);
+  --el-border-color-light: var(--fh-border);
+  --el-border-color-lighter: var(--fh-border);
+  --el-border-color-extra-light: var(--fh-border);
+  --el-fill-color-blank: var(--fh-bg-soft);
+  --el-fill-color-light: rgba(255, 255, 255, 0.06);
+  --el-fill-color: rgba(255, 255, 255, 0.08);
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+}
+
+/* 标准盒模型重置:width 含 padding/border,百分比宽度不再溢出父容器 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* 亮色主题(Reasonix 亮色 token):外观设置里切换,body 默认暗色 */
+:root[data-theme='light'] {
+  --fh-bg: #f7f8fb;
+  --fh-bg-soft: #eef0f4;
+  --fh-bg-elev: #ffffff;
+  --fh-text: #1f2937;
+  --fh-text-dim: #4b5563;
+  --fh-text-faint: #6b7280;
+  --fh-border: rgba(20, 28, 46, 0.07);
+  --fh-border-strong: rgba(20, 28, 46, 0.12);
+  --fh-panel-bg: #ffffff;
+  --fh-panel-elev: #f2f4f8;
+  --fh-accent: #2f6fe0;
+  --fh-accent-hover: #244f91;
+  --fh-accent-soft: rgba(47, 111, 224, 0.12);
+  --fh-accent-fg: #ffffff;
+  --fh-danger: #c0392b;
+  --fh-success: #5f9e34;
+  --fh-warning: #cc6d2e;
+  --fh-hover: rgba(0, 0, 0, 0.04);
+  --fh-scrollbar: rgba(0, 0, 0, 0.15);
+
+  /* Element Plus 亮色还原 */
+  --el-color-primary: var(--fh-accent);
+  --el-color-primary-light-3: #5e8ee8;
+  --el-color-primary-light-5: rgba(47, 111, 224, 0.5);
+  --el-color-primary-light-7: rgba(47, 111, 224, 0.3);
+  --el-color-primary-light-8: rgba(47, 111, 224, 0.2);
+  --el-color-primary-light-9: var(--fh-accent-soft);
+  --el-color-primary-dark-2: #244f91;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: var(--fh-bg);
+  --el-bg-color-overlay: #ffffff;
+  --el-text-color-primary: var(--fh-text);
+  --el-text-color-regular: var(--fh-text-dim);
+  --el-text-color-secondary: var(--fh-text-faint);
+  --el-border-color: var(--fh-border-strong);
+  --el-border-color-light: var(--fh-border);
+  --el-border-color-lighter: var(--fh-border);
+  --el-border-color-extra-light: var(--fh-border);
+  --el-fill-color-blank: #ffffff;
+  --el-fill-color-light: rgba(0, 0, 0, 0.04);
+  --el-fill-color: rgba(0, 0, 0, 0.06);
+  --el-mask-color: rgba(0, 0, 0, 0.5);
+}
+
+body {
+  margin: 0;
+  font-family: var(--fh-font-ui);
+  font-size: var(--fh-size-base);
+  color: var(--fh-text);
+  background: var(--fh-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 通用元素适配暗色 */
+.el-card,
+.el-dialog,
+.el-message-box {
+  background: var(--fh-bg-elev);
+  border: 1px solid var(--fh-border);
+  border-radius: var(--fh-radius);
+  color: var(--fh-text);
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  background: var(--fh-bg-soft);
+  box-shadow: 0 0 0 1px var(--fh-border) inset;
+}
+
+.el-tabs__item {
+  color: var(--fh-text-dim);
+}
+
+.el-tabs__item.is-active {
+  color: var(--fh-accent);
+}
+
+.el-tabs__active-bar {
+  background: var(--fh-accent);
+}
+
+.el-table {
+  --el-table-bg-color: var(--fh-bg-elev);
+  --el-table-tr-bg-color: var(--fh-bg-elev);
+  --el-table-header-bg-color: var(--fh-bg-soft);
+  --el-table-border-color: var(--fh-border);
+  --el-table-text-color: var(--fh-text);
+  --el-table-header-text-color: var(--fh-text-dim);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.04);
+  /* 斑马纹(stripe)与填充色:随主题,防白底 */
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.03);
+  --el-fill-color-light: rgba(255, 255, 255, 0.03);
+  --el-table-striped-row-bg-color: rgba(255, 255, 255, 0.03);
+}
+
+/* 滚动条:细、暗 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--fh-scrollbar);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============ 响应式与防挤压(全局) ============ */
+/* 弹性子项允许收缩(防 flex 内文字被挤出换行) */
+.flex-1, .flex,
+[class*='row'], [class*='-row'],
+.el-form, .el-table {
+  min-width: 0;
+}
+/* 按钮/标签/芯片:单行不换行,超宽省略 */
+.el-button,
+.el-tag,
+.el-tabs__item,
+.el-select__placeholder,
+.msg-action,
+.ctx-chip,
+.profile-chip,
+.chat-tab,
+.chat-tool,
+.stat-card,
+.panel-tab,
+form .el-form-item__label {
+  white-space: nowrap;
+}
+
+/* 窄屏(<1200):右侧面板/侧栏收缩 */
+@media (max-width: 1199px) {
+  :root {
+    --fh-panel-w: 240px;
+  }
+}
+
+/* 中屏(<1000):面板改覆盖式 */
+@media (max-width: 999px) {
+  .app-content > * {
+    min-width: 0;
+  }
+}
+
+/* 小屏(<860):侧栏、面板折叠为抽屉(由各视图控制);对话列自适应 */
+@media (max-width: 859px) {
+  .messages-inner {
+    padding: 0 12px;
+  }
+  .chat-toolbar {
+    padding: 4px 12px 0;
+  }
+  .composer {
+    padding: 0 12px 10px !important;
+  }
+  .msg__body--assistant,
+  .msg__body--user {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  /* 注意:类名限定在 .chat-page 内 —— .sidebar/.panel 是通用类名,
+     其他视图的普通卡片容器(.panel)不能被误伤成 fixed 抽屉 */
+  .chat-page .sidebar:not(.sidebar--open),
+  .chat-page .panel:not(.panel--open) {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 50;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  .chat-page .sidebar:not(.sidebar--open) {
+    left: 52px;
+    width: 264px !important;
+  }
+  .chat-page .panel:not(.panel--open) {
+    right: 0;
+    width: 280px !important;
+    transform: translateX(100%);
+  }
+  .resize-handle {
+    display: none !important;
+  }
+}
+
+/* 极窄(<600):布局最小化,顶栏隐藏次要信息 */
+@media (max-width: 599px) {
+  .profile-label,
+  .wf-empty,
+  .hint,
+  .welcome-tip {
+    display: none !important;
+  }
+  .composer-top,
+  .composer-bottom {
+    flex-wrap: wrap;
+  }
+  .el-dialog {
+    width: 94vw !important;
+    max-width: 94vw !important;
+  }
+}
+
+/* 超窄(<480,大于手机最小宽度 360):极简布局 */
+@media (max-width: 479px) {
+  /* 顶栏更紧凑 */
+  .admin-topbar { padding: 0 6px !important; gap: 4px !important; }
+  /* 卡片内边距缩小 */
+  .el-card,
+  .panel,
+  .cap-card {
+    padding: 10px !important;
+  }
+  /* 表格行高更紧凑 */
+  .el-table td,
+  .el-table th {
+    padding: 4px 6px !important;
+  }
+  /* 对话框 body 紧凑 */
+  .el-dialog__body { padding: 12px !important; }
+}
+
+/* 极限(<360,理论最小,实际由 body min-width 兜底):防御性隐藏 */
+@media (max-width: 359px) {
+  /* 这一段基本不会触发(body min-width: 360),但防御性保留 */
+  .admin-nav, .chat-page .sidebar { display: none !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 输入框统一风格(对标对话 composer-card 内层)
+ * 全系统 <el-input> / <el-textarea> 共享同一组 token,保证视觉与对话输入框一致
+ * ───────────────────────────────────────────────────────────────── */
+.el-input__wrapper,
+.el-textarea__wrapper {
+  background: var(--fh-input-bg) !important;
+  border: 1px solid var(--fh-input-border) !important;
+  border-radius: var(--fh-input-radius) !important;
+  box-shadow: none !important;
+  padding: 4px 12px !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.el-input.is-hover .el-input__wrapper,
+.el-textarea:hover .el-textarea__wrapper {
+  border-color: var(--fh-input-border-hover) !important;
+}
+.el-input.is-focus .el-input__wrapper,
+.el-textarea.is-focus .el-textarea__wrapper {
+  border-color: var(--fh-input-border-focus) !important;
+  box-shadow: var(--fh-focus-ring) !important;
+}
+.el-input__inner,
+.el-textarea__inner {
+  background: transparent !important;
+  color: var(--fh-input-color) !important;
+  font-family: var(--fh-font-ui) !important;
+  font-size: var(--fh-input-font-size) !important;
+  line-height: var(--fh-input-line-height) !important;
+}
+.el-input__inner {
+  height: var(--fh-input-height) !important;
+  padding: 0 14px !important;        /* 与对话 composer-card 的 14px padding 对齐,placeholder/文本有舒适内距 */
+}
+.el-textarea__inner {
+  height: auto !important;
+  min-height: 80px;
+  padding: 8px 14px !important;       /* textarea 多留垂直空间,水平与 input 对齐 */
+}
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder,
+.el-input .el-input__inner::placeholder {
+  color: var(--fh-input-placeholder) !important;
+}
+.el-input.is-disabled .el-input__wrapper,
+.el-textarea.is-disabled .el-textarea__wrapper {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--fh-bg-soft) !important;
+  border-color: var(--fh-border) !important;
+}
+/* size=small (GenuiRenderer 内):保持紧凑 */
+.el-input--small .el-input__wrapper {
+  padding: 2px 8px !important;
+  min-height: 24px;
+}
+.el-input--small .el-input__inner {
+  font-size: calc(12px * var(--fh-font-scale)) !important;
+  height: 20px !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 滚动布局修复:主内容区与模块面板必须能滚动,允许路由视图随内容撑高
+ *  - .admin-content 改为 overflow-y: auto,统一承接主区滚动
+ *  - 路由视图(及内部布局层)取消 overflow: hidden + height: 100% 限制,
+ *    让长内容自然延伸;admin-content 出现滚动条
+ *  - 豁免:PageColumns 与其内部(pc-main / pc-left / pc-right / .messages / .composer /
+ *    el-scrollbar__wrap 等),chat 路由用 PageColumns + 内部 el-scrollbar 自管滚动,
+ *    不能让它们变 visible / 失去 height: 100%
+ *  - 模块面板 .mp-body 改为 overflow-y: auto
+ *  - 用 scrollbar-gutter: stable 避免内容跳动
+ * ───────────────────────────────────────────────────────────────── */
+.admin-content {
+  overflow-y: auto !important;
+  overflow-x: auto !important;   /* 内容横向溢出时可左右滚动查看 */
+  scrollbar-gutter: stable;
+}
+.admin-content > * {
+  flex: 1 1 auto !important;
+  min-height: 100% !important;
+  /* 不强制 flex-direction:column: page-columns 原本是 row(三栏),
+     强制 column 会导致 pc-left/pc-main 垂直堆叠而错位 */
+}
+/* 路由视图内部常见的"中间滚动层" 改为 visible,让内容自然延伸,
+ * 统一由 .admin-content 滚动。
+ * 排除 .body:ChatView 内部的布局容器(<div class="body"> 包 chat-area + composer),
+ *   它的 flex: 1; height: 100% 是 chat 布局的关键,误改会破坏 chat 显示
+ * 排除 .pc-main / .pc-left / .pc-right:见下一条独立规则 */
+/* 注意:不能再设 flex: 0 0 auto —— 它会把 column flex 容器(各视图 .page/.center)
+   中滚动层的交叉轴宽度顶成内容 min-content,导致整页被内容撑宽溢出;
+   各视图自己的 flex 规则负责伸缩,这里只接管滚动/高度行为 */
+.admin-content > * :is(.center, .content, .main, .left-pane, .right-pane) {
+  overflow: visible !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+/* PageColumns 本身需要保留 height: 100%(它的内部 chat-area 才能填满) */
+.admin-content > .page-columns {
+  height: 100% !important;
+}
+/* 显式恢复 PageColumns 子元素的 flex/height 行为,不被上面规则影响。
+ * 注意:pc-left / pc-right 是固定宽度侧栏,flex 必须 0 0 auto(宽度由 style.width 决定),
+ * 否则会被 flex 撑开导致与拖拽手柄错位 */
+.admin-content > * :is(.pc-main, .pc-left, .pc-right, .pc-handle) {
+  overflow: hidden !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+.admin-content > * :is(.pc-left, .pc-right) {
+  flex: 0 0 auto !important;
+}
+.admin-content > * .pc-main {
+  flex: 1 1 0 !important;
+}
+/* chat 内部 .messages(用 el-scrollbar 自管滚动)不强制 height,
+ * 沿用组件自身的 flex: 1,只保证 overflow 行为正确 + 上下文/工具条正常显示 */
+.admin-content .messages,
+.admin-content .el-scrollbar__wrap {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 0;
+}
+.admin-content .messages {
+  display: flex;          /* messages 是 flex column,装 chat-toolbar / messages(el-scrollbar) / ctx-row / composer */
+  flex-direction: column;
+}
+.admin-content .chat-toolbar,
+.admin-content .ctx-row {
+  flex: 0 0 auto;          /* 工具条与上下文行固定高度,不参与 flex 撑高 */
+  display: block;
+}
+.admin-content .composer {
+  flex: 0 0 auto;
+  display: block;
+}
+.module-panel .mp-body {
+  overflow-y: auto !important;
+  overflow-x: auto !important;   /* 模块内容横向溢出时可左右滚动查看 */
+  scrollbar-gutter: stable;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 左侧 nav 拖拽时的宽度提示浮标
+ * ───────────────────────────────────────────────────────────────── */
+.nav-resize-tip {
+  position: fixed;
+  z-index: 60;
+  height: 28px;
+  min-width: 44px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--fh-bg-elev);
+  border: 1px solid var(--fh-accent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  color: var(--fh-text);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--fh-font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  animation: nav-resize-tip-in 0.12s ease-out;
+}
+@keyframes nav-resize-tip-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 模块面板响应式密度适配:根据面板宽度切换密度,各模块紧凑化
+ *   wide   ≥720: 完整信息
+ *   compact 440-720: 紧凑,缩小 padding,隐藏次要字段
+ *   tiny   <440: 极窄,仅核心信息
+ * ───────────────────────────────────────────────────────────────── */
+.module-panel .mp-body[data-density="compact"] { padding: 6px; }
+.module-panel .mp-body[data-density="tiny"] { padding: 4px; }
+
+/* 任务中心:窄屏隐藏次要字段(duration / skill / conv) */
+.module-panel .mp-body[data-density="compact"] .ph-row .ph-duration,
+.module-panel .mp-body[data-density="compact"] .ph-row .ph-skill { display: none; }
+.module-panel .mp-body[data-density="tiny"] .ph-row .ph-duration,
+.module-panel .mp-body[data-density="tiny"] .ph-row .ph-skill,
+.module-panel .mp-body[data-density="tiny"] .ph-row .ph-conv { display: none; }
+.module-panel .mp-body[data-density="tiny"] .ph-head .ph-desc { display: none; }
+.module-panel .mp-body[data-density="tiny"] .ph-item { padding: 8px 10px; }
+.module-panel .mp-body[data-density="tiny"] .ph-content { -webkit-line-clamp: 2; }
+
+/* 审批中心:窄屏隐藏统计卡片或压缩 tool 卡片 */
+.module-panel .mp-body[data-density="tiny"] .cards { gap: 6px; }
+.module-panel .mp-body[data-density="tiny"] .cards .card { padding: 8px 10px; }
+.module-panel .mp-body[data-density="tiny"] .card-label { font-size: 11px; }
+.module-panel .mp-body[data-density="tiny"] .approval-card { padding: 10px 12px; }
+.module-panel .mp-body[data-density="compact"] .approval-card { padding: 12px 14px; }
+
+/* 后台任务/流程审计的 timeline:窄屏去掉左侧指示线占用 */
+.module-panel .mp-body[data-density="tiny"] .timeline { border-left: none; padding-left: 0; }
+.module-panel .mp-body[data-density="tiny"] .et-step::before { display: none; }
+
+/* el-table 表格列压缩(流程审计/外呼/任务列表):紧凑密度下减小内边距 */
+.module-panel .mp-body[data-density="compact"] .el-table td,
+.module-panel .mp-body[data-density="compact"] .el-table th { padding: 4px 6px; }
+.module-panel .mp-body[data-density="compact"] .el-table .cell { font-size: 12px; }
+.module-panel .mp-body[data-density="tiny"] .el-table td,
+.module-panel .mp-body[data-density="tiny"] .el-table th { padding: 2px 4px; }
+.module-panel .mp-body[data-density="tiny"] .el-table .cell { font-size: 11px; }
+
+/* 横向拖拽滚动(fh-dragging 由 useDragScroll 在拖动期间加到滚动容器上):
+   内容超出可视范围的区域按住左键左右拖动,拖动中显示抓取光标并禁止选中文本 */
+.fh-dragging {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* 单行内容横向溢出区域的滚动条收纳(可拖拽,不占视觉空间) */
+.fh-hscroll {
+  overflow-x: auto;
+  scrollbar-width: none; /* firefox */
+}
+.fh-hscroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* 按钮行:宽度不足时自动换行,不挤压不溢出(窄屏 responsive 用) */
+.fh-btnrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.fh-btnrow.justify-end {
+  justify-content: flex-end;
+}
+/* Element Plus 相邻按钮默认 margin-left:12px;flex 按钮行由 gap 取代间距,
+   换行后行首按钮不留 12px 空隙 */
+.fh-btnrow > .el-button + .el-button,
+.fh-btnrow > * + .el-button {
+  margin-left: 0;
+}
+
+/* 页面工具栏/卡片头部右侧按钮区:
+   - actions 容器内部永远 nowrap(按钮水平紧凑,不分离"错位")
+   - margin-left: auto 让 toolbar/.page-header 窄到必须换行时,actions 整体仍在右上角
+   - flex-shrink: 0 保证不被 heading 文字挤扁 */
+.toolbar .actions,
+.page-header .actions,
+.page-head .actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 页面工具栏容器:窄到 heading + actions 不能并排时自动换行(actions 单独成行,右对齐) */
+.toolbar,
+.page-header,
+.page-head {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 全局响应式基础层(严肃 responsive 兜底)
+ * - 防止 body 无限缩导致内容挤压 / 不可读
+ * - 防止 flex 子项溢出 / 表格挤压 / 对话框溢出
+ * ───────────────────────────────────────────────────────────────── */
+html, body {
+  /* 最小宽度 = 手机宽度下限,低于此 body 出现水平滚动避免内容破坏 */
+  min-width: 360px;
+  min-height: 100vh;
+}
+body {
+  /* 横向溢出(如有)走 body 滚动条,不撑爆 html */
+  overflow-x: auto;
+}
+
+/* flex 子项默认允许收缩到内容最小宽度(el-table / 长文本 / 等) */
+.el-card,
+.panel,
+.page,
+main.content,
+.toolbar,
+.approval-card,
+.cap-card,
+.mem-row {
+  min-width: 0;
+}
+
+/* el-table 容器:极窄时给一个最小宽度触发内部横向滚动而非列挤压;
+   真实列宽总和由 el-table 自己处理 */
+.el-table {
+  min-width: 100%;
+}
+
+/* 表格单元格:不允许长文本把单元格撑爆(配合 ellipsis 已设) */
+.el-table .cell {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* el-button 防止压缩到文字不可见(EP 默认 min-width 偏小) */
+.el-button {
+  min-width: 24px;
+}
+
+/* el-input / el-select / el-textarea 在极窄容器里不挤压 */
+.el-input, .el-select, .el-textarea {
+  min-width: 0;
+  width: 100%;
+}
+
+/* el-dialog 兜底:任何宽度都不溢出视口,且不被压到不可用尺寸 */
+.el-dialog {
+  max-width: 96vw;
+  min-width: 320px;
+}
+.el-dialog__wrapper {
+  /* 防止 dialog 在 < 360 极小窗口里被遮挡 */
+  min-width: 0;
+}
+
+/* 表格内容列(tr/td)行高不要塌陷 */
+.el-table tr {
+  min-height: 40px;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 页面根容器修复:admin-content 是 column flex,子项 margin:0 auto
+ * 会让交叉轴宽度收缩到内容 min-content 导致被撑宽溢出视口;
+ * 统一 width:100% 让其占满可用宽度(各视图自身 max-width 仍生效并居中)
+ * ───────────────────────────────────────────────────────────────── */
+.admin-content > * {
+  width: 100%;
+  min-width: 0;
+}

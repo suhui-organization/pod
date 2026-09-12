@@ -69,6 +69,22 @@ The installer clones to `~/.pod/src`, builds, and puts `pod` in `~/.local/bin`. 
 
 Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 
+## What's in this repo
+
+一个仓库包含完整闭环：本地在 agent 机器上执法，云端（可选）做跨机器视图。
+
+| 路径 | 是什么 | 怎么装 |
+|---|---|---|
+| `packages/` | 核心库：策略求值、审计哈希链、网关、能力图、控制平面姿态、身份/委托/JIT、扫描器 | `pnpm install && pnpm build` |
+| `apps/cli` | `pod` 命令行（网关 + 策略编译 + 证据 + 控制平面命令） | `bash scripts/install.sh` |
+| `apps/web` | 本地控制台（`pod ui`，只读） | 随 CLI 构建 |
+| `cloud/server` | 可选云端控制平面后端（FastAPI）：agent 注册、审计同步、策略中心、告警、时间线、控制平面事件 | `bash deploy/install.sh` |
+| `cloud/web` | 云端控制台前端（Vue 3 + Element Plus） | 同上（随 docker 构建） |
+| `deploy/` | 一键部署：`install.sh` + `docker-compose.yml` + `.env.example`（含每个配置项说明） | `bash deploy/install.sh` |
+| `cloud/server/deploy/k8s/` | Kubernetes 清单（参考，适合本机 kind/Docker-Desktop 集群） | `bash cloud/server/deploy/k8s/install-local.sh` |
+
+能力与价值速览见 [docs/FEATURES.md](docs/FEATURES.md)。
+
 From source:
 
 ```bash
@@ -189,6 +205,8 @@ pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 
 ## Documentation
 
+- [能做什么、给你带来什么](docs/FEATURES.md) ← 先看这个
+- [部署 Pod Cloud（云端控制平面）](docs/deploy-cloud.md) ← 部署与"你需要提供什么"
 - [Positioning & wedge](docs/positioning.md)
 - [Threat model](docs/threat-model.md)
 - [Egress defense](docs/egress-defense.md)
@@ -196,9 +214,18 @@ pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 - [Agent onboarding](docs/agent-onboarding.md)
 - [Automation (launchd/systemd/cron)](docs/automation.md)
 
-## Pod Cloud (optional)
+## Pod Cloud (optional, in this repo)
 
-Local-first core is free & open. Pod Cloud adds a control plane: cross-agent/cross-machine timeline, alert rules, policy templates, and a weekly digest. Audits are pushed as hashes only — the local core never requires it.
+本地部分开箱可用，**云端是可选的**：没有它，`pod` 照样编译策略、执法、留证据。
+需要跨机器/跨 agent 的统一视图、策略下发、告警与合规报告时，一条命令起一个：
+
+```bash
+bash deploy/install.sh            # 单机 Docker Compose（首次 2-5 分钟）
+# 或带管理员：ADMIN_EMAIL=you@x.com ADMIN_PASSWORD='...' bash deploy/install.sh
+```
+
+数据方向是单向的：本地只推 SHA-256 哈希上云，审计原文不出你的机器；云端不参与本地执法（云端挂了 agent 不受影响）。
+必填配置只有一项（JWT 密钥，脚本自动生成），其余见 [docs/deploy-cloud.md](docs/deploy-cloud.md)。
 
 ## License
 

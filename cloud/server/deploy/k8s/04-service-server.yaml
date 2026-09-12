@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: podcloud-server
+  namespace: podcloud
+spec:
+  selector:
+    app: podcloud-server
+  ports:
+    - port: 8000
+      targetPort: 8000

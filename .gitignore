@@ -6,3 +6,13 @@ coverage/
 .pod/
 __pycache__/
 .worktrees/
+
+# 云端：server 是 Python，web 有自己的 node_modules/dist（上面已覆盖）
+.venv/
+venv/
+*.pyc
+.pytest_cache/
+*.db
+*.sqlite3
+deploy/.env
+cloud/web/tsconfig.tsbuildinfo

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+# impeccable live 模式的本地配置（只在改版时用，不进仓库）
+.impeccable/
