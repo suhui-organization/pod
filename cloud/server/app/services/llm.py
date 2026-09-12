@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from app.i18n import DEFAULT_LOCALE, t
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
@@ -114,16 +115,19 @@ OUTBOUND_KEYS: dict[str, tuple[str, ...]] = {
 MAX_FREETEXT_CHARS = 240
 
 
-def providers_public() -> list[dict[str, Any]]:
-    """给设置页的 Provider 清单（不含任何密钥信息）。"""
+def providers_public(locale: str = DEFAULT_LOCALE) -> list[dict[str, Any]]:
+    """给设置页的 Provider 清单（不含任何密钥信息）。
+
+    label/note 是给人看的说明，按请求语言输出；模型 id 与端点保持原样。
+    """
     return [
         {
             "id": p.id,
-            "label": p.label,
+            "label": t(p.label, locale),
             "default_model": p.default_model,
             "needs_key": p.needs_key,
             "needs_base_url": p.needs_base_url,
-            "note": p.note,
+            "note": t(p.note, locale),
         }
         for p in PROVIDERS.values()
     ]

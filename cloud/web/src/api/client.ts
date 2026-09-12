@@ -24,6 +24,9 @@ export const http = axios.create({ timeout: 60000 })
 http.interceptors.request.use((config) => {
   const base = getBaseUrl()
   config.baseURL = base || undefined
+  // 把当前界面语言带给服务端：错误文案、接入脚本、Provider 说明都按它输出
+  // （服务端读取见 cloud/server/app/i18n.py 的 resolve_locale）
+  config.headers['Accept-Language'] = localStorage.getItem('podcloud_locale') || 'zh-CN'
   const token = localStorage.getItem(STORAGE_KEYS.token)
   if (token) {
     config.headers.Authorization = `Bearer ${token}`

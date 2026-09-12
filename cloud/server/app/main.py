@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.database import Base, engine
+from app.i18n import resolve_locale, translate_detail
 from app.migrations import migrate
 from app.routers import admin, agents, alerts, auth, control_events, dashboard, policies, reports, settings, subscription, sync, tenants, timeline, traces, users
 
@@ -32,10 +33,15 @@ app.add_middleware(
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):
-    """统一错误信封：{"error": {"code", "message"}}（N1 规范）。"""
+    """统一错误信封：{"error": {"code", "message"}}（N1 规范）。
+
+    出口统一翻译：路由继续写中文文案，这里按请求语言（Accept-Language / ?lang=）
+    换成对应语言。一处收口，胜过改 60+ 个 raise 点。
+    """
+    locale = resolve_locale(request.headers.get("accept-language"), request.query_params.get("lang"))
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": {"code": exc.status_code, "message": exc.detail}},
+        content={"error": {"code": exc.status_code, "message": translate_detail(exc.detail, locale)}},
         headers=exc.headers,
     )
 
@@ -43,13 +49,14 @@ async def http_exception_handler(request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request, exc: RequestValidationError):
     """422 校验错误：统一信封 + 简洁字段信息，不泄漏内部细节。"""
+    locale = resolve_locale(request.headers.get("accept-language"), request.query_params.get("lang"))
     msgs = []
     for e in exc.errors():
         loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
         msgs.append(f"{loc or 'body'}: {e.get('msg', 'invalid')}")
     return JSONResponse(
         status_code=422,
-        content={"error": {"code": 422, "message": "; ".join(msgs)}},
+        content={"error": {"code": 422, "message": translate_detail("; ".join(msgs), locale)}},
     )
 
 

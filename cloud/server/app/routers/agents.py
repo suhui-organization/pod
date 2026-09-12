@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.i18n import EN, resolve_locale
 from app.dependencies import require_admin
 from app.models import Agent, AuditLog, SyncEvent
 from app.security import get_current_tenant_id, get_current_user
@@ -150,7 +151,23 @@ def remove_agent(
 setup_router = APIRouter(prefix="/agent-setup", tags=["agents"])
 
 
-def _render_setup_script(name: str, agent_id: int, sync_token: str, api_url: str) -> str:
+def _translate_script(script: str, locale: str) -> str:
+    """把脚本里"用户会读到的输出"换成目标语言。
+
+    只替换词表里有的整句（print/echo 的文案）；脚本注释保持中文——它们是
+    实现说明，翻译的维护成本高于收益，也不影响使用。
+    """
+    if locale != "en-US":
+        return script
+    for zh, en in EN.items():
+        if zh in script:
+            script = script.replace(zh, en)
+    return script
+
+
+def _render_setup_script(
+    name: str, agent_id: int, sync_token: str, api_url: str, locale: str = "zh-CN"
+) -> str:
     """渲染接入脚本：写 cloud.json → 清失效绑定 → 同步 → 校验本 agent 真的上云。
 
     为什么要在脚本里清理旧绑定：pod sync 按 agents 数组逐个推送，遇到 401
@@ -338,13 +355,14 @@ case "$CODE" in
     ;;
 esac
 """
-    return (
+    rendered = (
         template.replace("__NAME__", name)
         .replace("__SAFE_NAME__", safe_name)
         .replace("__AGENT_ID__", str(agent_id))
         .replace("__SYNC_TOKEN__", sync_token)
         .replace("__API_URL__", api_url)
     )
+    return _translate_script(rendered, locale)
 
 
 @setup_router.get("/{agent_id}/{sync_token}")
@@ -366,7 +384,8 @@ def agent_setup_script(
     proto = request.headers.get("x-forwarded-proto", "http")
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "127.0.0.1:8000"
     api_url = f"{proto}://{host}"
+    locale = resolve_locale(request.headers.get("accept-language"), request.query_params.get("lang"))
     return Response(
-        content=_render_setup_script(agent.name, agent.id, sync_token, api_url),
+        content=_render_setup_script(agent.name, agent.id, sync_token, api_url, locale),
         media_type="text/x-shellscript",
     )

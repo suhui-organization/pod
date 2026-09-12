@@ -150,7 +150,7 @@ import { parseApiError } from '../api/client'
 import type { AgentItem } from '../api/types'
 import { useI18n } from 'vue-i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const router = useRouter()
 const agents = ref<AgentItem[]>([])
@@ -169,7 +169,8 @@ const connected = ref(false)
 
 const setupCommand = computed(() =>
   createdAgent.value
-    ? `curl -fsSL ${window.location.origin}/api/v1/agent-setup/${createdAgent.value.id}/${syncToken.value} | bash`
+    // 带上当前语言：接入脚本的输出（写没写进去、有没有失效绑定）由服务端渲染
+    ? `curl -fsSL "${window.location.origin}/api/v1/agent-setup/${createdAgent.value.id}/${syncToken.value}?lang=${locale.value}" | bash`
     : '',
 )
 

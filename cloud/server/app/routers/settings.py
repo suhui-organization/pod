@@ -8,11 +8,12 @@ import json
 import logging
 import types
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.i18n import DEFAULT_LOCALE, resolve_locale
 from app.dependencies import require_admin
 from app.models import AuditLog, TenantSettings
 from app.schemas import LlmSettingsIn, LlmTestIn, TenantSettingsIn, TenantSettingsOut
@@ -260,7 +261,7 @@ def _masked_key_hint(raw: str) -> str:
     return f"…{key[-4:]}" if len(key) > 8 else "已配置"
 
 
-def _llm_payload(db: Session, row: TenantSettings) -> dict:
+def _llm_payload(db: Session, row: TenantSettings, locale: str = DEFAULT_LOCALE) -> dict:
     """给设置页的模型面板：当前值 + 是否可用 + 为什么不可用 + 依赖清单。
 
     界面要能回答"现在到底能不能用 AI"，所以这里把 resolve_config 的结论
@@ -290,18 +291,21 @@ def _llm_payload(db: Session, row: TenantSettings) -> dict:
         "configured": configured,
         "reason": reason,
         "effective": effective,
-        "providers": llm.providers_public(),
+        "providers": llm.providers_public(locale),
         "features": llm.AI_FEATURES,
     }
 
 
 @router.get("/llm")
 def get_llm_settings(
-    db: Session = Depends(get_db), tenant_id: int = Depends(get_current_tenant_id)
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant_id: int = Depends(get_current_tenant_id),
 ):
     """读取模型配置（不回显 key 本体）。只读成员也能看：他们需要知道 AI 为什么不可用。"""
     row = _get_or_create(db, tenant_id)
-    return _llm_payload(db, row)
+    locale = resolve_locale(request.headers.get("accept-language"), request.query_params.get("lang"))
+    return _llm_payload(db, row, locale)
 
 
 @router.put("/llm")
