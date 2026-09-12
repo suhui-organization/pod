@@ -132,6 +132,28 @@ done
 [ -f cloud/server/app/main.py ] && ok "云端后端源码在 cloud/server" || bad "缺 cloud/server/app/main.py"
 [ -f cloud/web/package.json ] && ok "云端前端源码在 cloud/web" || bad "缺 cloud/web/package.json"
 
+# ── 8. 赞助入口（FUNDING.yml ↔ README 必须指向同一个账号）───────────────────
+# 这一项跟 1. 是同一类问题：两处要一起改。FUNDING.yml 写 A、README 写 B，
+# 仓库右上角按钮跳 A、文章里点进去是 B——两边都"看起来对"。
+step "8. 赞助入口一致（FUNDING.yml ↔ README）"
+if [ -f .github/FUNDING.yml ]; then
+  ok ".github/FUNDING.yml 存在"
+  SPONSOR_ACCOUNT="$(sed -n 's/^github:[[:space:]]*\[\([^]]*\)\].*/\1/p' .github/FUNDING.yml | head -1 | tr -d '[:space:]')"
+  if [ -n "$SPONSOR_ACCOUNT" ]; then
+    ok "FUNDING.yml 指向 github: $SPONSOR_ACCOUNT"
+    # README 里至少要有一条指向 github.com/sponsors/<同一账号> 的链接
+    if grep -q "github.com/sponsors/$SPONSOR_ACCOUNT" README.md; then
+      ok "README 的赞助链接指向同一账号"
+    else
+      bad "README 里没有 github.com/sponsors/$SPONSOR_ACCOUNT 的链接（两处账号不一致？）"
+    fi
+  else
+    bad "FUNDING.yml 里没有 github: 条目（Sponsor 按钮不会出现，而且是静默的）"
+  fi
+else
+  bad "缺 .github/FUNDING.yml（仓库页不会出现 Sponsor 按钮）"
+fi
+
 # ── 汇总 ────────────────────────────────────────────────────────────────────
 echo
 if [ "$FAIL" = "0" ]; then

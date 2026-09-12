@@ -16,6 +16,7 @@
 | A5 | 打 tag 并推双远端 | `git tag -a vX.Y.Z` → `git push github main vX.Y.Z` + `git push gitee main vX.Y.Z` |
 | A6 | 建 Release | GitHub 用 `gh release create`（正文取 CHANGELOG 该节）；Gitee 手动建或给令牌 |
 | A7 | 验证钉版本安装链接 | `bash scripts/preflight-publish.sh` 第 5 项已覆盖；或手动 curl 一次 |
+| A8 | 看一眼仓库页的 Sponsor 按钮 | 右上角出现 **Sponsor**（`.github/FUNDING.yml` 指向的账号已开通 GitHub Sponsors 并有公开档位；文件必须在默认分支 main 上——三条缺一条就是**静默不显示**，不会报错） |
 
 **为什么 A4 必须是三处一起改**：`install.sh` 决定克隆哪份代码，README 决定用哪份
 脚本。只改一处 = "旧脚本 + 新代码" 或 "新链接 + 老代码"，发布版形同虚设。
@@ -55,6 +56,7 @@
 |---|---|
 | 记录发布时间与渠道 | 下个版本要看"哪篇带来了 star/安装" |
 | 抽样跑一次读者路径 | 从文章里的链接开始，完整走一遍安装——链接失效、tag 被删、脚本改动都会在这一步暴露 |
+| 看一次 Sponsor 转化 | 有没有人真的点（Sponsors 后台的 views → sponsors）。按钮存在 ≠ 有人看见：入口只在仓库页右上角，文章里也要给一次文字链接 |
 | 收集失败案例到本文件 | 读者踩到的坑写进"每篇发布前逐条过"的清单，下次自动被 `preflight-publish.sh` 覆盖 |
 
 ## 三、这套顺序的来历

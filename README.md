@@ -1,6 +1,7 @@
 # pod — least-privilege compiler for AI agents
 
 [![CI](https://github.com/suhui-organization/pod/actions/workflows/ci.yml/badge.svg)](https://github.com/suhui-organization/pod/actions/workflows/ci.yml)
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?logo=github)](https://github.com/sponsors/suhui-organization)
 
 > Your agent ran for a week. pod compiles what it actually did into the smallest policy it needs.
 >
@@ -237,6 +238,21 @@ bash deploy/install.sh            # 单机 Docker Compose（首次 2-5 分钟）
 
 数据方向是单向的：本地只推 SHA-256 哈希上云，审计原文不出你的机器；云端不参与本地执法（云端挂了 agent 不受影响）。
 必填配置只有一项（JWT 密钥，脚本自动生成），其余见 [docs/deploy-cloud.md](docs/deploy-cloud.md)。
+
+## Sponsor
+
+pod is Apache-2.0 and stays that way: the CLI, the gateway, the audit chain and the
+evidence export are complete on your own machine, and nothing is locked behind a
+sponsorship. Sponsorship pays for the parts that do not demo well — CI minutes, a
+machine to run the multi-harness attack suites on, and the security maintenance
+that only shows up as *absence* of incidents.
+
+The only official channel is **GitHub Sponsors**:
+[github.com/sponsors/suhui-organization](https://github.com/sponsors/suhui-organization)
+(or the **Sponsor** button at the top of this repository).
+
+赞助不是解锁功能的前置条件——核心能力本地全都有。不给钱也一样欢迎：提一个真实的
+误报、贴一份 `pod scan` 的输出、或者帮下一个人装起来，都是等价的帮忙。
 
 ## License
 

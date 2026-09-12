@@ -1,0 +1,10 @@
+# GitHub Sponsors：仓库页面右上角会出现 "Sponsor" 按钮。
+#
+# 生效条件（缺一不可，缺了是**静默不显示**，GitHub 不会报错）：
+#   1. 下面这个账号已经在 https://github.com/sponsors 开通并通过审核、能收款
+#      （组织账号可以，同样要通过审核）；
+#   2. 本文件在**默认分支** main 上；
+#   3. 该账号至少有一个公开的赞助档位（monthly 或 one-time）。
+#
+# 换成个人账号：把 github 改成 [your-username] 即可（最多 4 个）。
+github: [suhui-organization]
