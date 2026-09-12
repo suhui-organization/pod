@@ -2,46 +2,46 @@
   <div class="traces">
     <div class="head">
       <div>
-        <h2>调用链追踪</h2>
+        <h2>{{ tr('调用链追踪') }}</h2>
         <div class="sub">
-          任务 = 单个 Agent 连续活动段(间隔 &gt;{{ gap }} 分钟切开);任务为源头,调用为节点,图谱按 server 分泳道
+          {{ tr('任务 = 单个 Agent 连续活动段(间隔 &gt;') }}{{ gap }} {{ tr('分钟切开);任务为源头,调用为节点,图谱按 server 分泳道') }}
         </div>
       </div>
       <div class="filters">
-        <el-select v-model="userFilter" clearable placeholder="全部用户" style="width: 140px" @change="pickFirst">
+        <el-select v-model="userFilter" clearable :placeholder="tr('全部用户')" style="width: 140px" @change="pickFirst">
           <el-option v-for="u in users" :key="u.id" :label="u.full_name || u.email" :value="u.id" />
         </el-select>
-        <el-select v-model="agentFilter" clearable placeholder="全部 Agent" style="width: 140px" @change="pickFirst">
+        <el-select v-model="agentFilter" clearable :placeholder="tr('全部 Agent')" style="width: 140px" @change="pickFirst">
           <el-option v-for="a in agentOptions" :key="a" :label="a" :value="a" />
         </el-select>
         <el-select v-model="minutes" style="width: 120px" @change="load">
-          <el-option label="最近 1 小时" :value="60" />
-          <el-option label="最近 24 小时" :value="1440" />
-          <el-option label="最近 7 天" :value="10080" />
+          <el-option :label="tr('最近 1 小时')" :value="60" />
+          <el-option :label="tr('最近 24 小时')" :value="1440" />
+          <el-option :label="tr('最近 7 天')" :value="10080" />
         </el-select>
-        <el-button :loading="loading" @click="load">刷新</el-button>
+        <el-button :loading="loading" @click="load">{{ tr('刷新') }}</el-button>
       </div>
     </div>
 
     <!-- 耗时统计条 -->
     <div v-if="stats" class="stats">
-      <div class="stat"><b>{{ stats.tasks }}</b><span>任务</span></div>
+      <div class="stat"><b>{{ stats.tasks }}</b><span>{{ tr('任务') }}</span></div>
       <div class="stat"><b>{{ stats.agents }}</b><span>Agent</span></div>
-      <div class="stat"><b>{{ stats.calls }}</b><span>调用次数</span></div>
-      <div class="stat"><b>{{ fmtDur(stats.durationTotal) }}</b><span>累计耗时</span></div>
-      <div class="stat"><b>{{ fmtDur(stats.avgTask) }}</b><span>平均/任务</span></div>
-      <div class="stat"><b>{{ fmtDur(stats.maxTask.sec) }}</b><span>最长任务 · {{ stats.maxTask.agent }}</span></div>
+      <div class="stat"><b>{{ stats.calls }}</b><span>{{ tr('调用次数') }}</span></div>
+      <div class="stat"><b>{{ fmtDur(stats.durationTotal) }}</b><span>{{ tr('累计耗时') }}</span></div>
+      <div class="stat"><b>{{ fmtDur(stats.avgTask) }}</b><span>{{ tr('平均/任务') }}</span></div>
+      <div class="stat"><b>{{ fmtDur(stats.maxTask.sec) }}</b><span>{{ tr('最长任务 ·') }} {{ stats.maxTask.agent }}</span></div>
       <el-tooltip :content="`相邻调用平均间隔最长: ${fmtDur(stats.maxGap)}`">
-        <div class="stat"><b>{{ fmtDur(stats.maxGap) }}</b><span>最长空闲间隔</span></div>
+        <div class="stat"><b>{{ fmtDur(stats.maxGap) }}</b><span>{{ tr('最长空闲间隔') }}</span></div>
       </el-tooltip>
     </div>
 
     <div v-if="compareIds.length" class="cmp-bar">
-      同屏对比:
+      {{ tr('同屏对比:') }}
       <el-tag v-for="cid in compareIds" :key="cid" size="small" closable @close="toggleCompare(cid)" type="primary" effect="plain">
         {{ taskById(cid)?.agent }} · {{ fmtDT(taskById(cid)?.started_at ?? '').slice(5, 16) }}
       </el-tag>
-      <el-button link size="small" @click="compareIds = []">清空(回到单任务)</el-button>
+      <el-button link size="small" @click="compareIds = []">{{ tr('清空(回到单任务)') }}</el-button>
     </div>
 
     <div v-if="laneTasks.length" class="body">
@@ -58,10 +58,10 @@
             </div>
             <div class="t-time">{{ fmtDT(t.started_at).slice(5) }} → {{ fmtTime(t.ended_at) }}</div>
             <div class="t-line2">
-              <span class="t-calls">{{ t.call_count }} 次 · 均隔 {{ fmtDur(t.avg_gap_seconds) }}</span>
-              <el-tag v-if="t.decisions.deny" size="small" type="danger" effect="dark">{{ t.decisions.deny }} 拒绝</el-tag>
-              <el-tag v-else-if="t.decisions.approve" size="small" type="warning" effect="plain">含审批</el-tag>
-              <el-tag v-else size="small" type="success" effect="plain">全部放行</el-tag>
+              <span class="t-calls">{{ t.call_count }} {{ tr('次 · 均隔') }} {{ fmtDur(t.avg_gap_seconds) }}</span>
+              <el-tag v-if="t.decisions.deny" size="small" type="danger" effect="dark">{{ t.decisions.deny }} {{ tr('拒绝') }}</el-tag>
+              <el-tag v-else-if="t.decisions.approve" size="small" type="warning" effect="plain">{{ tr('含审批') }}</el-tag>
+              <el-tag v-else size="small" type="success" effect="plain">{{ tr('全部放行') }}</el-tag>
               <el-button link size="small" type="primary" class="cmp-btn" @click.stop="toggleCompare(t.id)">
                 {{ compareIds.includes(t.id) ? '✓ 对比中' : '⧉ 对比' }}
               </el-button>
@@ -74,17 +74,19 @@
       <section class="main">
         <div class="ghead">
           <div v-if="laneTasks.length" class="gtitle">
-            <b>{{ laneTasks.length > 1 ? `对比 ${laneTasks.length} 条任务链` : `${laneTasks[0].agent} 任务链` }}</b>
+            <b>{{ laneTasks.length > 1
+              ? `${tr('对比')} ${laneTasks.length} ${tr('条任务链')}`
+              : `${laneTasks[0].agent} ${tr('任务链')}` }}</b>
             <span v-for="(t, i) in laneTasks" :key="t.id">
-              {{ i + 1 }}. {{ t.agent }} {{ fmtDT(t.started_at).slice(5, 16) }} · {{ t.call_count }} 调用 · {{ fmtDur(t.duration_seconds) }}
+              {{ i + 1 }}. {{ t.agent }} {{ fmtDT(t.started_at).slice(5, 16) }} · {{ t.call_count }} {{ tr('调用 ·') }} {{ fmtDur(t.duration_seconds) }}
             </span>
           </div>
           <div class="legend">
-            <span class="lg lg-task">任务源头</span>
-            <span class="lg lg-allow">放行</span>
-            <span class="lg lg-approve">审批</span>
-            <span class="lg lg-deny">拒绝</span>
-            <span class="lg lg-other">其他</span>
+            <span class="lg lg-task">{{ tr('任务源头') }}</span>
+            <span class="lg lg-allow">{{ tr('放行') }}</span>
+            <span class="lg lg-approve">{{ tr('审批') }}</span>
+            <span class="lg lg-deny">{{ tr('拒绝') }}</span>
+            <span class="lg lg-other">{{ tr('其他') }}</span>
           </div>
         </div>
         <div ref="chartEl" class="chart" :style="{ height: chartHeight + 'px' }"></div>
@@ -93,42 +95,42 @@
       <!-- 节点详情 -->
       <aside class="detail" v-if="detail">
         <div class="d-head">
-          <b>{{ detail.kind === 'root' ? '任务源头' : '调用节点' }}</b>
-          <el-button link size="small" @click="detail = null">关闭</el-button>
+          <b>{{ detail.kind === 'root' ? tr('任务源头') : '调用节点' }}</b>
+          <el-button link size="small" @click="detail = null">{{ tr('关闭') }}</el-button>
         </div>
         <template v-if="rootDetail">
           <div class="d-row"><span>Agent</span><b>{{ rootDetail.agent }} · {{ rootDetail.platform }}</b></div>
-          <div class="d-row"><span>归属用户</span><b>{{ rootDetail.owner_name || rootDetail.owner_email || '—' }}</b></div>
-          <div class="d-row"><span>开始 → 结束</span><b>{{ fmtDT(rootDetail.started_at).slice(5) }} → {{ fmtDT(rootDetail.ended_at).slice(11) }}</b></div>
-          <div class="d-row"><span>任务耗时</span><b>{{ fmtDur(rootDetail.duration_seconds) }}</b></div>
-          <div class="d-row"><span>调用节奏</span><b>平均 {{ fmtDur(rootDetail.avg_gap_seconds) }} · 最长间隔 {{ fmtDur(rootDetail.max_gap_seconds) }}</b></div>
-          <div class="d-row"><span>调用总数</span><b>{{ rootDetail.call_count }}</b></div>
-          <div class="d-row"><span>决策分布</span><b>{{ decisionSummary(rootDetail.decisions) }}</b></div>
+          <div class="d-row"><span>{{ tr('归属用户') }}</span><b>{{ rootDetail.owner_name || rootDetail.owner_email || '—' }}</b></div>
+          <div class="d-row"><span>{{ tr('开始 → 结束') }}</span><b>{{ fmtDT(rootDetail.started_at).slice(5) }} → {{ fmtDT(rootDetail.ended_at).slice(11) }}</b></div>
+          <div class="d-row"><span>{{ tr('任务耗时') }}</span><b>{{ fmtDur(rootDetail.duration_seconds) }}</b></div>
+          <div class="d-row"><span>{{ tr('调用节奏') }}</span><b>{{ tr('平均') }} {{ fmtDur(rootDetail.avg_gap_seconds) }} {{ tr('· 最长间隔') }} {{ fmtDur(rootDetail.max_gap_seconds) }}</b></div>
+          <div class="d-row"><span>{{ tr('调用总数') }}</span><b>{{ rootDetail.call_count }}</b></div>
+          <div class="d-row"><span>{{ tr('决策分布') }}</span><b>{{ decisionSummary(rootDetail.decisions) }}</b></div>
         </template>
         <template v-else-if="callDetail">
-          <div class="d-row"><span>工具</span><b>{{ callDetail.tool }}</b></div>
-          <div class="d-row"><span>服务器(泳道)</span><b>{{ callDetail.server }}</b></div>
-          <div class="d-row"><span>决策</span>
+          <div class="d-row"><span>{{ tr('工具') }}</span><b>{{ callDetail.tool }}</b></div>
+          <div class="d-row"><span>{{ tr('服务器(泳道)') }}</span><b>{{ callDetail.server }}</b></div>
+          <div class="d-row"><span>{{ tr('决策') }}</span>
             <el-tag size="small" :type="decisionType(callDetail.decision)">{{ decisionLabel(callDetail.decision) }}</el-tag>
           </div>
-          <div class="d-row"><span>结果</span><b>{{ outcomeLabel(callDetail.outcome) }}</b></div>
-          <div class="d-row"><span>时间</span><b>{{ fmtDT(callDetail.ts) }}</b></div>
-          <div class="d-row"><span>距上一调用</span><b>{{ callDetail.inter_gap_seconds == null ? '—' : fmtDur(callDetail.inter_gap_seconds) }}</b></div>
-          <div class="d-row"><span>审批人</span><b>{{ callDetail.approver || '—' }}</b></div>
-          <div class="d-row"><span>策略版本</span><b>v{{ callDetail.policy_version || '—' }}</b></div>
+          <div class="d-row"><span>{{ tr('结果') }}</span><b>{{ outcomeLabel(callDetail.outcome) }}</b></div>
+          <div class="d-row"><span>{{ tr('时间') }}</span><b>{{ fmtDT(callDetail.ts) }}</b></div>
+          <div class="d-row"><span>{{ tr('距上一调用') }}</span><b>{{ callDetail.inter_gap_seconds == null ? '—' : fmtDur(callDetail.inter_gap_seconds) }}</b></div>
+          <div class="d-row"><span>{{ tr('审批人') }}</span><b>{{ callDetail.approver || '—' }}</b></div>
+          <div class="d-row"><span>{{ tr('策略版本') }}</span><b>v{{ callDetail.policy_version || '—' }}</b></div>
           <div class="d-block">
-            <span class="d-label">处理说明(理由)</span>
+            <span class="d-label">{{ tr('处理说明(理由)') }}</span>
             <div class="d-reason">{{ callDetail.reason || '—' }}</div>
           </div>
           <div class="d-block">
-            <span class="d-label">参数哈希(隐私最小化)</span>
+            <span class="d-label">{{ tr('参数哈希(隐私最小化)') }}</span>
             <code class="d-hash">{{ callDetail.args_hash }}</code>
           </div>
         </template>
       </aside>
     </div>
 
-    <el-empty v-else-if="!loading" description="窗口内暂无任务数据(Agent 先跑出审计并 pod sync)" :image-size="80" />
+    <el-empty v-else-if="!loading" :description="tr('窗口内暂无任务数据(Agent 先跑出审计并 pod sync)')" :image-size="80" />
   </div>
 </template>
 
@@ -136,6 +138,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { api } from '../api'
+import { useI18n } from 'vue-i18n'
+
+// 该文件里 `t` 已经是任务对象（t.call_count 等），i18n 换个别名
+const { t: tr } = useI18n()
 
 type TraceResp = Awaited<ReturnType<typeof api.traces>>
 type Task = TraceResp['tasks'][number]
@@ -167,7 +173,7 @@ const userGroups = computed(() => {
   for (const t of visibleTasks.value) {
     const key = t.owner_id ?? 0
     const u = users.value.find((x) => x.id === key)
-    if (!map.has(key)) map.set(key, { id: key, name: u?.full_name || u?.email || '未归属', role: u?.role || '', tasks: [] })
+    if (!map.has(key)) map.set(key, { id: key, name: u?.full_name || u?.email || tr('未归属'), role: u?.role || '', tasks: [] })
     map.get(key)!.tasks.push(t)
   }
   return [...map.values()].map((g) => ({ ...g, tasks: [...g.tasks].sort((a, b) => b.started_at.localeCompare(a.started_at)) }))
@@ -218,8 +224,8 @@ function fmtDT(iso: string) {
   if (Number.isNaN(d.getTime())) return iso
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${fmtTime(iso)}`
 }
-const decisionLabel = (d: string) => ({ allow: '放行', approve: '审批', deny: '拒绝' })[d] ?? d
-const outcomeLabel = (o: string) => ({ ok: '成功', blocked: '被拦', error: '异常' })[o] ?? o
+const decisionLabel = (d: string) => ({ allow: tr('放行'), approve: tr('审批'), deny: tr('拒绝') })[d] ?? d
+const outcomeLabel = (o: string) => ({ ok: tr('成功'), blocked: tr('被拦'), error: tr('异常') })[o] ?? o
 function decisionSummary(decisions: Record<string, number>) {
   return Object.entries(decisions).map(([k, v]) => `${decisionLabel(k)} ${v}`).join(' · ')
 }
@@ -313,22 +319,22 @@ function graphOption(lanes: { lanes: Lane[]; height: number; labels: Array<{ tex
         const c = p.data.call as Call
         const t = tasks.value.find((x) => x.id === p.data.taskId)
         const rows: Array<[string, string]> = [
-          ['任务', `${t?.agent ?? ''} @ ${fmtDT(c.ts).slice(5, 16)}`],
-          ['工具', c.tool],
-          ['服务器', c.server],
-          ['决策', decisionLabel(c.decision)],
-          ['结果', outcomeLabel(c.outcome)],
-          ['距上一调用', c.inter_gap_seconds == null ? '—' : fmtDur(c.inter_gap_seconds)],
-          ['审批人', c.approver || '—'],
-          ['策略', `v${c.policy_version || '—'}`],
-          ['说明', (c.reason || '—').slice(0, 140)],
-          ['参数哈希', c.args_hash.slice(0, 24) + '…'],
+          [tr('任务'), `${t?.agent ?? ''} @ ${fmtDT(c.ts).slice(5, 16)}`],
+          [tr('工具'), c.tool],
+          [tr('服务器'), c.server],
+          [tr('决策'), decisionLabel(c.decision)],
+          [tr('结果'), outcomeLabel(c.outcome)],
+          [tr('距上一调用'), c.inter_gap_seconds == null ? '—' : fmtDur(c.inter_gap_seconds)],
+          [tr('审批人'), c.approver || '—'],
+          [tr('策略'), `v${c.policy_version || '—'}`],
+          [tr('说明'), (c.reason || '—').slice(0, 140)],
+          [tr('参数哈希'), c.args_hash.slice(0, 24) + '…'],
         ]
         return `<b>${c.tool}</b><br/>` + rows.map(([k, v]) => `<div style="max-width:280px"><span style="color:#8b949e">${k}:</span> ${v}</div>`).join('')
       },
     },
     legend: {
-      data: ['任务源头', '放行', '审批', '拒绝', '其他'],
+      data: [tr('任务源头'), tr('放行'), tr('审批'), tr('拒绝'), tr('其他')],
       top: 0,
       left: 'center',
       textStyle: { color: '#9aa3af' },
@@ -348,11 +354,11 @@ function graphOption(lanes: { lanes: Lane[]; height: number; labels: Array<{ tex
         roam: true,
         draggable: true,
         categories: [
-          { name: '任务源头', itemStyle: { color: '#f0a020' } },
-          { name: '放行', itemStyle: { color: '#3fb950' } },
-          { name: '审批', itemStyle: { color: '#d29922' } },
-          { name: '拒绝', itemStyle: { color: '#f85149' } },
-          { name: '其他', itemStyle: { color: '#8b949e' } },
+          { name: tr('任务源头'), itemStyle: { color: '#f0a020' } },
+          { name: tr('放行'), itemStyle: { color: '#3fb950' } },
+          { name: tr('审批'), itemStyle: { color: '#d29922' } },
+          { name: tr('拒绝'), itemStyle: { color: '#f85149' } },
+          { name: tr('其他'), itemStyle: { color: '#8b949e' } },
         ],
         edgeSymbol: ['none', 'arrow'],
         edgeSymbolSize: 8,

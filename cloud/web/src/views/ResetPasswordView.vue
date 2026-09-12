@@ -2,33 +2,33 @@
   <div class="reset-page">
     <div class="reset-card">
       <div class="reset-logo"><img src="/logo.svg" alt="Pod Cloud" /></div>
-      <h1 class="title">设置新密码</h1>
+      <h1 class="title">{{ t('设置新密码') }}</h1>
 
       <template v-if="!token">
-        <p class="subtitle">这个链接缺少重置令牌。请回到登录页重新申请一条。</p>
-        <el-button class="submit" @click="$router.push('/login')">回到登录</el-button>
+        <p class="subtitle">{{ t('这个链接缺少重置令牌。请回到登录页重新申请一条。') }}</p>
+        <el-button class="submit" @click="$router.push('/login')">{{ t('回到登录') }}</el-button>
       </template>
 
       <template v-else-if="done">
         <p class="subtitle">
-          密码已更新。该账号在其他设备上的登录已全部失效，需要用新密码重新登录。
+          {{ t('密码已更新。该账号在其他设备上的登录已全部失效，需要用新密码重新登录。') }}
         </p>
-        <el-button type="primary" class="submit" @click="$router.push('/login')">去登录</el-button>
+        <el-button type="primary" class="submit" @click="$router.push('/login')">{{ t('去登录') }}</el-button>
       </template>
 
       <template v-else>
-        <p class="subtitle">链接只能使用一次，且有时间限制。</p>
+        <p class="subtitle">{{ t('链接只能使用一次，且有时间限制。') }}</p>
         <el-form label-position="top" @submit.prevent>
-          <el-form-item label="新密码">
+          <el-form-item :label="t('新密码')">
             <el-input
               v-model="password"
               type="password"
               show-password
               autocomplete="new-password"
-              placeholder="至少 8 位，含字母和数字"
+              :placeholder="t('至少 8 位，含字母和数字')"
             />
           </el-form-item>
-          <el-form-item label="确认新密码">
+          <el-form-item :label="t('确认新密码')">
             <el-input
               v-model="confirm"
               type="password"
@@ -37,10 +37,10 @@
               @keyup.enter="submit"
             />
           </el-form-item>
-          <el-button type="primary" class="submit" :loading="loading" @click="submit">确定</el-button>
+          <el-button type="primary" class="submit" :loading="loading" @click="submit">{{ t('确定') }}</el-button>
         </el-form>
         <el-alert v-if="error" :title="error" type="error" :closable="false" class="error" />
-        <p class="hint">离开这个页面后链接就作废了；万一过期，回登录页重新申请即可。</p>
+        <p class="hint">{{ t('离开这个页面后链接就作废了；万一过期，回登录页重新申请即可。') }}</p>
       </template>
     </div>
   </div>
@@ -51,6 +51,9 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api'
 import { parseApiError } from '../api/client'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const token = computed(() => String(route.query.token || ''))
@@ -64,8 +67,8 @@ const done = ref(false)
 /** 与后端 security.validate_password_strength 同一套规则；前端只做提示，
  *  真正的边界在服务端（前端能被绕过）。 */
 function policyError(value: string): string {
-  if (value.length < 8) return '新密码至少 8 位'
-  if (!/[A-Za-z]/.test(value) || !/[0-9]/.test(value)) return '新密码需同时包含字母和数字'
+  if (value.length < 8) return t('新密码至少 8 位')
+  if (!/[A-Za-z]/.test(value) || !/[0-9]/.test(value)) return t('新密码需同时包含字母和数字')
   return ''
 }
 
@@ -77,7 +80,7 @@ async function submit() {
     return
   }
   if (password.value !== confirm.value) {
-    error.value = '两次输入的新密码不一致'
+    error.value = t('两次输入的新密码不一致')
     return
   }
   loading.value = true

@@ -2,23 +2,23 @@
   <div>
     <div class="head">
       <div>
-        <h2>Agent 资产</h2>
+        <h2>{{ t('Agent 资产') }}</h2>
         <p class="head__sub">
-          接入的 agent 会用本地 pod 网关把审计推到这里。状态每 5 秒自动刷新。
+          {{ t('接入的 agent 会用本地 pod 网关把审计推到这里。状态每 5 秒自动刷新。') }}
         </p>
       </div>
       <div class="head__actions">
         <span v-if="lastLoadedAt" class="head__stamp">
-          更新于 {{ lastLoadedAt.toLocaleTimeString('zh-CN') }}
+          {{ t('更新于') }} {{ lastLoadedAt.toLocaleTimeString('zh-CN') }}
         </span>
-        <el-button :loading="loading" @click="load()">刷新</el-button>
-        <el-button type="primary" @click="openRegister">+ 添加 Agent</el-button>
+        <el-button :loading="loading" @click="load()">{{ t('刷新') }}</el-button>
+        <el-button type="primary" @click="openRegister">{{ t('+ 添加 Agent') }}</el-button>
       </div>
     </div>
 
     <!-- 读不到数据时必须说清楚，而不是显示一个"还没有 Agent"的空壳 -->
     <el-alert v-if="loadError" type="error" :closable="false" show-icon class="alert">
-      <template #title>读不到 Agent 列表：{{ loadError.message }}</template>
+      <template #title>{{ t('读不到 Agent 列表：') }}{{ loadError.message }}</template>
       <p class="alert__hint">{{ loadError.hint }}</p>
     </el-alert>
 
@@ -27,21 +27,21 @@
         <header class="agent-head">
           <div class="agent-name">{{ a.name }}</div>
           <el-tag :type="a.status === 'online' ? 'success' : 'info'" size="small" effect="plain">
-            {{ a.status === 'online' ? '在线' : '未接入' }}
+            {{ a.status === 'online' ? t('在线') : t('未接入') }}
           </el-tag>
         </header>
 
         <dl class="agent-meta">
           <div>
-            <dt>平台</dt>
+            <dt>{{ t('平台') }}</dt>
             <dd>{{ a.platform || '—' }}</dd>
           </div>
           <div>
-            <dt>审计事件</dt>
+            <dt>{{ t('审计事件') }}</dt>
             <dd class="num">{{ a.event_count }}</dd>
           </div>
           <div class="span2">
-            <dt>最近同步</dt>
+            <dt>{{ t('最近同步') }}</dt>
             <dd>
               {{ a.last_seen_at ? new Date(a.last_seen_at).toLocaleString('zh-CN') : '从未接入' }}
             </dd>
@@ -50,25 +50,22 @@
 
         <!-- 未接入的 agent 给出下一步，而不是让用户对着"离线"发呆 -->
         <p v-if="!a.last_seen_at" class="agent-tip">
-          还没收到过它的同步。点「接入命令」拿一条命令，在跑 agent 的机器上执行；
-          执行完这里会自动变成「在线」。
+          {{ t('还没收到过它的同步。点「接入命令」拿一条命令，在跑 agent 的机器上执行； 执行完这里会自动变成「在线」。') }}
         </p>
         <p v-else-if="a.event_count === 0" class="agent-tip">
-          已接入，但还没有审计上云。先确认本地网关跑过（<code>pod serve</code> / <code>pod record</code>），
-          再确认接入命令里的名字与本地 agent 名一致——不一致时命令会列出本机实际的 agent 名，
-          用 <code>LOCAL_AGENT=&lt;名字&gt;</code> 重跑即可。
+          {{ t('已接入，但还没有审计上云。先确认本地网关跑过（pod serve / pod record），再确认接入命令里的名字与本地 agent 名一致——不一致时命令会列出本机实际的 agent 名，用 LOCAL_AGENT=<名字> 重跑即可。') }}
         </p>
 
         <footer class="agent-actions">
-          <el-button link size="small" @click="startConnect(a)">接入命令</el-button>
-          <el-popconfirm title="删除该 Agent 及其审计？" @confirm="remove(a)">
-            <template #reference><el-button link type="danger" size="small">删除</el-button></template>
+          <el-button link size="small" @click="startConnect(a)">{{ t('接入命令') }}</el-button>
+          <el-popconfirm :title="t('删除该 Agent 及其审计？')" @confirm="remove(a)">
+            <template #reference><el-button link type="danger" size="small">{{ t('删除') }}</el-button></template>
           </el-popconfirm>
         </footer>
       </article>
     </div>
     <div v-else-if="!loadError" class="empty">
-      还没有 Agent —— 点右上角「+ 添加 Agent」接入第一个。
+      {{ t('还没有 Agent —— 点右上角「+ 添加 Agent」接入第一个。') }}
     </div>
 
     <!-- 一个弹窗走完：填名称 → 拿命令 → 自动等它上线 -->
@@ -82,11 +79,10 @@
         <el-form @submit.prevent="register">
           <el-form-item>
             <el-input v-model="form.name" size="large" autofocus
-              placeholder="给它起个名字，如 openclaw-main" @keyup.enter="register" />
+              :placeholder="t('给它起个名字，如 openclaw-main')" @keyup.enter="register" />
           </el-form-item>
           <p class="hint">
-            只需填名称，平台类型自动识别、令牌自动生成。名字建议与本地网关的 agent 名一致
-            （<code>pod serve --agent &lt;名字&gt;</code>）——不一致时接入命令会提示并对齐。
+            {{ t('只需填名称，平台类型自动识别、令牌自动生成。名字建议与本地网关的 agent 名一致 （') }}<code>{{ t('pod serve --agent &lt;名字&gt;') }}</code>{{ t('）——不一致时接入命令会提示并对齐。') }}
           </p>
         </el-form>
         <el-alert v-if="formError" type="error" :closable="false" show-icon class="alert">
@@ -100,46 +96,43 @@
 
       <template v-else>
         <p class="step">
-          在<strong>跑这个 agent 的机器</strong>上执行下面这条命令。它会写好配置、清掉失效的旧绑定，
-          并回报是否真的接入成功：
+          {{ t('在') }}<strong>{{ t('跑这个 agent 的机器') }}</strong>{{ t('上执行下面这条命令。它会写好配置、清掉失效的旧绑定， 并回报是否真的接入成功：') }}
         </p>
         <div class="token-box">
           <code>{{ setupCommand }}</code>
-          <el-button size="small" @click="copy(setupCommand)">复制命令</el-button>
+          <el-button size="small" @click="copy(setupCommand)">{{ t('复制命令') }}</el-button>
         </div>
         <p class="hint">
-          令牌只显示这一次（服务端只存哈希）。若已经关掉或换了机器，点任意 agent 上的
-          「接入命令」会重新生成一条——旧令牌随即失效。
+          {{ t('令牌只显示这一次（服务端只存哈希）。若已经关掉或换了机器，点任意 agent 上的 「接入命令」会重新生成一条——旧令牌随即失效。') }}
         </p>
 
         <!-- 实时等待：不用手动刷新，也不需要用户猜有没有成功 -->
         <div class="wait" :class="connected ? 'wait--ok' : 'wait--pending'" role="status">
           <template v-if="connected">
-            <div class="wait__title">✅ 已接入</div>
+            <div class="wait__title">{{ t('✅ 已接入') }}</div>
             <div class="wait__body">
-              收到了 {{ createdAgent?.name }} 的同步，审计正在上云。
+              {{ t('收到了') }} {{ createdAgent?.name }} {{ t('的同步，审计正在上云。') }}
             </div>
           </template>
           <template v-else>
-            <div class="wait__title">等待接入…</div>
+            <div class="wait__title">{{ t('等待接入…') }}</div>
             <div class="wait__body">
-              还没收到这台 agent 的同步（每 5 秒检查一次）。命令执行完这里会自动变成已接入；
-              如果命令最后一行报了 ❌，按它给的下一步处理。
+              {{ t('还没收到这台 agent 的同步（每 5 秒检查一次）。命令执行完这里会自动变成已接入； 如果命令最后一行报了 ❌，按它给的下一步处理。') }}
             </div>
           </template>
         </div>
 
         <el-button link size="small" @click="showRawToken = !showRawToken">
-          {{ showRawToken ? '收起' : '查看' }}同步令牌
+          {{ showRawToken ? '收起' : '查看' }}{{ t('同步令牌') }}
         </el-button>
         <div v-if="showRawToken" class="token-box">
           <code>{{ syncToken }}</code>
-          <el-button size="small" @click="copy(syncToken)">复制</el-button>
+          <el-button size="small" @click="copy(syncToken)">{{ t('复制') }}</el-button>
         </div>
       </template>
 
       <template #footer>
-        <el-button v-if="phase === 'form'" @click="dialogOpen = false">取消</el-button>
+        <el-button v-if="phase === 'form'" @click="dialogOpen = false">{{ t('取消') }}</el-button>
         <el-button type="primary" @click="dialogOpen = false">
           {{ connected ? '完成' : '我知道了' }}
         </el-button>
@@ -155,6 +148,9 @@ import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { parseApiError } from '../api/client'
 import type { AgentItem } from '../api/types'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const agents = ref<AgentItem[]>([])
@@ -180,11 +176,11 @@ const setupCommand = computed(() =>
 /** 把 HTTP 状态翻译成"我该怎么办"，而不是把原始错误丢给用户。 */
 function hintFor(err: unknown): string {
   const status = (err as { response?: { status?: number } })?.response?.status ?? 0
-  if (status === 401) return '登录态已失效，请重新登录后再试。'
-  if (status === 402) return '这是套餐额度限制：升级计划，或先删掉不用的 agent。'
-  if (status === 403) return '只有租户管理员能管理 agent；让管理员来操作，或改用管理员账号。'
-  if (status === 0) return '连不上控制台后端：确认服务在运行、地址可访问、网络没被挡。'
-  return '可以重试一次；若持续失败，请把这条错误发给管理员看服务端日志。'
+  if (status === 401) return t('登录态已失效，请重新登录后再试。')
+  if (status === 402) return t('这是套餐额度限制：升级计划，或先删掉不用的 agent。')
+  if (status === 403) return t('只有租户管理员能管理 agent；让管理员来操作，或改用管理员账号。')
+  if (status === 0) return t('连不上控制台后端：确认服务在运行、地址可访问、网络没被挡。')
+  return t('可以重试一次；若持续失败，请把这条错误发给管理员看服务端日志。')
 }
 
 async function load() {
@@ -215,7 +211,7 @@ function openRegister() {
 async function register() {
   const name = form.value.name.trim()
   if (!name) {
-    formError.value = { message: '请填写名称', hint: '名称只是给你自己看的标识，如 openclaw-main。' }
+    formError.value = { message: t('请填写名称'), hint: t('名称只是给你自己看的标识，如 openclaw-main。') }
     return
   }
   formError.value = null
@@ -232,7 +228,7 @@ async function register() {
     formError.value = {
       message: parseApiError(e),
       hint: hintFor(e),
-      action: status === 402 ? { label: '去看看套餐', to: '/subscription' } : undefined,
+      action: status === 402 ? { label: t('去看看套餐'), to: '/subscription' } : undefined,
     }
   }
 }
@@ -294,10 +290,10 @@ function stopWaiting() {
 async function copy(text: string) {
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制')
+    ElMessage.success(t('已复制'))
   } catch {
     // 非 https / 非 localhost 环境下 clipboard API 不可用:提醒手动复制
-    ElMessage.warning('浏览器不允许自动复制，请手动选中上面的命令复制')
+    ElMessage.warning(t('浏览器不允许自动复制，请手动选中上面的命令复制'))
   }
 }
 

@@ -2,29 +2,29 @@
   <div class="pol">
     <div class="head">
       <div class="head__title">
-        <h2>策略中心</h2>
+        <h2>{{ tr('策略中心') }}</h2>
         <p class="head__meta">
-          网关同构 JSON · deny &gt; approve &gt; allow · 未登记的 server 与工具一律拒绝
+          {{ tr('网关同构 JSON · deny &gt; approve &gt; allow · 未登记的 server 与工具一律拒绝') }}
         </p>
       </div>
       <div v-if="canEdit" class="head__actions">
         <el-button @click="openAi">
-          <Sparkles :size="15" aria-hidden="true" />AI 生成策略
+          <Sparkles :size="15" aria-hidden="true" />{{ tr('AI 生成策略') }}
         </el-button>
         <el-button type="primary" @click="openEdit()">
-          <Plus :size="15" aria-hidden="true" />新建策略
+          <Plus :size="15" aria-hidden="true" />{{ tr('新建策略') }}
         </el-button>
       </div>
     </div>
 
     <p v-if="!canEdit" class="readonly">
       <Info :size="14" aria-hidden="true" />
-      你是只读成员：可以查看策略内容、适用范围与修改历史；编辑需要管理员权限。
+      {{ tr('你是只读成员：可以查看策略内容、适用范围与修改历史；编辑需要管理员权限。') }}
     </p>
 
     <div v-if="error" class="state state--error">
       <p>{{ error }}</p>
-      <el-button size="small" @click="load()">重试</el-button>
+      <el-button size="small" @click="load()">{{ tr('重试') }}</el-button>
     </div>
 
     <div v-else-if="loading" class="state" aria-busy="true" aria-label="正在读取策略">
@@ -34,17 +34,17 @@
     <template v-else>
       <section v-if="rows.length" class="list" aria-label="策略列表">
         <div class="list__head" aria-hidden="true">
-          <span>策略 / 适用范围</span>
-          <span>决策姿态</span>
-          <span>工具规则</span>
-          <span>密钥防线</span>
-          <span>版本</span>
-          <span>操作</span>
+          <span>{{ tr('策略 / 适用范围') }}</span>
+          <span>{{ tr('决策姿态') }}</span>
+          <span>{{ tr('工具规则') }}</span>
+          <span>{{ tr('密钥防线') }}</span>
+          <span>{{ tr('版本') }}</span>
+          <span>{{ tr('操作') }}</span>
         </div>
 
         <article v-for="row in rows" :key="row.id" class="pr">
           <div class="cell pr__main">
-            <span class="cell__k">策略</span>
+            <span class="cell__k">{{ tr('策略') }}</span>
             <div class="pr__name">{{ row.name }}</div>
             <div class="pr__scope">
               <ShieldCheck :size="13" aria-hidden="true" />
@@ -54,36 +54,36 @@
           </div>
 
           <div class="cell pr__posture">
-            <span class="cell__k">决策姿态</span>
+            <span class="cell__k">{{ tr('决策姿态') }}</span>
             <span class="badge" :class="`badge--${row.posture.tone}`">{{ row.posture.label }}</span>
             <p class="pr__why">{{ row.posture.note }}</p>
           </div>
 
           <div class="cell pr__rules">
-            <span class="cell__k">工具规则</span>
+            <span class="cell__k">{{ tr('工具规则') }}</span>
             <p class="pr__counts">
-              <span>放行 <b>{{ row.summary.allow }}</b></span>
-              <span>审批 <b>{{ row.summary.approve }}</b></span>
-              <span>拒绝 <b>{{ row.summary.deny }}</b></span>
+              <span>{{ tr('放行') }} <b>{{ row.summary.allow }}</b></span>
+              <span>{{ tr('审批') }} <b>{{ row.summary.approve }}</b></span>
+              <span>{{ tr('拒绝') }} <b>{{ row.summary.deny }}</b></span>
             </p>
             <p class="pr__sub">
-              {{ row.summary.servers.length }} 个 server · 默认
+              {{ row.summary.servers.length }} {{ tr('个 server · 默认') }}
               <code>{{ row.summary.defaultDecision }}</code>
             </p>
           </div>
 
           <div class="cell pr__guard">
-            <span class="cell__k">密钥防线</span>
+            <span class="cell__k">{{ tr('密钥防线') }}</span>
             <p class="pr__counts">
-              <span v-if="row.summary.secretPaths">敏感路径 <b>{{ row.summary.secretPaths }}</b></span>
-              <span v-if="row.summary.secretPatterns">密钥模式 <b>{{ row.summary.secretPatterns }}</b></span>
-              <span v-if="!row.summary.secretPaths && !row.summary.secretPatterns" class="muted">未登记</span>
+              <span v-if="row.summary.secretPaths">{{ tr('敏感路径') }} <b>{{ row.summary.secretPaths }}</b></span>
+              <span v-if="row.summary.secretPatterns">{{ tr('密钥模式') }} <b>{{ row.summary.secretPatterns }}</b></span>
+              <span v-if="!row.summary.secretPaths && !row.summary.secretPatterns" class="muted">{{ tr('未登记') }}</span>
             </p>
-            <p class="pr__sub">熵检测 {{ row.summary.entropy ? '已开启' : '未开启' }}</p>
+            <p class="pr__sub">{{ tr('熵检测') }} {{ row.summary.entropy ? '已开启' : '未开启' }}</p>
           </div>
 
           <div class="cell pr__version">
-            <span class="cell__k">版本</span>
+            <span class="cell__k">{{ tr('版本') }}</span>
             <p class="pr__v">v{{ row.version }}</p>
             <p class="pr__sub">{{ formatTime(row.created_at) }}</p>
           </div>
@@ -99,17 +99,17 @@
               {{ expandedId === row.id ? '收起' : '明细' }}
             </button>
             <!-- 历史是读操作，后端 GET 对成员开放：只读成员也要能核对"谁在什么时候改了什么" -->
-            <button class="link" type="button" @click="openHistory(row.raw)">历史</button>
+            <button class="link" type="button" @click="openHistory(row.raw)">{{ tr('历史') }}</button>
             <template v-if="canEdit">
-              <button class="link" type="button" @click="openEdit(row.raw)">编辑</button>
+              <button class="link" type="button" @click="openEdit(row.raw)">{{ tr('编辑') }}</button>
               <el-popconfirm
-                title="删除后网关将回落到默认拒绝，确认删除？"
-                confirm-button-text="删除"
-                cancel-button-text="取消"
+                :title="tr('删除后网关将回落到默认拒绝，确认删除？')"
+                :confirm-button-text="tr('删除')"
+                :cancel-button-text="tr('取消')"
                 @confirm="remove(row.raw)"
               >
                 <template #reference>
-                  <button class="link link--danger" type="button">删除</button>
+                  <button class="link link--danger" type="button">{{ tr('删除') }}</button>
                 </template>
               </el-popconfirm>
             </template>
@@ -117,35 +117,34 @@
 
           <div v-if="expandedId === row.id" :id="`policy-detail-${row.id}`" class="pr__detail">
             <div v-if="!row.summary.readable" class="detail__broken">
-              这份策略不是合法 JSON（{{ row.summary.reason }}），无法展示明细。
-              网关侧按默认拒绝处理，建议用「编辑」修正后保存。
+              {{ tr('这份策略不是合法 JSON（') }}{{ row.summary.reason }}{{ tr('），无法展示明细。 网关侧按默认拒绝处理，建议用「编辑」修正后保存。') }}
             </div>
             <template v-else>
               <div v-if="!row.summary.servers.length" class="detail__broken">
-                没有登记任何 server —— 所有调用都会落到默认拒绝（fail-closed）。
+                {{ tr('没有登记任何 server —— 所有调用都会落到默认拒绝（fail-closed）。') }}
               </div>
               <div v-for="srv in row.summary.servers" :key="srv.name" class="srv">
                 <div class="srv__head">
                   <code class="srv__name">{{ srv.name }}</code>
                   <span v-if="srv.source" class="srv__src">{{ srv.source }}</span>
-                  <span v-if="srv.sourceUnpinned" class="srv__warn">未锁版本</span>
-                  <span v-if="!srv.source" class="srv__warn">未声明启动来源</span>
+                  <span v-if="srv.sourceUnpinned" class="srv__warn">{{ tr('未锁版本') }}</span>
+                  <span v-if="!srv.source" class="srv__warn">{{ tr('未声明启动来源') }}</span>
                 </div>
                 <div class="srv__rules">
                   <div v-if="srv.allowedTools.length" class="srv__group">
-                    <span class="srv__k">放行 {{ srv.allowedTools.length }}</span>
+                    <span class="srv__k">{{ tr('放行') }} {{ srv.allowedTools.length }}</span>
                     <span class="chip-list">
                       <code v-for="t in srv.allowedTools" :key="t" class="chip chip--allow">{{ t }}</code>
                     </span>
                   </div>
                   <div v-if="srv.approvedTools.length" class="srv__group">
-                    <span class="srv__k">审批 {{ srv.approvedTools.length }}</span>
+                    <span class="srv__k">{{ tr('审批') }} {{ srv.approvedTools.length }}</span>
                     <span class="chip-list">
                       <code v-for="t in srv.approvedTools" :key="t" class="chip chip--approve">{{ t }}</code>
                     </span>
                   </div>
                   <div v-if="srv.deniedTools.length" class="srv__group">
-                    <span class="srv__k">拒绝 {{ srv.deniedTools.length }}</span>
+                    <span class="srv__k">{{ tr('拒绝') }} {{ srv.deniedTools.length }}</span>
                     <span class="chip-list">
                       <code v-for="t in srv.deniedTools" :key="t" class="chip chip--deny">{{ t }}</code>
                     </span>
@@ -158,15 +157,15 @@
       </section>
 
       <div v-else class="state empty">
-        <p class="empty__title">还没有策略</p>
+        <p class="empty__title">{{ tr('还没有策略') }}</p>
         <p class="empty__body">
-          网关对未登记的工具一律拒绝，所以这里为空时，agent 的调用都会被挡下。
+          {{ tr('网关对未登记的工具一律拒绝，所以这里为空时，agent 的调用都会被挡下。') }}
           <template v-if="canEdit">
-            从模板开始最省事——模板是一份写好的策略 JSON，应用后可以直接改。
+            {{ tr('从模板开始最省事——模板是一份写好的策略 JSON，应用后可以直接改。') }}
           </template>
-          <template v-else> 让管理员从模板或 AI 生成一份。 </template>
+          <template v-else> {{ tr('让管理员从模板或 AI 生成一份。') }} </template>
         </p>
-        <el-button v-if="canEdit" type="primary" @click="openTemplates">从模板开始</el-button>
+        <el-button v-if="canEdit" type="primary" @click="openTemplates">{{ tr('从模板开始') }}</el-button>
       </div>
 
       <section v-if="canEdit" class="tpl">
@@ -183,18 +182,18 @@
             :class="{ 'tpl__caret--open': tplOpen }"
             aria-hidden="true"
           />
-          从模板开始
-          <span class="tpl__hint">一键生成一份可改的策略，覆盖目标现有的整份策略</span>
+          {{ tr('从模板开始') }}
+          <span class="tpl__hint">{{ tr('一键生成一份可改的策略，覆盖目标现有的整份策略') }}</span>
         </button>
 
         <div v-if="tplOpen" id="template-panel" class="tpl__body">
           <div class="tpl__target">
-            <label for="tpl-agent">应用到</label>
+            <label for="tpl-agent">{{ tr('应用到') }}</label>
             <el-select
               id="tpl-agent"
               v-model="tplAgent"
               clearable
-              placeholder="租户模板（全部 Agent）"
+              :placeholder="tr('租户模板（全部 Agent）')"
               class="tpl__select"
             >
               <el-option
@@ -204,7 +203,7 @@
                 :value="a.id"
               />
             </el-select>
-            <span class="tpl__danger">应用会覆盖目标现有的整份策略，且立即影响网关行为。</span>
+            <span class="tpl__danger">{{ tr('应用会覆盖目标现有的整份策略，且立即影响网关行为。') }}</span>
           </div>
 
           <div class="tpl__grid">
@@ -224,10 +223,10 @@
                   class="badge badge--mini"
                   :class="t.default_decision === 'deny' ? 'badge--strict' : 'badge--loose'"
                 >
-                  默认 {{ t.default_decision }}
+                  {{ tr('默认') }} {{ t.default_decision }}
                 </span>
-                <span class="tpl__stat">拒绝 {{ t.deny.length }} 条</span>
-                <span class="tpl__stat">敏感路径 {{ t.sensitive_paths }} 条</span>
+                <span class="tpl__stat">{{ tr('拒绝') }} {{ t.deny.length }} {{ tr('条') }}</span>
+                <span class="tpl__stat">{{ tr('敏感路径') }} {{ t.sensitive_paths }} {{ tr('条') }}</span>
               </span>
             </button>
           </div>
@@ -235,13 +234,13 @@
           <div class="tpl__actions">
             <el-popconfirm
               :title="`将覆盖${tplAgent ? '该 Agent' : '租户模板'}的现有策略，确认应用？`"
-              confirm-button-text="应用"
-              cancel-button-text="取消"
+              :confirm-button-text="tr('应用')"
+              :cancel-button-text="tr('取消')"
               :disabled="!tplPick"
               @confirm="applyTemplate"
             >
               <template #reference>
-                <el-button type="primary" :disabled="!tplPick">应用模板</el-button>
+                <el-button type="primary" :disabled="!tplPick">{{ tr('应用模板') }}</el-button>
               </template>
             </el-popconfirm>
           </div>
@@ -271,9 +270,9 @@
           <template v-if="histDiff.length">
             <div class="diff__head">
               <span class="diff__legend diff__legend--del">
-                − 当前 v{{ histCurrent }} 有、目标版本没有
+                {{ tr('− 当前 v') }}{{ histCurrent }} {{ tr('有、目标版本没有') }}
               </span>
-              <span class="diff__legend diff__legend--add">+ 目标版本 v{{ histPickVersion }} 新增</span>
+              <span class="diff__legend diff__legend--add">{{ tr('+ 目标版本 v') }}{{ histPickVersion }} {{ tr('新增') }}</span>
             </div>
             <pre class="diff"><span
               v-for="(l, idx) in histDiff"
@@ -282,39 +281,38 @@
             >{{ l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ' }} {{ l.text }}
 </span></pre>
           </template>
-          <p v-else class="hist__placeholder">选择左侧任一版本，查看它与当前版本的逐行差异。</p>
+          <p v-else class="hist__placeholder">{{ tr('选择左侧任一版本，查看它与当前版本的逐行差异。') }}</p>
         </div>
       </div>
 
       <template v-if="canEdit" #footer>
-        <span class="hist__foot-hint">回滚会把目标版本写成新版本，原内容保留在历史里。</span>
+        <span class="hist__foot-hint">{{ tr('回滚会把目标版本写成新版本，原内容保留在历史里。') }}</span>
         <el-popconfirm
           :title="`确认回滚到 v${histPickVersion}？网关行为将随之改变。`"
-          confirm-button-text="回滚"
-          cancel-button-text="取消"
+          :confirm-button-text="tr('回滚')"
+          :cancel-button-text="tr('取消')"
           :disabled="!histPickVersion"
           @confirm="revertPolicy"
         >
           <template #reference>
             <el-button type="danger" :disabled="!histPickVersion">
-              回滚到 v{{ histPickVersion || '—' }}
+              {{ tr('回滚到 v') }}{{ histPickVersion || '—' }}
             </el-button>
           </template>
         </el-popconfirm>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="aiOpen" title="AI 生成策略" width="720px">
+    <el-dialog v-model="aiOpen" :title="tr('AI 生成策略')" width="720px">
       <p class="dlg__lead">
-        用一句话描述你的安全要求，生成一份策略 JSON 草稿。草稿不会自动生效——核对后点「保存策略」才会写入，
-        保存动作进审计。
+        {{ tr('用一句话描述你的安全要求，生成一份策略 JSON 草稿。草稿不会自动生效——核对后点「保存策略」才会写入， 保存动作进审计。') }}
       </p>
       <AiNotice v-if="aiConfigIssue" :message="aiConfigIssue" />
       <el-input
         v-model="aiDesc"
         type="textarea"
         :rows="3"
-        placeholder="例如：禁止 agent 访问生产服务器、密钥文件和任何删除操作；日常读写需要审批"
+        :placeholder="tr('例如：禁止 agent 访问生产服务器、密钥文件和任何删除操作；日常读写需要审批')"
       />
 
       <template v-if="aiResult">
@@ -326,16 +324,16 @@
             <span class="preview__why">{{ aiPreview.posture.note }}</span>
           </div>
           <p class="preview__counts">
-            <span>放行 <b>{{ aiPreview.summary.allow }}</b></span>
-            <span>审批 <b>{{ aiPreview.summary.approve }}</b></span>
-            <span>拒绝 <b>{{ aiPreview.summary.deny }}</b></span>
-            <span>敏感路径 <b>{{ aiPreview.summary.secretPaths }}</b></span>
-            <span>密钥模式 <b>{{ aiPreview.summary.secretPatterns }}</b></span>
+            <span>{{ tr('放行') }} <b>{{ aiPreview.summary.allow }}</b></span>
+            <span>{{ tr('审批') }} <b>{{ aiPreview.summary.approve }}</b></span>
+            <span>{{ tr('拒绝') }} <b>{{ aiPreview.summary.deny }}</b></span>
+            <span>{{ tr('敏感路径') }} <b>{{ aiPreview.summary.secretPaths }}</b></span>
+            <span>{{ tr('密钥模式') }} <b>{{ aiPreview.summary.secretPatterns }}</b></span>
           </p>
         </div>
 
         <div v-if="aiExplanation" class="preview__explain">
-          <span class="preview__explain-k">设计说明</span>
+          <span class="preview__explain-k">{{ tr('设计说明') }}</span>
           <p>{{ aiExplanation }}</p>
         </div>
 
@@ -351,24 +349,24 @@
       </template>
 
       <template #footer>
-        <el-button v-if="aiResult" :loading="aiGenLoading" @click="genPolicy">重新生成</el-button>
-        <el-button v-else :loading="aiGenLoading" @click="genPolicy">生成草稿</el-button>
+        <el-button v-if="aiResult" :loading="aiGenLoading" @click="genPolicy">{{ tr('重新生成') }}</el-button>
+        <el-button v-else :loading="aiGenLoading" @click="genPolicy">{{ tr('生成草稿') }}</el-button>
         <el-button type="primary" :disabled="!aiResult" :loading="aiSaving" @click="saveAiPolicy">
-          保存策略
+          {{ tr('保存策略') }}
         </el-button>
       </template>
     </el-dialog>
 
     <el-dialog v-model="editOpen" :title="editing ? '编辑策略' : '新建策略'" width="680px">
       <el-form label-width="84px">
-        <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="如：claude-code 生产只读" />
+        <el-form-item :label="tr('名称')">
+          <el-input v-model="form.name" :placeholder="tr('如：claude-code 生产只读')" />
         </el-form-item>
-        <el-form-item label="绑定 Agent">
+        <el-form-item :label="tr('绑定 Agent')">
           <el-select
             v-model="form.agent_id"
             clearable
-            placeholder="租户模板（全部 Agent）"
+            :placeholder="tr('租户模板（全部 Agent）')"
             class="form__select"
           >
             <el-option
@@ -379,15 +377,15 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item :label="tr('备注')">
           <el-input
             v-model="form.note"
             type="textarea"
             :rows="2"
-            placeholder="记下这份策略为什么这么设——半年后你会需要它"
+            :placeholder="tr('记下这份策略为什么这么设——半年后你会需要它')"
           />
         </el-form-item>
-        <el-form-item label="策略 JSON">
+        <el-form-item :label="tr('策略 JSON')">
           <el-input v-model="form.policy_json" type="textarea" :rows="12" class="mono" />
         </el-form-item>
       </el-form>
@@ -400,16 +398,16 @@
           <span class="preview__why">{{ formPreview.posture.note }}</span>
         </div>
         <p class="preview__counts">
-          <span>放行 <b>{{ formPreview.summary.allow }}</b></span>
-          <span>审批 <b>{{ formPreview.summary.approve }}</b></span>
-          <span>拒绝 <b>{{ formPreview.summary.deny }}</b></span>
-          <span>{{ formPreview.summary.servers.length }} 个 server</span>
+          <span>{{ tr('放行') }} <b>{{ formPreview.summary.allow }}</b></span>
+          <span>{{ tr('审批') }} <b>{{ formPreview.summary.approve }}</b></span>
+          <span>{{ tr('拒绝') }} <b>{{ formPreview.summary.deny }}</b></span>
+          <span>{{ formPreview.summary.servers.length }} {{ tr('个 server') }}</span>
         </p>
       </div>
 
       <template #footer>
-        <el-button @click="editOpen = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button @click="editOpen = false">{{ tr('取消') }}</el-button>
+        <el-button type="primary" @click="save">{{ tr('保存') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -427,6 +425,10 @@ import { useAiStore } from '../stores/ai'
 import { useAuthStore } from '../stores/auth'
 import { diffLines, type DiffLine } from '../utils/diff'
 import { policyPosture, summarizePolicy } from '../utils/policySummary'
+import { useI18n } from 'vue-i18n'
+
+// 该文件里 `t` 已被 v-for 用作模板/工具变量，i18n 换别名
+const { t: tr } = useI18n()
 
 interface TemplateItem {
   id: string
@@ -466,7 +468,7 @@ const rows = computed(() =>
       created_at: p.created_at,
       scope:
         p.agent_id === null
-          ? '租户模板 · 适用于全部 Agent'
+          ? tr('租户模板 · 适用于全部 Agent')
           : `仅 ${agentName.value.get(p.agent_id) ?? `#${p.agent_id}`}`,
       summary,
       posture: policyPosture(summary),
@@ -514,7 +516,7 @@ async function applyTemplate() {
   if (!tplPick.value) return
   try {
     await api.applyPolicyTemplate(tplPick.value, tplAgent.value ?? null)
-    ElMessage.success('模板已应用；网关侧 pod pull-policy 拉取后生效')
+    ElMessage.success(tr('模板已应用；网关侧 pod pull-policy 拉取后生效'))
     tplPick.value = null
     await load()
   } catch (e) {
@@ -558,7 +560,7 @@ function openEdit(row?: PolicyItem) {
 }
 
 async function save() {
-  if (!form.value.name.trim()) return ElMessage.warning('请填写名称')
+  if (!form.value.name.trim()) return ElMessage.warning(tr('请填写名称'))
   let parsed: unknown
   try {
     parsed = JSON.parse(form.value.policy_json)
@@ -574,7 +576,7 @@ async function save() {
     if (editing.value) await api.updatePolicy(editing.value.id, body)
     else await api.createPolicy(body)
     editOpen.value = false
-    ElMessage.success('已保存')
+    ElMessage.success(tr('已保存'))
     await load()
   } catch (e) {
     ElMessage.error(parseApiError(e))
@@ -584,7 +586,7 @@ async function save() {
 async function remove(row: PolicyItem) {
   try {
     await api.deletePolicy(row.id)
-    ElMessage.success('已删除')
+    ElMessage.success(tr('已删除'))
     await load()
   } catch (e) {
     ElMessage.error(parseApiError(e))
@@ -616,7 +618,7 @@ function openAi() {
 }
 
 async function genPolicy() {
-  if (!aiDesc.value.trim()) return ElMessage.warning('请先描述安全需求')
+  if (!aiDesc.value.trim()) return ElMessage.warning(tr('请先描述安全需求'))
   if (!ai.configured) {
     aiConfigIssue.value = ai.reason
     return
@@ -647,7 +649,7 @@ async function saveAiPolicy() {
   try {
     parsed = JSON.parse(aiPolicyJson.value)
   } catch {
-    return ElMessage.error('策略 JSON 格式错误，请修正后再保存')
+    return ElMessage.error(tr('策略 JSON 格式错误，请修正后再保存'))
   }
   aiSaving.value = true
   try {
@@ -662,7 +664,7 @@ async function saveAiPolicy() {
     aiResult.value = false
     aiJsonOpen.value = false
     aiExplanation.value = ''
-    ElMessage.success('策略已保存（含审计记录）')
+    ElMessage.success(tr('策略已保存（含审计记录）'))
     await load()
   } catch (e) {
     ElMessage.error(parseApiError(e))

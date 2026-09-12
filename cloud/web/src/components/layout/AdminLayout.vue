@@ -20,17 +20,17 @@
       <div class="nav-foot">
         <div class="nav-item" :class="{ active: isActive('/profile') }" @click="$router.push('/profile')">
           <UserRound :size="18" :stroke-width="1.8" class="nav-icon" />
-          <span class="nav-label">个人资料</span>
+          <span class="nav-label">{{ t('个人资料') }}</span>
         </div>
         <div class="nav-item" :class="{ active: isActive('/settings') }" @click="$router.push('/settings')">
           <Settings :size="18" :stroke-width="1.8" class="nav-icon" />
-          <span class="nav-label">设置</span>
+          <span class="nav-label">{{ t('设置') }}</span>
         </div>
       </div>
     </aside>
     <main class="admin-main">
       <header class="admin-topbar">
-        <span class="topbar-title">{{ route.meta.title || 'Pod Cloud' }}</span>
+        <span class="topbar-title">{{ route.meta.title ? t(route.meta.title as string) : 'Pod Cloud' }}</span>
         <UserMenu />
       </header>
       <div class="admin-content">

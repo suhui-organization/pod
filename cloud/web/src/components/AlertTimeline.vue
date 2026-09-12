@@ -3,7 +3,7 @@
     <section v-for="g in groups" :key="g.date" class="tl-group">
       <div class="tl-date">
         {{ g.date }}
-        <span class="tl-count">{{ g.items.length }} 条</span>
+        <span class="tl-count">{{ g.items.length }} {{ t('条') }}</span>
       </div>
       <ol class="tl-list">
         <li v-for="a in g.items" :key="a.id" class="tl-item">
@@ -24,7 +24,7 @@
             </div>
             <div class="tl-message">{{ a.message }}</div>
             <div class="tl-meta">
-              <span>事件序号 #{{ a.event_seq }}</span>
+              <span>{{ t('事件序号 #') }}{{ a.event_seq }}</span>
               <slot name="actions" :item="a" />
             </div>
           </div>
@@ -32,11 +32,14 @@
       </ol>
     </section>
   </div>
-  <el-empty v-else :description="emptyText || '暂无告警'" :image-size="70" />
+  <el-empty v-else :description="emptyText || t('暂无告警')" :image-size="70" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 export interface AlertItem {
   id: number
@@ -59,7 +62,7 @@ const props = withDefaults(
     stateText?: (s: string) => string
   }>(),
   {
-    emptyText: '暂无告警',
+    // 默认值会被提升到 setup 之外，不能引用 t()——空态文案在模板里回退
     severityText: (s: string) => s,
     kindText: (k: string) => k,
     stateText: (s: string) => s,

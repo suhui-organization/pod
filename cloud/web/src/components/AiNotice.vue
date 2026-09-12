@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { useAiStore } from '../stores/ai'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 /**
  * 模型未配置时的统一提示。三个 AI 入口共用一份文案与出口，
@@ -12,7 +15,7 @@ const ai = useAiStore()
 <template>
   <p class="ai-notice">
     {{ props.message || ai.reason }}
-    <RouterLink class="ai-notice__link" to="/settings#ai-model">去配置模型</RouterLink>
+    <RouterLink class="ai-notice__link" to="/settings#ai-model">{{ t('去配置模型') }}</RouterLink>
   </p>
 </template>
 

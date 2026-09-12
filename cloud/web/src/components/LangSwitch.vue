@@ -6,7 +6,7 @@
     </button>
     <template #dropdown>
       <el-dropdown-menu>
-        <el-dropdown-item command="zh-CN" :disabled="current === 'zh-CN'">中文</el-dropdown-item>
+        <el-dropdown-item command="zh-CN" :disabled="current === 'zh-CN'">{{ t('中文') }}</el-dropdown-item>
         <el-dropdown-item command="en-US" :disabled="current === 'en-US'">English</el-dropdown-item>
       </el-dropdown-menu>
     </template>

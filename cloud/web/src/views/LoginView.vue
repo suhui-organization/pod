@@ -41,7 +41,7 @@
       </el-form>
       <!-- 找回密码的受理回执。文案对"账号存不存在"完全一致：这个端点不能当账号枚举器用 -->
       <div v-if="resetSent" class="notice" role="status">
-        <div class="notice__title">已受理</div>
+        <div class="notice__title">{{ t('已受理') }}</div>
         <p class="notice__body">{{ resetNotice }}</p>
       </div>
       <el-alert v-if="errorMsg" :title="errorMsg" type="error" :closable="false" class="error" />
@@ -117,11 +117,11 @@ function buildResetNotice(cleanEmail: string): string {
 async function submit() {
   const cleanEmail = email.value.trim()
   if (!cleanEmail || (mode.value !== 'forgot' && !password.value)) {
-    errorMsg.value = mode.value === 'forgot' ? '请输入邮箱' : '请输入邮箱和密码'
+    errorMsg.value = mode.value === 'forgot' ? t('请输入邮箱') : t('请输入邮箱和密码')
     return
   }
   if (!EMAIL_RE.test(cleanEmail)) {
-    errorMsg.value = '邮箱格式不正确(如 you@company.com)'
+    errorMsg.value = t('邮箱格式不正确(如 you@company.com)')
     return
   }
   setBaseUrl(serverUrl.value)

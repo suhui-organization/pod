@@ -1,30 +1,30 @@
 <template>
   <div>
     <div class="head">
-      <h2>告警</h2>
+      <h2>{{ t('告警') }}</h2>
       <div class="filters">
-        <el-button type="primary" plain size="small" :loading="aiLoading" @click="genSummary">🤖 AI 摘要</el-button>
-        <el-select v-model="stateFilter" clearable placeholder="全部状态" style="width: 120px" @change="load">
+        <el-button type="primary" plain size="small" :loading="aiLoading" @click="genSummary">{{ t('🤖 AI 摘要') }}</el-button>
+        <el-select v-model="stateFilter" clearable :placeholder="t('全部状态')" style="width: 120px" @change="load">
           <el-option v-for="s in ['open', 'acknowledged', 'resolved']" :key="s" :label="stateLabel(s)" :value="s" />
         </el-select>
-        <el-select v-model="severityFilter" clearable placeholder="全部级别" style="width: 120px" @change="load">
+        <el-select v-model="severityFilter" clearable :placeholder="t('全部级别')" style="width: 120px" @change="load">
           <el-option v-for="s in ['high', 'medium', 'low']" :key="s" :label="severityLabel(s)" :value="s" />
         </el-select>
-        <el-select v-model="kindFilter" clearable placeholder="全部类型" style="width: 200px" @change="load">
+        <el-select v-model="kindFilter" clearable :placeholder="t('全部类型')" style="width: 200px" @change="load">
           <el-option v-for="k in kinds" :key="k" :label="kindLabel(k)" :value="k" />
         </el-select>
-        <el-button size="small" :disabled="!openCount" @click="resolveAll">全部已解决 ({{ openCount }})</el-button>
+        <el-button size="small" :disabled="!openCount" @click="resolveAll">{{ t('全部已解决 (') }}{{ openCount }})</el-button>
       </div>
     </div>
 
     <el-card v-if="aiSummary" class="ai-card">
       <template #header>
         <div class="ai-head">
-          <span>🤖 AI 分析摘要 <el-tag size="small" type="info" effect="plain">AI 生成，仅供参考</el-tag></span>
-          <el-button link size="small" @click="aiSummary = null">关闭</el-button>
+          <span>{{ t('🤖 AI 分析摘要') }} <el-tag size="small" type="info" effect="plain">{{ t('AI 生成，仅供参考') }}</el-tag></span>
+          <el-button link size="small" @click="aiSummary = null">{{ t('关闭') }}</el-button>
         </div>
       </template>
-      <div class="ai-meta">基于近 {{ aiHours }}h {{ aiCount }} 条告警 · 模型 {{ aiModel }}</div>
+      <div class="ai-meta">{{ t('基于近') }} {{ aiHours }}h {{ aiCount }} {{ t('条告警 · 模型') }} {{ aiModel }}</div>
       <div class="ai-body markdown-body">{{ aiSummary }}</div>
     </el-card>
 
@@ -33,20 +33,20 @@
 
     <AlertTimeline
       :items="alerts"
-      empty-text="暂无告警（告警由服务端规则引擎产生，本地 sync 后自动入列）"
+      :empty-text="t('暂无告警（告警由服务端规则引擎产生，本地 sync 后自动入列）')"
       :severity-text="severityLabel"
       :kind-text="kindLabel"
       :state-text="stateLabel"
     >
       <template #actions="{ item }">
         <el-button v-if="item.state !== 'acknowledged'" link size="small" type="primary" @click="setState(item, 'acknowledged')">
-          确认
+          {{ t('确认') }}
         </el-button>
         <el-button v-if="item.state !== 'resolved'" link size="small" type="success" @click="setState(item, 'resolved')">
-          解决
+          {{ t('解决') }}
         </el-button>
         <el-button v-if="item.state === 'resolved'" link size="small" @click="setState(item, 'open')">
-          重开
+          {{ t('重开') }}
         </el-button>
       </template>
     </AlertTimeline>
@@ -60,6 +60,9 @@ import { api } from '../api'
 import AlertTimeline from '../components/AlertTimeline.vue'
 import AiNotice from '../components/AiNotice.vue'
 import { useAiStore } from '../stores/ai'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const ai = useAiStore()
 
@@ -76,20 +79,20 @@ const kinds = [
   'manual_approval',
   'tool_first_use',
 ]
-const severityLabel = (s: string) => ({ high: '高危', medium: '中危', low: '低危' })[s] ?? s
+const severityLabel = (s: string) => ({ high: t('高危'), medium: t('中危'), low: t('低危') })[s] ?? s
 const kindLabel = (k: string) =>
   ({
-    secret_leak: '密钥拦截',
-    sensitive_path: '敏感路径访问',
-    policy_mismatch: '策略不匹配',
-    deny_burst: 'Deny 突增',
-    tool_spike: '调用风暴',
-    injection_suspect: '注入信号',
-    approval_timeout: '审批超时',
-    unregistered_server: '未注册服务器',
-    agent_silence: 'Agent 失联',
-    manual_approval: '人工批准',
-    tool_first_use: '新工具首次使用',
+    secret_leak: t('密钥拦截'),
+    sensitive_path: t('敏感路径访问'),
+    policy_mismatch: t('策略不匹配'),
+    deny_burst: t('Deny 突增'),
+    tool_spike: t('调用风暴'),
+    injection_suspect: t('注入信号'),
+    approval_timeout: t('审批超时'),
+    unregistered_server: t('未注册服务器'),
+    agent_silence: t('Agent 失联'),
+    manual_approval: t('人工批准'),
+    tool_first_use: t('新工具首次使用'),
   })[k] ?? k
 const alerts = ref<Awaited<ReturnType<typeof api.alerts>>['alerts']>([])
 const aiSummary = ref<string | null>(null)
@@ -107,7 +110,7 @@ async function genSummary() {
     aiBlocked.value = ai.reason
     return
   }
-  if (!alerts.value.length) return ElMessage.warning('暂无告警可分析')
+  if (!alerts.value.length) return ElMessage.warning(t('暂无告警可分析'))
   aiLoading.value = true
   aiBlocked.value = ''
   try {
@@ -116,7 +119,7 @@ async function genSummary() {
     aiModel.value = r.model
     aiCount.value = r.alerts_count
   } catch (e: any) {
-    const msg = e?.response?.data?.error?.message ?? 'AI 摘要生成失败'
+    const msg = e?.response?.data?.error?.message ?? t('AI 摘要生成失败')
     // 400 = 还没配模型：留在页面上说清楚，别让用户以为是网络问题
     if (e?.response?.status === 400) aiBlocked.value = msg
     else ElMessage.error(msg)
@@ -128,7 +131,7 @@ async function genSummary() {
 const kindFilter = ref<string | undefined>(undefined)
 const severityFilter = ref<string | undefined>(undefined)
 const stateFilter = ref<string | undefined>(undefined)
-const stateLabel = (s: string) => ({ open: '待处理', acknowledged: '已确认', resolved: '已解决' })[s] ?? s
+const stateLabel = (s: string) => ({ open: t('待处理'), acknowledged: t('已确认'), resolved: t('已解决') })[s] ?? s
 const openCount = computed(() => alerts.value.filter((a) => a.state === 'open').length)
 
 async function load() {
@@ -143,7 +146,7 @@ async function setState(row: { id: number }, state: string) {
 
 async function resolveAll() {
   await api.batchAlertState(alerts.value.filter((a) => a.state !== 'resolved').map((a) => a.id), 'resolved')
-  ElMessage.success('已全部解决')
+  ElMessage.success(t('已全部解决'))
   await load()
 }
 

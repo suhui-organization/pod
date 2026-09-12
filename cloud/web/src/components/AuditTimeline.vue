@@ -3,7 +3,7 @@
     <section v-for="g in groups" :key="g.date" class="tl-group">
       <div class="tl-date">
         {{ g.date }}
-        <span class="tl-count">{{ g.items.length }} 条</span>
+        <span class="tl-count">{{ g.items.length }} {{ t('条') }}</span>
       </div>
       <ol class="tl-list">
         <li v-for="e in g.items" :key="e.id" class="tl-item">
@@ -25,9 +25,9 @@
             </div>
             <div v-if="e.reason" class="tl-reason">{{ e.reason }}</div>
             <div class="tl-meta">
-              <span v-if="e.approver">审批人 {{ e.approver }}</span>
-              <span>策略 v{{ e.policy_version || '—' }}</span>
-              <span>序号 #{{ e.seq }}</span>
+              <span v-if="e.approver">{{ t('审批人') }} {{ e.approver }}</span>
+              <span>{{ t('策略 v') }}{{ e.policy_version || '—' }}</span>
+              <span>{{ t('序号 #') }}{{ e.seq }}</span>
               <code class="tl-hash">{{ shortHash(e.args_hash) }}</code>
             </div>
           </div>
@@ -35,11 +35,14 @@
       </ol>
     </section>
   </div>
-  <el-empty v-else :description="emptyText || '暂无事件'" :image-size="70" />
+  <el-empty v-else :description="emptyText || t('暂无事件（本地 pod sync 后可见）')" :image-size="70" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 export interface TimelineEvent {
   id: number
@@ -58,13 +61,11 @@ export interface TimelineEvent {
   seq: number
 }
 
-const props = withDefaults(
-  defineProps<{
-    events: TimelineEvent[]
-    emptyText?: string
-  }>(),
-  { emptyText: '暂无事件（本地 pod sync 后可见）' },
-)
+// 空态文案不用 withDefaults：默认值会被提升到 setup 之外，引用不了 t()
+const props = defineProps<{
+  events: TimelineEvent[]
+  emptyText?: string
+}>()
 
 interface Group {
   date: string
@@ -98,7 +99,7 @@ const groups = computed<Group[]>(() => {
 })
 
 function decisionLabel(decision: string): string {
-  return { allow: '放行', approve: '审批', deny: '拒绝' }[decision] ?? decision
+  return { allow: t('放行'), approve: t('审批'), deny: t('拒绝') }[decision] ?? decision
 }
 function decisionType(decision: string): 'success' | 'warning' | 'danger' | 'info' {
   return ({ allow: 'success', approve: 'warning', deny: 'danger' } as Record<string, 'success' | 'warning' | 'danger'>)[decision] ?? 'info'

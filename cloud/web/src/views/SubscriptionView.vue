@@ -1,7 +1,7 @@
 <template>
   <div class="sub">
     <div class="head">
-      <h2>订阅</h2>
+      <h2>{{ t('订阅') }}</h2>
       <span class="head__mode">
         {{ billingEnabled
           ? (billingConfigured ? `${providerLabel} 在线支付已接入` : '在线支付未开通')
@@ -17,13 +17,13 @@
       :closable="false"
       show-icon
       class="selfhost"
-      title="本部署未启用计费：所有功能可用，agent 数量不限"
-      description="自托管部署默认关闭计费。需要收费能力时，在部署配置里设置 PODCLOUD_BILLING_ENABLED=on 并填好支付平台凭据（如 Paddle 的 PADDLE_API_KEY / PADDLE_PRICE_PRO / PADDLE_WEBHOOK_SECRET），重启后这里会出现订阅入口。详见 docs/deploy-cloud.md。"
+      :title="t('本部署未启用计费：所有功能可用，agent 数量不限')"
+      :description="t('自托管部署默认关闭计费。需要收费能力时，在部署配置里设置 PODCLOUD_BILLING_ENABLED=on 并填好支付平台凭据（如 Paddle 的 PADDLE_API_KEY / PADDLE_PRICE_PRO / PADDLE_WEBHOOK_SECRET），重启后这里会出现订阅入口。详见 docs/deploy-cloud.md。')"
     />
 
     <div v-if="error" class="state state--error">
       <p>{{ error }}</p>
-      <el-button size="small" @click="load()">重试</el-button>
+      <el-button size="small" @click="load()">{{ t('重试') }}</el-button>
     </div>
 
     <div v-else-if="!info" class="state" aria-busy="true" aria-label="正在读取订阅状态">
@@ -34,7 +34,7 @@
       <!-- 当前状态：一眼回答“我在哪个套餐、用了几个席位、什么时候续费” -->
       <section class="status" :class="statusClass">
         <div class="status__plan">
-          <span class="status__label">当前套餐</span>
+          <span class="status__label">{{ t('当前套餐') }}</span>
           <div class="status__row">
             <strong class="status__name">{{ currentPlan.name }}</strong>
             <span v-if="currentPlan.price" class="status__price">{{ currentPlan.price }}{{ currentPlan.unit }}</span>
@@ -44,7 +44,7 @@
 
         <div class="status__usage">
           <div class="usage__head">
-            <span class="status__label">Agent 席位</span>
+            <span class="status__label">{{ t('Agent 席位') }}</span>
             <span class="usage__count"><b>{{ used }}</b> / {{ limitText }}</span>
           </div>
           <div
@@ -57,8 +57,8 @@
           >
             <i class="meter__fill" :style="{ width: `${pct}%` }"></i>
           </div>
-          <p v-if="full" class="usage__note">席位已满，升级可加至 {{ proSeats }}</p>
-          <p v-else-if="warn" class="usage__note">已用 {{ pct }}%，接近上限</p>
+          <p v-if="full" class="usage__note">{{ t('席位已满，升级可加至') }} {{ proSeats }}</p>
+          <p v-else-if="warn" class="usage__note">{{ t('已用') }} {{ pct }}{{ t('%，接近上限') }}</p>
         </div>
       </section>
 
@@ -72,7 +72,7 @@
         >
           <header class="plan__head">
             <h3>{{ p.name }}</h3>
-            <span v-if="p.id === info.plan" class="plan__badge">当前计划</span>
+            <span v-if="p.id === info.plan" class="plan__badge">{{ t('当前计划') }}</span>
           </header>
           <div class="plan__price">{{ p.price }}<span v-if="p.unit">{{ p.unit }}</span></div>
           <p class="plan__seats">{{ p.seatsText }}</p>
@@ -85,27 +85,27 @@
               type="primary"
               :loading="checkoutLoading"
               @click="upgrade"
-            >升级到专业版</el-button>
+            >{{ t('升级到专业版') }}</el-button>
             <el-button
               v-else-if="p.id !== info.plan"
               :loading="planLoading === p.id"
               @click="switchPlan(p.id)"
-            >降级到免费版</el-button>
+            >{{ t('降级到免费版') }}</el-button>
           </div>
         </article>
       </section>
 
       <p v-if="upgradeNotice" class="upgrade-notice">
         {{ upgradeNotice }}
-        <a class="upgrade-notice__link" href="mailto:support@podcloud.dev">联系我们开通</a>
+        <a class="upgrade-notice__link" href="mailto:support@podcloud.dev">{{ t('联系我们开通') }}</a>
       </p>
       <!-- 从收银台跳回来：先说清楚"钱付了、权限还在同步"，
            因为订阅状态是 webhook 到了才变，中间有几秒差 -->
       <p v-if="checkoutStatus === 'success'" class="checkout-status">
-        支付已完成。订阅状态由支付平台回调同步，通常几秒内生效 —— 下面没变的话刷新一次。
+        {{ t('支付已完成。订阅状态由支付平台回调同步，通常几秒内生效 —— 下面没变的话刷新一次。') }}
       </p>
       <p v-else-if="checkoutStatus === 'cancelled'" class="checkout-status">
-        这次结账取消了，没有扣款。
+        {{ t('这次结账取消了，没有扣款。') }}
       </p>
       <p class="foot">{{ billingNote }}</p>
     </template>
@@ -118,6 +118,9 @@ import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { parseApiError } from '../api/client'
 import type { SubscriptionInfo } from '../api/types'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 /**
  * Paddle.js 的全局对象。Paddle Billing 的收银台是**跑在我们自己页面上**的
@@ -151,25 +154,25 @@ function loadScript(src: string): Promise<void> {
 const plans = [
   {
     id: 'free',
-    name: '基础版',
-    price: '免费',
+    name: t('基础版'),
+    price: t('免费'),
     unit: '',
     seats: 3,
-    seatsText: '最多 3 个 Agent',
-    features: ['SHA-256 哈希链审计（不可篡改）', '策略闸门 + 审批', '审计同步与总览'],
+    seatsText: t('最多 3 个 Agent'),
+    features: [t('SHA-256 哈希链审计（不可篡改）'), t('策略闸门 + 审批'), t('审计同步与总览')],
   },
   {
     id: 'pro',
-    name: '专业版',
+    name: t('专业版'),
     price: '$19',
-    unit: '/月',
+    unit: t('/月'),
     seats: 100,
-    seatsText: '最多 100 个 Agent',
+    seatsText: t('最多 100 个 Agent'),
     features: [
-      '跨 Agent 证据链：完整时间线，篡改即报错',
-      '合规报告（GDPR，Art.30 处理活动记录）',
-      '云端告警（密钥拦截 / 注入信号 / Deny 突增）',
-      '优先支持',
+      t('跨 Agent 证据链：完整时间线，篡改即报错'),
+      t('合规报告（GDPR，Art.30 处理活动记录）'),
+      t('云端告警（密钥拦截 / 注入信号 / Deny 突增）'),
+      t('优先支持'),
     ],
   },
 ] as const
@@ -195,13 +198,13 @@ const proSeats = plans[1].seats
 
 const currentPlan = computed(() => {
   const id = info.value?.plan
-  return plans.find((p) => p.id === id) ?? { name: id || '未知套餐', price: '', unit: '' }
+  return plans.find((p) => p.id === id) ?? { name: id || t('未知套餐'), price: '', unit: '' }
 })
 const used = computed(() => info.value?.agent_count ?? 0)
 const limit = computed(() => info.value?.agent_limit ?? 0)
 /** 后端在计费关闭时返回不限量口径；界面上要把这个数字翻译成"不限" */
 const UNLIMITED = 1_000_000
-const limitText = computed(() => (limit.value >= UNLIMITED ? '不限' : String(limit.value)))
+const limitText = computed(() => (limit.value >= UNLIMITED ? t('不限') : String(limit.value)))
 const pct = computed(() => (limit.value > 0 ? Math.min(100, Math.round((used.value / limit.value) * 100)) : 0))
 const full = computed(() => limit.value > 0 && used.value >= limit.value)
 const warn = computed(() => !full.value && pct.value >= 80)
@@ -210,8 +213,8 @@ const statusClass = computed(() => ({ 'status--warn': warn.value, 'status--full'
 const renewText = computed(() => {
   const i = info.value
   if (!i) return ''
-  if (i.plan !== 'pro') return '免费版 · 不自动续费'
-  if (!i.renews_at) return '专业版 · 未设置续费日期'
+  if (i.plan !== 'pro') return t('免费版 · 不自动续费')
+  if (!i.renews_at) return t('专业版 · 未设置续费日期')
   return `续费日期 ${new Date(i.renews_at).toLocaleDateString()}`
 })
 
@@ -231,7 +234,7 @@ const providerLabel = computed(
 const billingNote = computed(() =>
   billingConfigured.value
     ? `升级会在这里打开 ${providerLabel.value} 的收银台完成订阅，可随时取消；发票与税费由支付平台处理。`
-    : '在线支付通道尚未开通：点「升级」会提示联系方式。当前版本能力不受影响；审计只存参数哈希、不存原文，同步需显式开启，数据默认不出本机。',
+      : t('在线支付通道尚未开通：点「升级」会提示联系方式。当前版本能力不受影响；审计只存参数哈希、不存原文，同步需显式开启，数据默认不出本机。'),
 )
 
 async function switchPlan(plan: string) {
@@ -250,7 +253,7 @@ async function switchPlan(plan: string) {
 async function upgrade() {
   if (!billingConfigured.value) {
     // 通道没开通就别发这次注定 503 的请求，直接把下一步说清楚
-    upgradeNotice.value = '在线支付通道尚未开通，升级需要先联系我们。'
+    upgradeNotice.value = t('在线支付通道尚未开通，升级需要先联系我们。')
     return
   }
   checkoutLoading.value = true
@@ -311,12 +314,12 @@ async function load() {
  */
 async function setupPaddle(token: string, environment: string) {
   if (!token) {
-    upgradeNotice.value = '支付通道缺少 client token，请联系我们（Paddle 后台可重新生成）。'
+        upgradeNotice.value = t('支付通道缺少 client token，请联系我们（Paddle 后台可重新生成）。')
     return
   }
   try {
     if (!window.Paddle) await loadScript(PADDLE_JS)
-    if (!window.Paddle) throw new Error('Paddle.js 加载后仍未就绪')
+    if (!window.Paddle) throw new Error(t('Paddle.js 加载后仍未就绪'))
     window.Paddle.Environment.set(environment === 'live' ? 'production' : 'sandbox')
     window.Paddle.Initialize({ token })
     paddleReady.value = true

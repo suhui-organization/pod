@@ -8,7 +8,7 @@
       <div class="stat-card">
         <div class="stat-num">{{ s?.events.total ?? '—' }}</div>
         <div class="stat-label">{{ t('审计事件（累计）') }}</div>
-        <div class="stat-sub">决策: allow {{ s?.events.by_decision.allow ?? 0 }} · deny {{ s?.events.by_decision.deny ?? 0 }}</div>
+        <div class="stat-sub">{{ t('决策: allow') }} {{ s?.events.by_decision.allow ?? 0 }} · deny {{ s?.events.by_decision.deny ?? 0 }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">{{ s?.agents.online ?? 0 }}<span class="stat-slash">/ {{ s?.agents.total ?? 0 }}</span></div>
@@ -120,12 +120,14 @@ function onVisibilityChange() {
 }
 
 const kindLabel = (k: string) =>
-  ({
-    secret_leak: '密钥拦截', sensitive_path: '敏感路径', policy_mismatch: '策略不匹配',
-    deny_burst: 'Deny 突增', tool_spike: '调用风暴', injection_suspect: '注入信号',
-    approval_timeout: '审批超时', unregistered_server: '未注册服务器', agent_silence: 'Agent 失联',
-    manual_approval: '人工批准', tool_first_use: '新工具使用',
-  })[k] ?? k
+  t(
+    ({
+      secret_leak: '密钥拦截', sensitive_path: '敏感路径', policy_mismatch: '策略不匹配',
+      deny_burst: 'Deny 突增', tool_spike: '调用风暴', injection_suspect: '注入信号',
+      approval_timeout: '审批超时', unregistered_server: '未注册服务器', agent_silence: 'Agent 失联',
+      manual_approval: '人工批准', tool_first_use: '新工具使用',
+    })[k] ?? k,
+  )
 
 const weekEvents = computed(() => (s.value?.trend_7d ?? []).reduce((a, t) => a + t.events, 0))
 
@@ -138,7 +140,7 @@ const alertTrendOption = computed(() => {
       axisPointer: { type: 'line' },
       formatter: (ps: Array<{ axisValue: string; data: number }>) => {
         const p = ps[0]
-        return `${p.axisValue}<br/>告警 <b>${p.data}</b> 条`
+        return `${p.axisValue}<br/>${t('告警')} <b>${p.data}</b> ${t('条')}`
       },
     },
     grid: { left: 40, right: 20, top: 30, bottom: 28 },

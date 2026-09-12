@@ -8,6 +8,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const PRIVACY = `Pod Cloud 隐私政策（初稿）
@@ -63,7 +66,7 @@ const TERMS = `Pod Cloud 服务条款（初稿）
 
 （完整版见仓库 docs/legal/terms-of-service.md；正式发布前经法律审核）`
 
-const title = computed(() => (route.name === 'privacy' ? '隐私政策' : '服务条款'))
+const title = computed(() => (route.name === 'privacy' ? t('隐私政策') : t('服务条款')))
 const body = computed(() => (route.name === 'privacy' ? PRIVACY : TERMS))
 </script>
 
