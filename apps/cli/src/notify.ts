@@ -5,6 +5,7 @@
  * 依赖注入便于单测（不会真的弹通知）。
  */
 import { execFile } from 'node:child_process';
+import { t } from '@podsec/i18n';
 
 export interface ApprovalNotification {
   id: string;
@@ -30,10 +31,10 @@ export function notifyApproval(n: ApprovalNotification, deps: NotifyDeps = {}): 
     if (platform === 'darwin') {
       run('osascript', [
         '-e',
-        `display notification "${escapeAppleScript(detail)}" with title "pod 需要审批"`,
+        `display notification "${escapeAppleScript(detail)}" with title "${t('pod 需要审批')}"`,
       ]);
     } else if (platform === 'linux') {
-      run('notify-send', ['pod 需要审批', detail]);
+      run('notify-send', [t('pod 需要审批'), detail]);
     }
   } catch {
     // 通知是尽力而为

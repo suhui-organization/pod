@@ -12,6 +12,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { t } from '@podsec/i18n';
 
 export interface SnapshotEntry {
   original: string;
@@ -102,19 +103,21 @@ export function createSnapshot(paths: string[], opts: SnapshotOptions): Snapshot
   let index = 0;
   for (const p of paths) {
     if (manifest.entries.length >= maxEntries) {
-      manifest.skipped.push(`${p}（超过 ${maxEntries} 个条目上限）`);
+      manifest.skipped.push(t('{path}（超过 {max} 个条目上限）', { path: p, max: maxEntries }));
       continue;
     }
     let st;
     try {
       st = statSync(p);
     } catch {
-      manifest.skipped.push(`${p}（不可读）`);
+      manifest.skipped.push(t('{path}（不可读）', { path: p }));
       continue;
     }
     const size = sizeOf(p, maxBytes - totalBytes);
     if (size > maxBytes - totalBytes) {
-      manifest.skipped.push(`${p}（${size} bytes 超过剩余配额 ${maxBytes - totalBytes}）`);
+      manifest.skipped.push(
+        t('{path}（{size} bytes 超过剩余配额 {quota}）', { path: p, size, quota: maxBytes - totalBytes }),
+      );
       continue;
     }
     const stored = join('files', `${String(index++).padStart(3, '0')}-${basename(p) || 'root'}`);

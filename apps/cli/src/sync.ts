@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { verifyPolicy } from './policy-sign.js';
+import { t } from '@podsec/i18n';
 
 export interface CloudAgentBinding {
   /** 本地审计文件的 agent 字段（"*" = 全部） */
@@ -51,16 +52,18 @@ export interface SyncResult {
 export function loadCloudConfig(configPath?: string): CloudConfig {
   const path = configPath ?? join(homedir(), '.pod', 'cloud.json');
   if (!existsSync(path)) {
-    throw new Error(`未找到云配置 ${path}（先 pod cloud-setup 或手工写入 api_url/agent_id/sync_token）`);
+    throw new Error(
+      t('未找到云配置 {path}（先 pod cloud-setup 或手工写入 api_url/agent_id/sync_token）', { path }),
+    );
   }
   const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<CloudConfig>;
   if (!raw.api_url) {
-    throw new Error(`云配置 ${path} 缺少 api_url`);
+    throw new Error(t('云配置 {path} 缺少 api_url', { path }));
   }
   if (raw.agents && raw.agents.length > 0) {
     for (const b of raw.agents) {
       if (!b.local_agent || !b.agent_id || !b.sync_token) {
-        throw new Error(`云配置 ${path} 的 agents 条目缺少 local_agent/agent_id/sync_token`);
+        throw new Error(t('云配置 {path} 的 agents 条目缺少 local_agent/agent_id/sync_token', { path }));
       }
     }
     return {
@@ -70,7 +73,7 @@ export function loadCloudConfig(configPath?: string): CloudConfig {
     };
   }
   if (!raw.agent_id || !raw.sync_token) {
-    throw new Error(`云配置 ${path} 缺少 agent_id/sync_token（或 agents 数组）`);
+    throw new Error(t('云配置 {path} 缺少 agent_id/sync_token（或 agents 数组）', { path }));
   }
   return {
     api_url: raw.api_url.replace(/\/+$/, ''),
@@ -179,11 +182,13 @@ export async function pushBatch(
   });
   if (resp.status === 409) {
     const body = (await resp.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(`服务端拒绝（哈希链断裂，server=${server}）：${body.detail ?? '409'}`);
+    throw new Error(
+      t('服务端拒绝（哈希链断裂，server={server}）：{detail}', { server, detail: body.detail ?? '409' }),
+    );
   }
   if (!resp.ok) {
     const body = (await resp.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(`同步失败 HTTP ${resp.status}：${body.detail ?? ''}`);
+    throw new Error(t('同步失败 HTTP {status}：{detail}', { status: resp.status, detail: body.detail ?? '' }));
   }
   const data = (await resp.json()) as { synced: number };
   return { synced: data.synced };
@@ -238,7 +243,7 @@ export async function pullPolicies(opts: {
   const resp = await fetch(url, { headers: { 'X-Sync-Token': cfg.sync_token ?? '' } });
   if (!resp.ok) {
     const body = (await resp.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(`拉取策略失败 HTTP ${resp.status}：${body.detail ?? ''}`);
+    throw new Error(t('拉取策略失败 HTTP {status}：{detail}', { status: resp.status, detail: body.detail ?? '' }));
   }
   const data = (await resp.json()) as { agent_id: number; policies: PulledPolicy[] };
   const publicKey = opts.policyPublicKey ?? loaded.policy_public_key;
@@ -252,14 +257,14 @@ export async function pullPolicies(opts: {
     if (p.signature) {
       if (publicKey) {
         if (!verifyPolicy(policy, p.signature, publicKey)) {
-          throw new Error(`策略 "${p.name}" 签名无效（可能被篡改），已拒绝写入`);
+          throw new Error(t('策略 "{name}" 签名无效（可能被篡改），已拒绝写入', { name: p.name }));
         }
         verified = true;
       } else if (opts.requireSignature) {
-        throw new Error(`策略 "${p.name}" 带签名但未配置 policy_public_key，无法验签`);
+          throw new Error(t('策略 "{name}" 带签名但未配置 policy_public_key，无法验签', { name: p.name }));
       }
     } else if (opts.requireSignature) {
-      throw new Error(`策略 "${p.name}" 缺少签名（--require-signature）`);
+      throw new Error(t('策略 "{name}" 缺少签名（--require-signature）', { name: p.name }));
     }
     const safeName = p.name.replace(/[^a-zA-Z0-9_-]/g, '-');
     const path = join(opts.outDir, `${p.id}-${safeName}.json`);
@@ -345,9 +350,9 @@ export async function runSync(opts: {
               servers.push({ server, synced, skipped: 0 });
               continue;
             } catch (retryErr: unknown) {
-              message += `；从链首重推仍未通过：${
-                retryErr instanceof Error ? retryErr.message : String(retryErr)
-              }`;
+              message += t('；从链首重推仍未通过：{error}', {
+                error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+              });
             }
           }
         }
@@ -362,7 +367,7 @@ export async function runSync(opts: {
       headers: { 'X-Sync-Token': b.sync_token },
     }).catch(() => null);
     if (ping && ping.status === 401) {
-      failures.push({ agent_id: b.agent_id, message: 'sync token 无效（HTTP 401）' });
+      failures.push({ agent_id: b.agent_id, message: t('sync token 无效（HTTP 401）') });
     }
     perBinding.push({ agent_id: b.agent_id, synced: boundTotal });
   }

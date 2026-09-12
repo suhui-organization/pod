@@ -13,6 +13,8 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Policy } from '@podsec/policy';
+// 本文件里 `t` 已经是循环变量（for (const t of targets)），所以 i18n 取别名 tr
+import { t as tr } from '@podsec/i18n';
 
 export type ConfigFormat = 'dsh' | 'claude' | 'cursor';
 
@@ -194,7 +196,10 @@ export function discoverTargets(opts: DiscoverOptions): OnboardTarget[] {
     } catch (err) {
       opts.onWarning?.({
         path: c.path,
-        message: `无法解析 ${c.path}：${err instanceof Error ? err.message : String(err)}`,
+        message: tr('无法解析 {path}：{error}', {
+          path: c.path,
+          error: err instanceof Error ? err.message : String(err),
+        }),
       });
       continue;
     }
@@ -317,11 +322,17 @@ export function applyOnboard(targets: OnboardTarget[], opts: OnboardApplyOptions
   for (const t of targets) {
     for (const s of t.servers) {
       if (s.wrapped) {
-        skipped.push(`${t.configPath} → "${s.name}" (已由 pod 包装)`);
+        skipped.push(tr('{path} → "{name}" (已由 pod 包装)', { path: t.configPath, name: s.name }));
         continue;
       }
       if (s.transport && s.transport !== 'stdio') {
-        skipped.push(`${t.configPath} → "${s.name}" (transport=${s.transport}，v0 只支持 stdio)`);
+        skipped.push(
+          tr('{path} → "{name}" (transport={transport}，v0 只支持 stdio)', {
+            path: t.configPath,
+            name: s.name,
+            transport: s.transport,
+          }),
+        );
         continue;
       }
       const list = byAgent.get(t.agent) ?? [];

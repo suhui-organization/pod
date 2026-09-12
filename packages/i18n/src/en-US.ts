@@ -516,4 +516,33 @@ export const enUS: Record<string, string> = {
     '- Active days in window: {active}/{window} ({missing} missing)',
   '- 上次使用：{last}': '- Last used: {last}',
   '无记录': 'no record',
+
+  // ── sync / onboard / snapshot / notify 与零散包内错误 ──
+  '未找到云配置 {path}（先 pod cloud-setup 或手工写入 api_url/agent_id/sync_token）':
+    'Cloud config {path} not found (run pod cloud-setup first, or write api_url/agent_id/sync_token by hand)',
+  '云配置 {path} 缺少 api_url': 'Cloud config {path} is missing api_url',
+  '云配置 {path} 的 agents 条目缺少 local_agent/agent_id/sync_token':
+    'An agents entry in cloud config {path} is missing local_agent/agent_id/sync_token',
+  '云配置 {path} 缺少 agent_id/sync_token（或 agents 数组）':
+    'Cloud config {path} is missing agent_id/sync_token (or the agents array)',
+  '服务端拒绝（哈希链断裂，server={server}）：{detail}':
+    'Server refused (broken hash chain, server={server}): {detail}',
+  '同步失败 HTTP {status}：{detail}': 'Sync failed with HTTP {status}: {detail}',
+  '拉取策略失败 HTTP {status}：{detail}': 'Pulling policies failed with HTTP {status}: {detail}',
+  '策略 "{name}" 签名无效（可能被篡改），已拒绝写入':
+    'Policy "{name}" has an invalid signature (possibly tampered with); refusing to write it',
+  '策略 "{name}" 带签名但未配置 policy_public_key，无法验签':
+    'Policy "{name}" is signed but policy_public_key is not configured, so it cannot be verified',
+  '策略 "{name}" 缺少签名（--require-signature）': 'Policy "{name}" has no signature (--require-signature)',
+  '；从链首重推仍未通过：{error}': '; replaying from the chain head still failed: {error}',
+  'sync token 无效（HTTP 401）': 'sync token is invalid (HTTP 401)',
+  '{path}（超过 {max} 个条目上限）': '{path} (over the {max}-entry limit)',
+  '{path}（不可读）': '{path} (unreadable)',
+  '{path}（{size} bytes 超过剩余配额 {quota}）': '{path} ({size} bytes exceeds the remaining quota of {quota})',
+  'pod 需要审批': 'pod needs your approval',
+  '无法解析 {path}：{error}': 'Could not parse {path}: {error}',
+  '{path} → "{name}" (已由 pod 包装)': '{path} → "{name}" (already wrapped by pod)',
+  '{path} → "{name}" (transport={transport}，v0 只支持 stdio)':
+    '{path} → "{name}" (transport={transport}; v0 supports stdio only)',
+  '令牌不是合法 JSON': 'Token is not valid JSON',
 }

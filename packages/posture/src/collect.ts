@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, globSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { expandHome, type RuleSet } from '@podsec/policy';
+import { t } from '@podsec/i18n';
 import { AuditLog } from '@podsec/audit';
 import { loadAgentIdentity, publicKeyResolver, verifyDelegation, type DelegationToken } from '@podsec/identity';
 import { scanMachine } from '@podsec/scan';
@@ -262,7 +263,15 @@ export function collectDelegations(rules: RuleSet, home: string): DelegationFact
     try {
       token = JSON.parse(text) as DelegationToken;
     } catch {
-      out.push({ file, token: null, ok: false, errors: ['令牌不是合法 JSON'], capabilities: [], depth: 0, hops: [] });
+      out.push({
+        file,
+        token: null,
+        ok: false,
+        errors: [t('令牌不是合法 JSON')],
+        capabilities: [],
+        depth: 0,
+        hops: [],
+      });
       continue;
     }
     const result = verifyDelegation(token, {
