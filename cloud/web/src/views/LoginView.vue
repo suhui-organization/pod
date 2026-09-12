@@ -104,12 +104,15 @@ onMounted(loadAuthConfig)
 /** 回执文案必须对"账号存在 / 不存在"完全一致，否则这个页面就成了账号探测器。
  *  措辞统一用"如果该邮箱是本系统的账号"，只在"链接去哪"上区分实例能力。 */
 function buildResetNotice(cleanEmail: string): string {
-  const head = `如果 ${cleanEmail} 是本系统的账号，重置链接已经发出，${resetMinutes.value} 分钟内有效。`
+  const head = t('如果 {email} 是本系统的账号，重置链接已经发出，{minutes} 分钟内有效。', {
+    email: cleanEmail,
+    minutes: resetMinutes.value,
+  })
   if (resetChannel.value === 'email') {
-    return `${head}没收到的话，检查一下垃圾邮件，或稍后重新申请。`
+    return head + t('没收到的话，检查一下垃圾邮件，或稍后重新申请。')
   }
   if (resetChannel.value === 'log') {
-    return `${head}本实例没有配置邮件服务，链接写在服务端日志里——请联系部署这台机器的人用 kubectl logs 取走。`
+    return head + t('本实例没有配置邮件服务，链接写在服务端日志里——请联系部署这台机器的人用 kubectl logs 取走。')
   }
   return head
 }

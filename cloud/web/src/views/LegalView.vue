@@ -10,7 +10,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const PRIVACY = `Pod Cloud 隐私政策（初稿）
@@ -67,7 +67,13 @@ const TERMS = `Pod Cloud 服务条款（初稿）
 （完整版见仓库 docs/legal/terms-of-service.md；正式发布前经法律审核）`
 
 const title = computed(() => (route.name === 'privacy' ? t('隐私政策') : t('服务条款')))
-const body = computed(() => (route.name === 'privacy' ? PRIVACY : TERMS))
+// 法律文本暂以中文为准：不机翻（中英不一致时以哪版为准是法律问题，不是文案问题）。
+// 英文界面加一行说明，免得读者以为这是英文正式版。
+const body = computed(() => {
+  const text = route.name === 'privacy' ? PRIVACY : TERMS
+  if (!locale.value.startsWith('en')) return text
+  return `${t('（以下为中文正式版本；英文译本可向我们索取，正式发布前经法律审核。）')}\n\n${text}`
+})
 </script>
 
 <style scoped>

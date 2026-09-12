@@ -31,8 +31,8 @@
         <el-table :data="filteredUsers" style="width: 100%" row-key="id">
           <template #empty>
             <div class="empty-state">
-              <div class="empty-title">{{ search ? '没有匹配的用户' : '还没有成员' }}</div>
-              <div class="empty-desc">{{ search ? '换个关键词试试' : '创建第一个成员，开始分配角色' }}</div>
+              <div class="empty-title">{{ search ? t('没有匹配的用户') : t('还没有成员') }}</div>
+              <div class="empty-desc">{{ search ? t('换个关键词试试') : t('创建第一个成员，开始分配角色') }}</div>
               <el-tooltip v-if="!search" :content="t('新建用户')" placement="bottom">
                 <el-button type="primary" size="small" circle @click="openCreate">
                   <el-icon><Plus /></el-icon>
@@ -93,7 +93,7 @@
                 :type="row.is_active ? 'danger' : 'primary'"
                 @click="toggleActive(row)"
               >
-                {{ row.is_active ? '停用' : '启用' }}
+                {{ row.is_active ? t('停用') : t('启用') }}
               </el-button>
               <span v-else class="muted-action">—</span>
             </template>

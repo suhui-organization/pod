@@ -27,12 +27,12 @@
       <el-button size="small" @click="load()">{{ tr('重试') }}</el-button>
     </div>
 
-    <div v-else-if="loading" class="state" aria-busy="true" aria-label="正在读取策略">
+    <div v-else-if="loading" class="state" aria-busy="true" :aria-label="tr('正在读取策略')">
       <el-skeleton :rows="3" animated />
     </div>
 
     <template v-else>
-      <section v-if="rows.length" class="list" aria-label="策略列表">
+      <section v-if="rows.length" class="list" :aria-label="tr('策略列表')">
         <div class="list__head" aria-hidden="true">
           <span>{{ tr('策略 / 适用范围') }}</span>
           <span>{{ tr('决策姿态') }}</span>
@@ -96,7 +96,7 @@
               :aria-controls="`policy-detail-${row.id}`"
               @click="toggleDetail(row.id)"
             >
-              {{ expandedId === row.id ? '收起' : '明细' }}
+              {{ expandedId === row.id ? tr('收起') : tr('明细') }}
             </button>
             <!-- 历史是读操作，后端 GET 对成员开放：只读成员也要能核对"谁在什么时候改了什么" -->
             <button class="link" type="button" @click="openHistory(row.raw)">{{ tr('历史') }}</button>
@@ -199,7 +199,7 @@
               <el-option
                 v-for="a in agents"
                 :key="a.id"
-                :label="`仅 ${a.name}（#${a.id}）`"
+                :label="tr('仅 {name}（#{id}）', { name: a.name, id: a.id })"
                 :value="a.id"
               />
             </el-select>
@@ -233,7 +233,7 @@
 
           <div class="tpl__actions">
             <el-popconfirm
-              :title="`将覆盖${tplAgent ? '该 Agent' : '租户模板'}的现有策略，确认应用？`"
+              :title="tr('将覆盖{target}的现有策略，确认应用？', { target: tplAgent ? tr('该 Agent') : tr('租户模板') })"
               :confirm-button-text="tr('应用')"
               :cancel-button-text="tr('取消')"
               :disabled="!tplPick"
@@ -262,7 +262,7 @@
           >
             <span class="ver__no">v{{ v.version }}</span>
             <span class="ver__time">{{ formatTime(v.created_at) }}</span>
-            <span class="ver__note">{{ v.note || '（无备注）' }}</span>
+            <span class="ver__note">{{ v.note || tr('（无备注）') }}</span>
           </button>
         </div>
 
@@ -288,7 +288,7 @@
       <template v-if="canEdit" #footer>
         <span class="hist__foot-hint">{{ tr('回滚会把目标版本写成新版本，原内容保留在历史里。') }}</span>
         <el-popconfirm
-          :title="`确认回滚到 v${histPickVersion}？网关行为将随之改变。`"
+          :title="tr('确认回滚到 v{version}？网关行为将随之改变。', { version: histPickVersion })"
           :confirm-button-text="tr('回滚')"
           :cancel-button-text="tr('取消')"
           :disabled="!histPickVersion"
@@ -343,7 +343,7 @@
           :aria-expanded="aiJsonOpen"
           @click="aiJsonOpen = !aiJsonOpen"
         >
-          {{ aiJsonOpen ? '收起 JSON' : '查看和修改 JSON' }}
+          {{ aiJsonOpen ? tr('收起 JSON') : tr('查看和修改 JSON') }}
         </button>
         <el-input v-if="aiJsonOpen" v-model="aiPolicyJson" type="textarea" :rows="14" class="mono" />
       </template>
@@ -357,7 +357,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editOpen" :title="editing ? '编辑策略' : '新建策略'" width="680px">
+    <el-dialog v-model="editOpen" :title="editing ? tr('编辑策略') : tr('新建策略')" width="680px">
       <el-form label-width="84px">
         <el-form-item :label="tr('名称')">
           <el-input v-model="form.name" :placeholder="tr('如：claude-code 生产只读')" />
@@ -372,7 +372,7 @@
             <el-option
               v-for="a in agents"
               :key="a.id"
-              :label="`仅 ${a.name}（#${a.id}）`"
+              :label="tr('仅 {name}（#{id}）', { name: a.name, id: a.id })"
               :value="a.id"
             />
           </el-select>
@@ -469,7 +469,7 @@ const rows = computed(() =>
       scope:
         p.agent_id === null
           ? tr('租户模板 · 适用于全部 Agent')
-          : `仅 ${agentName.value.get(p.agent_id) ?? `#${p.agent_id}`}`,
+          : tr('仅 {name}', { name: agentName.value.get(p.agent_id) ?? `#${p.agent_id}` }),
       summary,
       posture: policyPosture(summary),
     }
@@ -565,7 +565,7 @@ async function save() {
   try {
     parsed = JSON.parse(form.value.policy_json)
   } catch (e) {
-    return ElMessage.error(`策略 JSON 不是合法 JSON：${e instanceof Error ? e.message : ''}`)
+    return ElMessage.error(tr('策略 JSON 不是合法 JSON：{error}', { error: e instanceof Error ? e.message : '' }))
   }
   const body = {
     ...form.value,
@@ -657,7 +657,7 @@ async function saveAiPolicy() {
       name: aiDesc.value.trim().slice(0, 30),
       policy_json: JSON.stringify(parsed, null, 2),
       agent_id: null,
-      note: aiExplanation.value || `AI 生成（需求：${aiDesc.value.trim().slice(0, 120)}）`,
+      note: aiExplanation.value || tr('AI 生成（需求：{desc}）', { desc: aiDesc.value.trim().slice(0, 120) }),
     })
     aiOpen.value = false
     aiDesc.value = ''
@@ -692,7 +692,7 @@ async function openHistory(row: PolicyItem) {
     histCurrent.value = row.version
     histPickVersion.value = 0
     histDiff.value = []
-    historyTitle.value = `策略历史 · ${row.name}`
+    historyTitle.value = tr('策略历史 · {name}', { name: row.name })
     histOpen.value = true
   } catch (e) {
     ElMessage.error(parseApiError(e))
@@ -717,7 +717,7 @@ async function revertPolicy() {
   if (!histPolicy.value || !histPickVersion.value) return
   try {
     await api.revertPolicy(histPolicy.value.id, histPickVersion.value)
-    ElMessage.success(`已回滚到 v${histPickVersion.value}（原内容保留在历史里）`)
+    ElMessage.success(tr('已回滚到 v{version}（原内容保留在历史里）', { version: histPickVersion.value }))
     histOpen.value = false
     await load()
   } catch (e) {

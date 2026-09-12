@@ -82,11 +82,11 @@
             <span class="alert-time">{{ new Date(a.created_at).toLocaleString() }}</span>
           </div>
         </div>
-        <el-empty v-else description="暂无告警" :image-size="60" />
+        <el-empty v-else :description="t('暂无告警')" :image-size="60" />
       </div>
     </div>
 
-    <el-empty v-if="!s?.events.total" description="还没有审计数据——先注册 Agent 并跑 pod sync" :image-size="70" class="empty" />
+    <el-empty v-if="!s?.events.total" :description="t('还没有审计数据——先注册 Agent 并跑 pod sync')" :image-size="70" class="empty" />
   </div>
 </template>
 
@@ -181,7 +181,7 @@ const alertTrendOption = computed(() => {
         ? {
             symbol: 'pin', symbolSize: 34,
             label: { formatter: (p: { value: number }) => String(p.value), fontSize: 10, color: '#fff' },
-            data: [{ type: 'max', name: '峰值', itemStyle: { color: '#f56c6c' } }],
+            data: [{ type: 'max', name: t('峰值'), itemStyle: { color: '#f56c6c' } }],
           }
         : undefined,
       emphasis: { focus: 'series' },
@@ -257,8 +257,11 @@ const agentOption = computed(() => {
         if (!r) return ''
         return [
           `<b>${r.agent}</b>`,
-          `近 7 天：调用 ${r.events_recent} · 控制平面 ${r.control_recent}`,
-          `累计：调用 ${r.events} · 控制平面 ${r.control}`,
+          t('近 7 天：调用 {recent} · 控制平面 {control}', {
+            recent: r.events_recent,
+            control: r.control_recent,
+          }),
+          t('累计：调用 {total} · 控制平面 {control}', { total: r.events, control: r.control }),
         ].join('<br/>')
       },
     },

@@ -4,8 +4,8 @@
       <h2>{{ t('订阅') }}</h2>
       <span class="head__mode">
         {{ billingEnabled
-          ? (billingConfigured ? `${providerLabel} 在线支付已接入` : '在线支付未开通')
-          : '本部署未启用计费（自托管）' }}
+          ? (billingConfigured ? t('{provider} 在线支付已接入', { provider: providerLabel }) : t('在线支付未开通'))
+          : t('本部署未启用计费（自托管）') }}
       </span>
     </div>
 
@@ -26,7 +26,7 @@
       <el-button size="small" @click="load()">{{ t('重试') }}</el-button>
     </div>
 
-    <div v-else-if="!info" class="state" aria-busy="true" aria-label="正在读取订阅状态">
+    <div v-else-if="!info" class="state" aria-busy="true" :aria-label="t('正在读取订阅状态')">
       <el-skeleton :rows="2" animated />
     </div>
 
@@ -53,7 +53,7 @@
             :aria-valuenow="used"
             aria-valuemin="0"
             :aria-valuemax="limit === UNLIMITED ? 100 : limit"
-            :aria-label="`Agent 席位已用 ${used} / ${limitText}`"
+            :aria-label="t('Agent 席位已用 {used} / {limit}', { used, limit: limitText })"
           >
             <i class="meter__fill" :style="{ width: `${pct}%` }"></i>
           </div>
@@ -145,7 +145,7 @@ function loadScript(src: string): Promise<void> {
     el.src = src
     el.async = true
     el.onload = () => resolve()
-    el.onerror = () => reject(new Error(`加载失败：${src}`))
+    el.onerror = () => reject(new Error(t('加载失败：{src}', { src })))
     document.head.appendChild(el)
   })
 }
@@ -215,7 +215,7 @@ const renewText = computed(() => {
   if (!i) return ''
   if (i.plan !== 'pro') return t('免费版 · 不自动续费')
   if (!i.renews_at) return t('专业版 · 未设置续费日期')
-  return `续费日期 ${new Date(i.renews_at).toLocaleDateString()}`
+  return t('续费日期 {date}', { date: new Date(i.renews_at).toLocaleDateString() })
 })
 
 /** 支付平台展示名：后端只给 id，文案在这里映射 */
@@ -233,7 +233,9 @@ const providerLabel = computed(
 // 但那个路径在生产已关闭（且前端从未接过它），点按钮只会拿到 503
 const billingNote = computed(() =>
   billingConfigured.value
-    ? `升级会在这里打开 ${providerLabel.value} 的收银台完成订阅，可随时取消；发票与税费由支付平台处理。`
+    ? t('升级会在这里打开 {provider} 的收银台完成订阅，可随时取消；发票与税费由支付平台处理。', {
+        provider: providerLabel.value,
+      })
       : t('在线支付通道尚未开通：点「升级」会提示联系方式。当前版本能力不受影响；审计只存参数哈希、不存原文，同步需显式开启，数据默认不出本机。'),
 )
 
@@ -241,7 +243,7 @@ async function switchPlan(plan: string) {
   planLoading.value = plan
   try {
     const r = await api.updatePlan(plan as 'free' | 'pro')
-    ElMessage.success(`已切换到 ${plan}（Agent 限额 ${r.agent_limit}）`)
+    ElMessage.success(t('已切换到 {plan}（Agent 限额 {limit}）', { plan, limit: r.agent_limit }))
     await load()
   } catch (e) {
     ElMessage.error(parseApiError(e))
@@ -324,7 +326,7 @@ async function setupPaddle(token: string, environment: string) {
     window.Paddle.Initialize({ token })
     paddleReady.value = true
   } catch (e) {
-    upgradeNotice.value = `收银台初始化失败：${e instanceof Error ? e.message : String(e)}`
+    upgradeNotice.value = t('收银台初始化失败：{error}', { error: e instanceof Error ? e.message : String(e) })
   }
 }
 

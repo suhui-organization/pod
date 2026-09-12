@@ -17,7 +17,7 @@
         <span class="llm-head">
           {{ t('AI 模型') }}
           <span class="llm-badge" :class="llm.configured ? 'llm-badge--ok' : 'llm-badge--off'">
-            {{ llm.configured ? '已配置' : '未配置' }}
+            {{ llm.configured ? t('已配置') : t('未配置') }}
           </span>
         </span>
       </template>
@@ -46,7 +46,7 @@
         <el-form-item :label="t('模型')">
           <el-input
             v-model="llmForm.model"
-            :placeholder="currentProvider?.default_model || '例如 qwen-max'"
+            :placeholder="currentProvider?.default_model || t('例如 qwen-max')"
             style="width: 260px"
           />
           <span class="hint">{{ t('留空用 Provider 默认') }}{{ currentProvider?.default_model ? `（${currentProvider.default_model}）` : '' }}</span>
@@ -60,7 +60,7 @@
             v-model="llmForm.api_key"
             type="password"
             show-password
-            :placeholder="llm.api_key_set ? `已配置 ${llm.api_key_hint}，留空保持不变` : 'sk-…'"
+            :placeholder="llm.api_key_set ? t('已配置 {hint}，留空保持不变', { hint: llm.api_key_hint }) : 'sk-…'"
             style="width: 420px"
           />
           <span class="hint">{{ t('只写不回显；留空 = 保留已存的那把') }}</span>
@@ -379,7 +379,7 @@ async function pushDigestNow() {
   digestNotice.value = ''
   try {
     const r = await api.digestNow()
-    digestResult.value = `已推送（${r.date}，告警 ${r.alerts_count} 条）`
+    digestResult.value = t('已推送（{date}，告警 {n} 条）', { date: r.date, n: r.alerts_count })
   } catch (e: any) {
     const msg = e?.response?.data?.error?.message ?? t('推送失败')
     if (e?.response?.status === 400) digestNotice.value = msg

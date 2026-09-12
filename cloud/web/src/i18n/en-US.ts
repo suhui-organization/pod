@@ -649,4 +649,73 @@ export const enUS: Record<string, string> = {
   '这是期望状态，不是实时指令：机器下次 pod sync 时才生效。机器离线时，它会一直保持当前状态。':
     'This is desired state, not a live command: it takes effect on the machine\u2019s next pod sync. While a machine is offline it simply keeps its current state.',
   '风险': 'Risk',
+
+  // ── 页面里没过 t() 的硬编码文案（本次补包装后新增的词条）──
+  'AI 生成（需求：{desc}）': 'AI-generated (request: {desc})',
+  'Agent 席位已用 {used} / {limit}': 'Agent seats used: {used} / {limit}',
+  '{agent} · {start} → {end} · {calls} 调用 · {duration}':
+    '{agent} · {start} → {end} · {calls} calls · {duration}',
+  '{provider} 在线支付已接入': '{provider} online payment is connected',
+  '✓ 对比中': '✓ Comparing',
+  '⧉ 对比': '⧉ Compare',
+  '仅 {name}': '{name} only',
+  '仅 {name}（#{id}）': '{name} only (#{id})',
+  '从未接入': 'Never connected',
+  '例如 qwen-max': 'e.g. qwen-max',
+  '停用': 'Disable',
+  '创建第一个成员，开始分配角色': 'Create the first member and start assigning roles',
+  '加载失败：{src}': 'Failed to load: {src}',
+  '升级会在这里打开 {provider} 的收银台完成订阅，可随时取消；发票与税费由支付平台处理。':
+    'Upgrading opens {provider} checkout here to complete the subscription; you can cancel any time. Invoices and taxes are handled by the payment provider.',
+  '启用': 'Enable',
+  '在线支付未开通': 'Online payment is not enabled',
+  '如果 {email} 是本系统的账号，重置链接已经发出，{minutes} 分钟内有效。':
+    'If {email} belongs to an account on this system, a reset link has been sent and stays valid for {minutes} minutes.',
+  '完成': 'Done',
+  '将覆盖{target}的现有策略，确认应用？': 'This overwrites the existing policy for {target}. Apply?',
+  '峰值': 'Peak',
+  '已切换到 {plan}（Agent 限额 {limit}）': 'Switched to {plan} (agent limit {limit})',
+  '已删除 {name}': 'Deleted {name}',
+  '已回滚到 v{version}（原内容保留在历史里）':
+    'Rolled back to v{version} (the previous content stays in history)',
+  '已推送（{date}，告警 {n} 条）': 'Sent ({date}, {n} alerts)',
+  '已配置': 'Configured',
+  '已配置 {hint}，留空保持不变': 'Configured {hint}; leave blank to keep it',
+  '我知道了': 'Got it',
+  '换个关键词试试': 'Try a different keyword',
+  '接入 Agent': 'Connect an agent',
+  '收起': 'Collapse',
+  '收起 JSON': 'Hide JSON',
+  '收银台初始化失败：{error}': 'Checkout failed to initialise: {error}',
+  '明细': 'Details',
+  '未配置': 'Not configured',
+  '本实例没有配置邮件服务，链接写在服务端日志里——请联系部署这台机器的人用 kubectl logs 取走。':
+    'This instance has no mail service configured; the link is in the server log — ask whoever deployed this machine to fetch it with kubectl logs.',
+  '本部署未启用计费（自托管）': 'Billing is disabled in this deployment (self-hosted)',
+  '查看和修改 JSON': 'View and edit the JSON',
+  '正在读取策略': 'Loading policies',
+  '正在读取订阅状态': 'Loading subscription status',
+  '没收到的话，检查一下垃圾邮件，或稍后重新申请。':
+    'If it does not arrive, check your spam folder or request another one later.',
+  '没有匹配的用户': 'No matching users',
+  '添加 Agent': 'Add an agent',
+  '相邻调用平均间隔最长: {gap}': 'Longest average gap between calls: {gap}',
+  '确认回滚到 v{version}？网关行为将随之改变。':
+    'Roll back to v{version}? Gateway behaviour changes with it.',
+  '租户模板': 'tenant template',
+  '策略 JSON 不是合法 JSON：{error}': 'Policy JSON is not valid JSON: {error}',
+  '策略列表': 'Policy list',
+  '策略历史 · {name}': 'Policy history · {name}',
+  '累计：调用 {total} · 控制平面 {control}': 'Total: {total} calls · {control} control-plane events',
+  '续费日期 {date}': 'Renews {date}',
+  '编辑策略': 'Edit policy',
+  '该 Agent': 'this agent',
+  '近 7 天：调用 {recent} · 控制平面 {control}':
+    'Last 7 days: {recent} calls · {control} control-plane events',
+  '还没有审计数据——先注册 Agent 并跑 pod sync':
+    'No audit data yet — register an agent and run pod sync',
+  '还没有成员': 'No members yet',
+  '（无备注）': '(no note)',
+  '（以下为中文正式版本；英文译本可向我们索取，正式发布前经法律审核。）':
+    '(The Chinese text below is the authoritative version; an English translation is available on request — both will be legally reviewed before the public release.)',
 }

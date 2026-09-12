@@ -1,7 +1,7 @@
 <template>
   <div class="user-menu">
     <LangSwitch />
-    <button class="um-icon" :title="isDark ? '切换到亮色' : '切换到暗色'" @click="toggleTheme">
+    <button class="um-icon" :title="isDark ? t('切换到亮色') : t('切换到暗色')" @click="toggleTheme">
       <component :is="isDark ? Sun : Moon" :size="17" :stroke-width="1.8" />
     </button>
     <el-dropdown trigger="click" @command="onCommand">

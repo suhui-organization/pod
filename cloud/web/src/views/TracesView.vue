@@ -31,7 +31,7 @@
       <div class="stat"><b>{{ fmtDur(stats.durationTotal) }}</b><span>{{ tr('累计耗时') }}</span></div>
       <div class="stat"><b>{{ fmtDur(stats.avgTask) }}</b><span>{{ tr('平均/任务') }}</span></div>
       <div class="stat"><b>{{ fmtDur(stats.maxTask.sec) }}</b><span>{{ tr('最长任务 ·') }} {{ stats.maxTask.agent }}</span></div>
-      <el-tooltip :content="`相邻调用平均间隔最长: ${fmtDur(stats.maxGap)}`">
+      <el-tooltip :content="tr('相邻调用平均间隔最长: {gap}', { gap: fmtDur(stats.maxGap) })">
         <div class="stat"><b>{{ fmtDur(stats.maxGap) }}</b><span>{{ tr('最长空闲间隔') }}</span></div>
       </el-tooltip>
     </div>
@@ -63,7 +63,7 @@
               <el-tag v-else-if="t.decisions.approve" size="small" type="warning" effect="plain">{{ tr('含审批') }}</el-tag>
               <el-tag v-else size="small" type="success" effect="plain">{{ tr('全部放行') }}</el-tag>
               <el-button link size="small" type="primary" class="cmp-btn" @click.stop="toggleCompare(t.id)">
-                {{ compareIds.includes(t.id) ? '✓ 对比中' : '⧉ 对比' }}
+                {{ compareIds.includes(t.id) ? tr('✓ 对比中') : tr('⧉ 对比') }}
               </el-button>
             </div>
           </div>
@@ -263,7 +263,7 @@ function computeLanes(tasks: Task[]): { lanes: Lane[]; height: number; labels: A
     const rowMap = new Map<string, { x: number; y: number; i: number }>()
     servers.forEach((srv, i) => rowMap.set(srv, { x: START_X, y: y + BLOCK_HEAD + 6 + i * ROW_H, i }))
     const rootY = y + BLOCK_HEAD - 34
-    labels.push({ text: `${task.agent} · ${fmtDT(task.started_at).slice(5, 16)} → ${fmtTime(task.ended_at)} · ${task.call_count} 调用 · ${fmtDur(task.duration_seconds)}`, x: 8, y: y + 8, bold: true })
+    labels.push({ text: tr('{agent} · {start} → {end} · {calls} 调用 · {duration}', { agent: task.agent, start: fmtDT(task.started_at).slice(5, 16), end: fmtTime(task.ended_at), calls: task.call_count, duration: fmtDur(task.duration_seconds) }), x: 8, y: y + 8, bold: true })
     servers.forEach((srv, i) => labels.push({ text: srv, x: 10, y: y + BLOCK_HEAD + 14 + i * ROW_H }))
     lanes.push({ task, servers, rows: rowMap, root: { x: START_X, y: rootY }, height: blockH, step })
     y += blockH
@@ -315,7 +315,7 @@ function graphOption(lanes: { lanes: Lane[]; height: number; labels: Array<{ tex
       confine: true,
       formatter: (p: any) => {
         if (!p.data) return ''
-        if (p.data.id.endsWith('#root')) return `<b>${p.data.name}</b><br/>任务源头`
+        if (p.data.id.endsWith('#root')) return `<b>${p.data.name}</b><br/>${tr('任务源头')}`
         const c = p.data.call as Call
         const t = tasks.value.find((x) => x.id === p.data.taskId)
         const rows: Array<[string, string]> = [

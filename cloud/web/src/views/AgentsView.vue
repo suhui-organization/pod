@@ -58,7 +58,7 @@
           <div class="span2">
             <dt>{{ t('最近同步') }}</dt>
             <dd>
-              {{ a.last_seen_at ? new Date(a.last_seen_at).toLocaleString('zh-CN') : '从未接入' }}
+              {{ a.last_seen_at ? new Date(a.last_seen_at).toLocaleString(locale) : t('从未接入') }}
             </dd>
           </div>
         </dl>
@@ -113,7 +113,7 @@
     <!-- 一个弹窗走完：填名称 → 拿命令 → 自动等它上线 -->
     <el-dialog
       v-model="dialogOpen"
-      :title="phase === 'form' ? '添加 Agent' : '接入 Agent'"
+      :title="phase === 'form' ? t('添加 Agent') : t('接入 Agent')"
       width="640px"
       @closed="stopWaiting"
     >
@@ -176,7 +176,7 @@
       <template #footer>
         <el-button v-if="phase === 'form'" @click="dialogOpen = false">{{ t('取消') }}</el-button>
         <el-button type="primary" @click="dialogOpen = false">
-          {{ connected ? '完成' : '我知道了' }}
+          {{ connected ? t('完成') : t('我知道了') }}
         </el-button>
       </template>
     </el-dialog>
@@ -298,7 +298,7 @@ async function startConnect(agent: AgentItem) {
 async function remove(agent: AgentItem) {
   try {
     await api.removeAgent(agent.id)
-    ElMessage.success(`已删除 ${agent.name}`)
+    ElMessage.success(t('已删除 {name}', { name: agent.name }))
     await load()
   } catch (e) {
     ElMessage.error(`${parseApiError(e)}（${hintFor(e)}）`)
