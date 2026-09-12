@@ -53,6 +53,11 @@ export interface AgentItem {
   status: 'online' | 'offline'
   last_seen_at: string | null
   event_count: number
+  /** 熔断期望状态：web 下发，机器下次 pod sync 收敛到本地 */
+  quarantined: boolean
+  quarantine_reason: string
+  quarantined_at: string | null
+  quarantined_by: string
   created_at: string
 }
 
@@ -178,4 +183,37 @@ export interface LlmTestResult {
   latency_ms: number
   error: string
   sample: string
+}
+
+/** 规则包（订阅式加固的分发单元）：云端存的是已签名整包，客户端拉下去自己验签 */
+export interface RulePackItem {
+  id: number
+  pack_version: string
+  issued_by: string
+  note: string
+  active: boolean
+  created_at: string
+  /** 整包原文（含 signature） */
+  pack_json: string
+}
+
+/** 加固报告（pod harden 的交付物）：列表项不带正文 */
+export interface HardenReportItem {
+  id: number
+  agent_id: number
+  agent_name?: string
+  generated_at: string
+  uploaded_at: string
+  high: number
+  medium: number
+  low: number
+  mcp_servers: number
+  exposed_secrets: number
+  broken_chains: number
+  rules_version: string
+}
+
+export interface HardenReportDetail extends HardenReportItem {
+  report_md: string
+  findings_json: string
 }

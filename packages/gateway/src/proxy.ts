@@ -26,7 +26,11 @@ import {
   DEFAULT_RULES,
   evaluate,
   findHighEntropySecrets,
+  severityRank,
+  type Decision,
   type EntropyFinding,
+  type EvalResult,
+  type InjectionSignal,
   type Policy,
   type RuleSet,
   type Severity,
@@ -52,26 +56,37 @@ function extractResponseText(result: CallToolResult): string {
     .join('\n');
 }
 
-/** 轻量注入信号模式（P1，T1）：工具响应含"忽略之前指令"类文本时标记审计（不阻断）。 */
-const INJECTION_PATTERNS: RegExp[] = [
-  /ignore (all )?(previous|prior|above|earlier) (instructions|prompts|messages|text)/i,
-  /disregard (all )?(previous|prior|above) (instructions|prompts)/i,
-  /you are now (an? )?(autonomous|unrestricted|jailbroken)/i,
-];
+export interface InjectionHit {
+  id: string;
+  severity: Severity;
+  why?: string;
+}
 
 /**
- * 检测注入信号；命中返回 true（审计标记用，不阻断）。
- * 信号词表来自用户规则（rules.injection.signals）；传了 signals 就按用户的来
- * ——包括传空数组（= 关掉这项）。不传时退回内置正则。
+ * 检测注入信号（T1）。命中返回**置信级别最高**的那条，不命中返回 null。
+ *
+ * 为什么返回级别而不是布尔：同一段文本可能同时命中 `ignore previous`（high，
+ * 该拦）和 `system prompt`（low，正常文档里到处都是，不该拦）。取最高级别，
+ * 让"该不该阻断"由规则里的 blockAtOrAbove 一刀切，而不是由匹配顺序决定。
+ *
+ * 词表来自用户规则（rules.injection.signals），传空数组即关闭这项。
  */
-export function matchInjectionSignal(result: CallToolResult, signals?: readonly string[]): boolean {
+export function matchInjectionSignal(
+  result: CallToolResult,
+  signals: readonly InjectionSignal[] = DEFAULT_RULES.injection.signals,
+): InjectionHit | null {
   const text = extractResponseText(result);
-  if (!text) return false;
-  if (signals !== undefined) {
-    const lower = text.toLowerCase();
-    return signals.some((s) => s.trim() !== '' && lower.includes(s.toLowerCase()));
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  let best: InjectionHit | null = null;
+  for (const signal of signals) {
+    const needle = typeof signal?.text === 'string' ? signal.text.trim() : '';
+    if (!needle || !lower.includes(needle.toLowerCase())) continue;
+    if (!best || severityRank(signal.severity) > severityRank(best.severity)) {
+      best = { id: signal.id, severity: signal.severity, ...(signal.why ? { why: signal.why } : {}) };
+    }
   }
-  return INJECTION_PATTERNS.some((re) => re.test(text));
+  return best;
 }
 
 // ---------- 控制平面加固：规则驱动的运行时防护 ----------
@@ -163,7 +178,8 @@ export interface MetadataHit {
 
 /**
  * 工具元数据验证（G6）：工具描述是 server 可控的自由文本，
- * 命中用户规则即记账——默认只记不拦（拦会误伤正常 server，交用户用规则决定）。
+ * 命中用户规则即记账；达到 `toolMetadata.blockAtOrAbove` 的工具会被调用方
+ * 从 tools/list 里摘除（拦不拦、拦到哪一级，都由规则决定）。
  */
 export function matchToolMetadata(
   rules: RuleSet,
@@ -234,6 +250,43 @@ export function checkEgress(rules: RuleSet, args: unknown): EgressVerdict {
     }
   }
   return strictest;
+}
+
+/**
+ * 静态判定流水线（纯函数）：策略求值 → egress 合并。
+ *
+ * 为什么要抽出来：`pod redteam` 需要回答"这个调用会不会被挡住"，它必须和真实网关
+ * 走**同一条**流水线。两边各拼一遍判定，迟早漂移——而漂移的后果是红队报告"挡住了"
+ * 但网关实际放行，那比没有红队更糟。
+ *
+ * 不在范围内的一层：熔断（`checkQuarantine`）是**运行时状态**而非策略判定，
+ * 被熔断的 agent 一律 deny，与策略无关，所以不吃进这个纯函数。
+ */
+export function decideCall(input: {
+  policy: Policy;
+  rules: RuleSet;
+  agent: string;
+  server: string;
+  tool: string;
+  args?: unknown;
+}): { decision: Decision; reason: string; matched: EvalResult['matched']; egress: EgressVerdict } {
+  const verdict = evaluate(input.policy, {
+    agent: input.agent,
+    server: input.server,
+    tool: input.tool,
+    args: input.args,
+  });
+  const egress = checkEgress(input.rules, input.args);
+  let decision: Decision = verdict.decision;
+  let reason = verdict.reason;
+  if (egress.decision === 'deny') {
+    decision = 'deny';
+    reason = `${egress.reason}（策略判定：${verdict.reason}）`;
+  } else if (egress.decision === 'approve' && decision === 'allow') {
+    decision = 'approve';
+    reason = egress.reason ?? reason;
+  }
+  return { decision, reason, matched: verdict.matched, egress };
 }
 
 /**
@@ -368,7 +421,14 @@ export function createProxyServer(opts: ProxyOptions): Server {
     const result = await client.listTools();
     // G6：工具元数据验证——描述是 server 可控的自由文本，命中用户规则即记账
     const metadataHits = matchToolMetadata(rules, result.tools);
+    // G6 分级阻断：达到阈值的工具从 tools/list 摘除——攻击面是"描述"这段自由文本，
+    // 把它从 agent 眼前拿走就切断了影响路径；工具本身仍受策略管辖（硬报名字调用照样被判）。
+    const withheld = new Set<string>();
     for (const hit of metadataHits) {
+      const blocks =
+        rules.toolMetadata.block === true &&
+        severityRank(hit.severity) >= severityRank(rules.toolMetadata.blockAtOrAbove);
+      if (blocks) withheld.add(hit.tool);
       audit.append({
         kind: 'metadata',
         agent,
@@ -376,19 +436,21 @@ export function createProxyServer(opts: ProxyOptions): Server {
         server: serverName,
         tool: hit.tool,
         argsHash: hashValue({ rule: hit.ruleId }),
-        decision: 'allow',
-        outcome: 'ok',
-        reason: `tool_metadata_suspect: ${hit.ruleId}${hit.why ? ` — ${hit.why}` : ''}`,
+        decision: blocks ? 'deny' : 'allow',
+        outcome: blocks ? 'blocked' : 'ok',
+        reason: blocks
+          ? `tool_metadata_blocked: ${hit.ruleId} (${hit.severity} ≥ ${rules.toolMetadata.blockAtOrAbove}) — 已从 tools/list 摘除`
+          : `tool_metadata_suspect: ${hit.ruleId} (${hit.severity})${hit.why ? ` — ${hit.why}` : ''}`,
         policyVersion: policy.version,
       });
     }
-    return { tools: result.tools as Tool[] };
+    if (withheld.size === 0) return { tools: result.tools as Tool[] };
+    return { tools: (result.tools as Tool[]).filter((t) => !withheld.has(t.name ?? '(unnamed)')) };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const ctx = { agent, server: serverName, tool: name, args };
-    const verdict = evaluate(policy, ctx);
 
     const blocked = (
       decision: 'deny' | 'approve',
@@ -463,15 +525,51 @@ export function createProxyServer(opts: ProxyOptions): Server {
         throw err;
       }
       // G4：注入信号词表来自用户规则（rules.injection.signals）
+      // 分级阻断：只有「置信级别 ≥ blockAtOrAbove」才拦（默认 high）。
+      // 标记只是"知道发生了"，而 T1 的伤害是被污染的内容回到 agent 上下文
+      // 并影响它下一步的决策——那一步必须能拦住；但 `system prompt` 这类
+      // 低置信词天天出现在正常文档里，按 high 处理等于随机打断工作。
       const injection = matchInjectionSignal(result, rules.injection.signals);
       if (injection) {
+        const blocks =
+          rules.injection.block === true &&
+          severityRank(injection.severity) >= severityRank(rules.injection.blockAtOrAbove);
+        if (blocks) {
+          audit.append({
+            ...ctx,
+            session: 'cli-v0',
+            argsHash: hashValue(args),
+            decision,
+            outcome: 'blocked',
+            reason:
+              `injection_blocked: output matched signal "${injection.id}" ` +
+              `(${injection.severity} ≥ ${rules.injection.blockAtOrAbove}) (T1)`,
+            approver: extra?.approver,
+            snapshot: snapshotId,
+            outputHash: hashValue(result.content),
+            policyVersion: policy.version,
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `pod: blocked — tool output matched injection signal "${injection.id}" ` +
+                  `(${injection.severity}); content withheld (rules.injection.block)`,
+              },
+            ],
+            isError: true,
+          };
+        }
         audit.append({
           ...ctx,
           session: 'cli-v0',
           argsHash: hashValue(args),
           decision,
           outcome: 'ok',
-          reason: 'injection_suspect: output contains prompt-override language (T1)',
+          reason:
+            `injection_suspect: output matched signal "${injection.id}" (${injection.severity})` +
+            `${injection.why ? ` — ${injection.why}` : ''} (T1)`,
           approver: extra?.approver,
           snapshot: snapshotId,
           outputHash: hashValue(result.content),
@@ -558,17 +656,11 @@ export function createProxyServer(opts: ProxyOptions): Server {
       }
     }
 
-    // G15 egress：只对参数里出现的 URL 主机判定；deny > approve > allow
-    const egress = checkEgress(rules, args);
-    let decision: 'allow' | 'deny' | 'approve' = verdict.decision;
-    let reason = verdict.reason;
-    if (egress.decision === 'deny') {
-      decision = 'deny';
-      reason = `${egress.reason}（策略判定：${verdict.reason}）`;
-    } else if (egress.decision === 'approve' && decision === 'allow') {
-      decision = 'approve';
-      reason = egress.reason ?? reason;
-    }
+    // 策略求值 + G15 egress 合并，与 pod redteam 共用同一条流水线（decideCall）
+    const decisions = decideCall({ policy, rules, agent, server: serverName, tool: name, args });
+    const egress = decisions.egress;
+    const decision: 'allow' | 'deny' | 'approve' = decisions.decision;
+    const reason = decisions.reason;
 
     if (recordOnly) {
       // 只录不拦：求值结果作为 decision 标注写入审计，但一律放行

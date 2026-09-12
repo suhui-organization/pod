@@ -218,6 +218,33 @@ def _notify_alerts(db: Session, agent: Agent, new_alerts: list) -> None:
         pass
 
 
+@router.get("/quarantine")
+def get_quarantine(db: Session = Depends(get_db), x_sync_token: str = Header(default="")):
+    """分发面：机器 `pod sync` 拉取云端期望的熔断状态。
+
+    返回的是**期望状态**而不是一次性命令：命令在机器离线时就永远丢了，
+    期望状态是幂等的——离线一周的机器上线后一次拉取就收敛到正确状态。
+
+    解除由机器侧执行，且只清理 `by=cloud` 的条目：人工在机器上手工加的熔断，
+    云端（或拿到 token 的人）解不掉——那正是攻击者想要的能力。
+    """
+    if not x_sync_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少 X-Sync-Token")
+    from hashlib import sha256
+
+    token_hash = sha256(x_sync_token.encode("utf-8")).hexdigest()
+    agent = db.query(Agent).filter(Agent.sync_token_hash == token_hash).first()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="sync token 无效")
+    return {
+        "agent_id": agent.id,
+        "quarantined": bool(agent.quarantined),
+        "reason": agent.quarantine_reason or "",
+        "since": agent.quarantined_at.isoformat() if agent.quarantined_at else "",
+        "by": agent.quarantined_by or "",
+    }
+
+
 @router.get("/policies")
 def get_agent_policies(
     db: Session = Depends(get_db),

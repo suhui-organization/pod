@@ -50,6 +50,9 @@ importers:
       '@podsec/posture':
         specifier: workspace:*
         version: link:../../packages/posture
+      '@podsec/redteam':
+        specifier: workspace:*
+        version: link:../../packages/redteam
       '@podsec/scan':
         specifier: workspace:*
         version: link:../../packages/scan
@@ -160,6 +163,15 @@ importers:
       '@podsec/scan':
         specifier: workspace:*
         version: link:../scan
+
+  packages/redteam:
+    dependencies:
+      '@podsec/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+      '@podsec/policy':
+        specifier: workspace:*
+        version: link:../policy
 
   packages/scan:
     dependencies:

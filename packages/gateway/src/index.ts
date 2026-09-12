@@ -2,6 +2,7 @@ export {
   createProxyServer,
   createStdioProxy,
   createHttpProxy,
+  decideCall,
   type ProxyOptions,
   type StdioProxyOptions,
   type HttpProxyOptions,

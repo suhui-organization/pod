@@ -10,11 +10,12 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
 import type { Policy } from '@podsec/policy';
 import { verifyPolicy } from './policy-sign.js';
 import { t } from '@podsec/i18n';
+import { quarantineAdd, quarantineRemove, readQuarantineFile } from './control-plane.js';
 
 export interface CloudAgentBinding {
   /** 本地审计文件的 agent 字段（"*" = 全部） */
@@ -27,6 +28,14 @@ export interface CloudConfig {
   api_url: string;
   /** 策略签名公钥（Ed25519 PEM）；配置后 pod pull-policy 会验签 */
   policy_public_key?: string;
+  /**
+   * 规则包签名公钥（Ed25519 PEM）；`pod rules pull --from-cloud` 用它验签。
+   *
+   * 为什么必须放在这个文件里、而不是从云端响应里拿：验签的公钥不能和包走同一条通道。
+   * 如果公钥也从云端取，中间人换包时把公钥一起换掉，验签就成了摆设。
+   * （没配时回落 policy_public_key——同一把签发密钥，通常没必要分开。）
+   */
+  rules_public_key?: string;
   /** 旧格式：单 agent（agent_id/sync_token） */
   agent_id?: number;
   sync_token?: string;
@@ -47,6 +56,14 @@ export interface SyncResult {
    * 停止上云。失败的链**不推进游标**，修好后重跑会从原处重试。
    */
   failures: Array<{ agent_id: number; server?: string; message: string }>;
+  /**
+   * 每个绑定本次从云端收敛的熔断状态。
+   *
+   * 放在 sync 里而不是单独一条命令：`pod sync` 本来就挂在定时任务上，
+   * 熔断下发才谈得上"出事时不用等人 SSH 上去"。默认不配定时任务时它也不会自己跑——
+   * 这一点写进了文档，不假装是实时的。
+   */
+  quarantine: Array<{ agent_id: number } & QuarantineSyncResult>;
 }
 
 export function loadCloudConfig(configPath?: string): CloudConfig {
@@ -70,6 +87,7 @@ export function loadCloudConfig(configPath?: string): CloudConfig {
       api_url: raw.api_url.replace(/\/+$/, ''),
       agents: raw.agents,
       policy_public_key: raw.policy_public_key,
+      rules_public_key: raw.rules_public_key,
     };
   }
   if (!raw.agent_id || !raw.sync_token) {
@@ -80,6 +98,7 @@ export function loadCloudConfig(configPath?: string): CloudConfig {
     agent_id: raw.agent_id,
     sync_token: raw.sync_token,
     policy_public_key: raw.policy_public_key,
+    rules_public_key: raw.rules_public_key,
   };
 }
 
@@ -294,6 +313,146 @@ async function pushAll(
   return synced;
 }
 
+/** 云端下发的熔断条目用这个标记来源：同步只清理自己下的，人工下的解不掉 */
+export const QUARANTINE_BY_CLOUD = 'cloud';
+
+export interface HardenUploadPayload {
+  generated_at: string;
+  rules_version: string;
+  high: number;
+  medium: number;
+  low: number;
+  mcp_servers: number;
+  exposed_secrets: number;
+  broken_chains: number;
+  /** 报告正文（交付物，已脱敏） */
+  report_md: string;
+  /** 机器可读发现（交付物，已脱敏；密钥只留掩码） */
+  findings_json: string;
+}
+
+/**
+ * 把 `pod harden` 的交付物上传到云端。
+ *
+ * **只传交付物**：report.md 与 findings.json 客户本来就要给人看；
+ * evidence.json（原始审计链）不传——它是"本地优先"承诺的核心。
+ * 调用方负责决定"要不要传"（`pod harden --upload` 是显式动作）。
+ */
+export async function uploadHardenReport(
+  cfg: { api_url: string; sync_token: string },
+  payload: HardenUploadPayload,
+): Promise<{ id: number }> {
+  const resp = await fetch(`${cfg.api_url}/api/v1/harden/reports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': cfg.sync_token },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '');
+    throw new Error(`上传加固报告失败：HTTP ${resp.status} ${detail.slice(0, 300)}`);
+  }
+  const body = (await resp.json()) as { report?: { id?: number } };
+  return { id: body.report?.id ?? 0 };
+}
+
+export interface QuarantineSyncResult {
+  /** 云端期望状态；undefined = 没拉到（**不能**当成"未熔断"） */
+  desired?: boolean;
+  applied: string[];
+  released: string[];
+  /** 拉取失败：什么都没动。失败是"保持现状"，不是"解除" */
+  error?: string;
+}
+
+/** 列出本机的本地 agent 名（审计目录的顶层 *.jsonl 与子目录名） */
+export function listLocalAgents(auditDir: string): string[] {
+  if (!existsSync(auditDir)) return [];
+  const out = new Set<string>();
+  for (const entry of readdirSync(auditDir)) {
+    if (entry.endsWith('.jsonl')) out.add(entry.replace(/\.jsonl$/, ''));
+    else if (!entry.startsWith('.')) out.add(entry);
+  }
+  for (const name of Object.keys(readQuarantineFileSafe(quarantinePathOf(auditDir)))) out.add(name);
+  return [...out].sort();
+}
+
+/** quarantine.json 的默认位置与审计目录同级（~/.pod/quarantine.json） */
+function quarantinePathOf(auditDir: string): string {
+  return join(dirname(auditDir), 'quarantine.json');
+}
+
+function readQuarantineFileSafe(file: string): Record<string, unknown> {
+  try {
+    return readQuarantineFile(file).agents;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 把云端期望的熔断状态收敛到本地 `quarantine.json`。
+ *
+ * 三条安全规则，缺一不可：
+ * 1. **拉取失败什么都不做**。网络问题不能等于"解除熔断"——那是 fail-open，
+ *    攻击者只要断掉机器的出网就能解除云端下的熔断。
+ * 2. **不接管本地条目**。人工在机器上手工加的熔断（by=cli-user）不会被云端覆盖成自己的，
+ *    因此也就不会被后续的云端解除顺手删掉。
+ * 3. **只解除自己下的**。desired=false 时只清理 by=cloud 的条目。
+ *
+ * 收敛（而不是执行一次性命令）是因为机器可能离线：期望状态幂等，上线后一次拉取即对齐。
+ */
+export async function syncQuarantine(opts: {
+  api_url: string;
+  sync_token: string;
+  /** cloud.json 里这条绑定的 local_agent；'*' = 这台机器上的所有本地 agent */
+  local_agent: string;
+  auditDir: string;
+  quarantineFile?: string;
+  now?: Date;
+}): Promise<QuarantineSyncResult> {
+  const file = opts.quarantineFile ?? quarantinePathOf(opts.auditDir);
+  let body: { quarantined?: boolean; reason?: string };
+  try {
+    const resp = await fetch(`${opts.api_url}/api/v1/sync/quarantine`, {
+      headers: { 'X-Sync-Token': opts.sync_token },
+    });
+    if (!resp.ok) {
+      return { applied: [], released: [], error: `拉取熔断状态失败：HTTP ${resp.status}` };
+    }
+    body = (await resp.json()) as typeof body;
+  } catch (err) {
+    return {
+      applied: [],
+      released: [],
+      error: `拉取熔断状态失败：${err instanceof Error ? err.message : String(err)}（保持本地现状）`,
+    };
+  }
+
+  const desired = body.quarantined === true;
+  const reason = (body.reason ?? '').trim() || '云端下发熔断';
+  const state = readQuarantineFile(file);
+  const applied: string[] = [];
+  const released: string[] = [];
+
+  if (desired) {
+    const targets = opts.local_agent === '*' ? listLocalAgents(opts.auditDir) : [opts.local_agent];
+    for (const agent of targets) {
+      // 规则 2：已经有人（人工或其他来源）下了熔断就不动它，避免接管所有权
+      if (state.agents[agent]) continue;
+      quarantineAdd({ file, agent, reason, by: QUARANTINE_BY_CLOUD, auditDir: opts.auditDir, ...(opts.now ? { now: opts.now } : {}) });
+      applied.push(agent);
+    }
+  } else {
+    for (const [agent, entry] of Object.entries(state.agents)) {
+      // 规则 3：只解除云端自己下的
+      if (entry?.by !== QUARANTINE_BY_CLOUD) continue;
+      quarantineRemove({ file, agent, by: QUARANTINE_BY_CLOUD, auditDir: opts.auditDir, ...(opts.now ? { now: opts.now } : {}) });
+      released.push(agent);
+    }
+  }
+  return { desired, applied, released };
+}
+
 export async function runSync(opts: {
   config?: string;
   auditDir: string;
@@ -318,6 +477,7 @@ export async function runSync(opts: {
   const servers: SyncResult['servers'] = [];
   const perBinding: Array<{ agent_id: number; synced: number }> = [];
   const failures: SyncResult['failures'] = [];
+  const quarantine: SyncResult['quarantine'] = [];
   let total = 0;
   for (const b of bindings) {
     const cursor = loadSyncState(b.agent_id);
@@ -369,7 +529,25 @@ export async function runSync(opts: {
     if (ping && ping.status === 401) {
       failures.push({ agent_id: b.agent_id, message: t('sync token 无效（HTTP 401）') });
     }
+    // 收敛云端下发的熔断：拉取失败时 syncQuarantine 自己保证"什么都不动"
+    const q = await syncQuarantine({
+      api_url: cfg.api_url ?? '',
+      sync_token: b.sync_token,
+      local_agent: b.local_agent,
+      auditDir: opts.auditDir,
+    });
+    quarantine.push({ agent_id: b.agent_id, ...q });
+    // 刻意**不算作同步失败**：老版本服务端没有 /sync/quarantine 这个端点，
+    // 把它算进 failures 会让新客户端对着旧服务端每次都退出码 1。
+    // 拉取失败会保留在 quarantine[] 里，由 CLI 打警告——不静默，也不误报同步失败。
     perBinding.push({ agent_id: b.agent_id, synced: boundTotal });
   }
-  return { agent_id: bindings[0]!.agent_id, servers, total_synced: total, bindings: perBinding, failures };
+  return {
+    agent_id: bindings[0]!.agent_id,
+    servers,
+    total_synced: total,
+    bindings: perBinding,
+    failures,
+    quarantine,
+  };
 }

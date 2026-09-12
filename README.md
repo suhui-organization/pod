@@ -144,6 +144,9 @@ Compared with the rest of the market: platform-native sandboxes (Claude Code, Co
 - **Supply-chain gate (T4)** — the gateway validates the declared server source (`command` / `package` / `version`) before startup.
 - **Control-plane posture (`pod posture`)** — same rules, applied to the control plane: lifecycle hooks, frozen config, memory files, MCP package sources, agent identities, delegation chains. Drift is reported against a `pod posture freeze` baseline; `--strict` exits 1.
 - **User-owned rules** — every verdict comes from `~/.pod/rules.json` (or `--rules <file>`): risk patterns, severities, thresholds, trusted sources, egress lists. Code ships defaults; you own the decisions. Invalid rules fail closed.
+- **Hardening audit deliverable (`pod harden`)** — one command runs exposure scan + control-plane posture + least-privilege compilation + evidence export and writes a client-ready report directory (`report.md` / `findings.json` / `policy-draft.json` / `evidence.json` / `manifest.json` with per-file sha256). Local only, never uploaded; secrets appear as masks, never prefixes.
+- **Subscribed rules (`pod rules`)** — rules ship as signed Ed25519 packs (`pack` / `verify` / `apply` / `pull`). Network sources must be verified. A pack that would *loosen* any of your existing rules is refused unless you pass `--allow-relax`, so an "update" can never silently weaken your posture.
+- **Policy red team (`pod redteam`)** — attack scenarios are drilled against your policy through the *same* pure pipeline the gateway uses (`decideCall`), so "blocked" means blocked in production too, and the results are reproducible in CI. A model can *propose* scenarios (`--llm`), but only as data: it never gets a verdict, never gets execution, and never touches an MCP server. Only the capability surface (server/tool names + verdicts) leaves the machine, and every model call is written to the hash chain as `kind=llm-call`.
 - **Agent identities + delegation narrowing (`pod identity` / `pod delegate`)** — ed25519 keypair per agent; delegations are signed hop-by-hop and must narrow capabilities; `--ttl` bounds every hop.
 - **JIT grants (`pod grant`)** — signed, time-boxed, scope-limited tokens; a valid grant satisfies an `approve` decision without a human in the loop, and single-use grants are consumed atomically.
 - **Circuit breaker (`pod quarantine`)** — quarantine an agent and the gateway denies its calls on the next invocation (no restart), with the decision written to the audit chain.
@@ -190,7 +193,10 @@ pod coverage        managed vs. unmanaged MCP servers; --strict exits 1 on drift
 pod export-evidence / verify-evidence   export & verify evidence bundles
 pod lint | doctor   policy lint / environment health
 pod scan            free local security scan (config & bypass checks)
+pod harden          one-shot hardening audit: scan + posture + policy draft + evidence → one report directory
 pod posture [freeze]   control-plane posture: hooks / frozen config / memory / packages / identities / delegations
+pod rules              rule packs for subscribed hardening: show | pack | verify | apply | pull
+pod redteam            attack scenarios vs. your policy (offline built-in library, or --llm generated); exit 1 on a high-severity bypass
 pod identity           per-agent ed25519 identity: init | list | verify
 pod delegate           signed delegation: issue | verify | check (capability narrowing)
 pod grant              JIT capability tokens: issue | list (signed, TTL, scope, single-use)

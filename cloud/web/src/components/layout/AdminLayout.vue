@@ -44,7 +44,8 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  LayoutDashboard, Boxes, BellRing, History, Network, ShieldAlert, ShieldCheck, CreditCard, Users, Settings, UserRound,
+  LayoutDashboard, Boxes, BellRing, History, Network, ShieldAlert, ShieldCheck, PackageCheck, CreditCard, Users, Settings, UserRound,
+  FileCheck2,
 } from 'lucide-vue-next'
 import UserMenu from './UserMenu.vue'
 import { useI18n } from 'vue-i18n'
@@ -64,6 +65,8 @@ const navDefs = [
   { to: '/control-plane', label: '控制平面', icon: ShieldAlert },
   { to: '/traces', label: '调用链', icon: Network },
   { to: '/policies', label: '策略中心', icon: ShieldCheck },
+  { to: '/rules', label: '规则包', icon: PackageCheck },
+  { to: '/harden', label: '加固报告', icon: FileCheck2 },
   // 计费关闭的部署（自托管默认）不显示订阅入口
   { to: '/subscription', label: '订阅', icon: CreditCard, billing: true },
   { to: '/users', label: '成员管理', icon: Users, admin: true },

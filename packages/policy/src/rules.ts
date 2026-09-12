@@ -78,10 +78,48 @@ export interface PackageRules {
 
 export interface MetadataRules {
   suspiciousPatterns: RulePattern[];
+  /**
+   * true = 命中「置信级别 ≥ blockAtOrAbove」的模式时，把该工具**从 tools/list 里摘掉**。
+   *
+   * 摘掉而不是报错：G6 的攻击面是工具**描述**这段自由文本，把描述从 agent 眼前拿走
+   * 就切断了影响路径；工具本身仍受策略管辖（agent 硬报名字调用照样会被策略判定）。
+   */
+  block: boolean;
+  /** 达到这个级别才摘除（默认 high）。低级别只记账 */
+  blockAtOrAbove: Severity;
+}
+
+/**
+ * 注入信号：子串匹配 + 置信级别。
+ *
+ * 刻意不做正则——词表是写给人看的，正则容易写错，而写错的代价是 fail-closed。
+ * 级别决定"只标记"还是"阻断"：`system prompt` 这种词在正常文档里天天出现，
+ * 把它按 high 处理就等于让网关开始随机打断正常工具调用。
+ */
+export interface InjectionSignal {
+  id: string;
+  /** 子串（大小写不敏感） */
+  text: string;
+  severity: Severity;
+  why?: string;
 }
 
 export interface InjectionRules {
-  signals: string[];
+  signals: InjectionSignal[];
+  /**
+   * 主开关（默认 true）：命中「置信级别 ≥ blockAtOrAbove」的信号时阻断该次工具响应。
+   * 只打标是不够的——被污染的内容仍会回到 agent 上下文并影响它下一步的决策。
+   */
+  block: boolean;
+  /** 达到这个级别才阻断（默认 high）。低级别只写 `injection_suspect` 审计 */
+  blockAtOrAbove: Severity;
+}
+
+/** 置信级别的强弱序：high > medium > low。全项目共用一份，避免两处口径漂移 */
+export const SEVERITY_RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2 };
+
+export function severityRank(severity: Severity): number {
+  return SEVERITY_RANK[severity] ?? 0;
 }
 
 export interface EgressRules {
@@ -196,18 +234,34 @@ export const DEFAULT_RULES: RuleSet = {
       { id: 'credential-harvest', re: '\\.env|credentials|id_rsa|\\.ssh', severity: 'high', why: '工具描述指向凭据文件' },
       { id: 'remote-endpoint', re: 'https?://(?!localhost|127\\.0\\.0\\.1)', severity: 'medium', why: '工具描述里带外部端点' },
     ],
+    // 默认摘除 high 命中的工具（描述里的隐藏指令 / 凭据挖掘），medium 只记账
+    block: true,
+    blockAtOrAbove: 'high',
   },
   injection: {
     signals: [
-      'ignore previous',
-      'ignore all previous',
-      '忽略之前',
-      '忽略上面',
-      'system prompt',
-      'you are now',
-      'do not tell the user',
-      'exfiltrate',
+      // ---- high：几乎只出现在攻击里，命中即阻断 ----
+      { id: 'ignore-previous', text: 'ignore previous', severity: 'high', why: '覆盖既有指令的典型句式' },
+      { id: 'ignore-all-previous', text: 'ignore all previous', severity: 'high', why: '同上' },
+      { id: 'ignore-prior', text: 'ignore prior', severity: 'high', why: '同上' },
+      { id: 'disregard-previous', text: 'disregard previous', severity: 'high', why: '同上' },
+      { id: 'disregard-all-previous', text: 'disregard all previous', severity: 'high', why: '同上' },
+      { id: 'zh-ignore-before', text: '忽略之前', severity: 'high', why: '同上（中文）' },
+      { id: 'zh-ignore-above', text: '忽略上面', severity: 'high', why: '同上（中文）' },
+      { id: 'zh-ignore-above2', text: '忽略以上', severity: 'high', why: '同上（中文）' },
+      { id: 'do-not-tell', text: 'do not tell the user', severity: 'high', why: '要求隐瞒本身就是注入目标' },
+      { id: 'zh-do-not-tell', text: '不要告诉用户', severity: 'high', why: '同上（中文）' },
+      { id: 'exfiltrate', text: 'exfiltrate', severity: 'high', why: '直接谈论外泄' },
+      { id: 'zh-send-secret', text: '把密钥发给我', severity: 'high', why: '直白索取密钥' },
+      // ---- medium / low：正常文本里也会出现，默认只标记 ----
+      { id: 'jailbreak', text: 'jailbreak', severity: 'medium', why: '可能是讨论，也可能是攻击' },
+      { id: 'developer-mode', text: 'developer mode', severity: 'medium', why: '同上' },
+      { id: 'system-prompt', text: 'system prompt', severity: 'low', why: '正常文档/讨论里很常见，只标记' },
+      { id: 'you-are-now', text: 'you are now', severity: 'low', why: '正常行文也会出现，只标记' },
     ],
+    block: true,
+    // 只有 high 才阻断：这是"默认打开阻断"能站得住的前提
+    blockAtOrAbove: 'high',
   },
   egress: {
     enabled: false,
@@ -230,7 +284,48 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** 深合并：对象逐键合并，数组整体替换（用户写 [] 就是关掉这项） */
+/**
+ * 把旧版 `signals: ["ignore previous", …]`（字符串数组）归一成分级对象数组。
+ *
+ * 兼容策略是**降级而不是报错**：老写法按低置信（low）处理 → 只标记、不阻断。
+ * 这样升级 pod 不会让老配置突然开始拦工具调用；想让它阻断，补一个 severity 即可。
+ * 反过来"默认按 high 处理"会让所有老配置在升级当天开始误伤——那才是不可接受的方向。
+ */
+export function normalizeInjectionSignals(value: unknown): InjectionSignal[] {
+  if (!Array.isArray(value)) return [];
+  const out: InjectionSignal[] = [];
+  value.forEach((item, i) => {
+    if (typeof item === 'string') {
+      const text = item.trim();
+      if (text) {
+        out.push({
+          id: `legacy-${i + 1}`,
+          text,
+          severity: 'low',
+          why: '旧版字符串写法，按低置信处理（只标记，不阻断）',
+        });
+      }
+      return;
+    }
+    out.push(item as InjectionSignal);
+  });
+  return out;
+}
+
+/** 归一化：目前只有 injection.signals 有历史格式需要兼容 */
+export function normalizeRules(rules: RuleSet): RuleSet {
+  const raw = rules.injection?.signals;
+  if (!Array.isArray(raw) || !raw.some((s) => typeof s === 'string')) return rules;
+  return { ...rules, injection: { ...rules.injection, signals: normalizeInjectionSignals(raw) } };
+}
+
+/**
+ * 深合并：对象逐键合并，数组整体替换（用户写 [] 就是关掉这项）。
+ *
+ * 合并在出口做一次归一化（`normalizeRules`）：这是所有用户配置的必经点
+ * （loadRules / rules pack apply / 测试里的 mergeRules 都走它），
+ * 在这里统一处理比让每个调用方各自兼容老格式更不容易漏。
+ */
 export function mergeRules(base: RuleSet, override: unknown): RuleSet {
   const merge = (b: unknown, o: unknown): unknown => {
     if (o === undefined) return b;
@@ -244,7 +339,7 @@ export function mergeRules(base: RuleSet, override: unknown): RuleSet {
     }
     return o;
   };
-  return merge(base, override) as RuleSet;
+  return normalizeRules(merge(base, override) as RuleSet);
 }
 
 export class RuleSetError extends Error {}
@@ -283,6 +378,33 @@ export function validateRules(rules: RuleSet): void {
   }
   if (!['allow', 'approve', 'deny'].includes(rules.egress.defaultDecision)) {
     throw new RuleSetError('egress.defaultDecision 必须是 allow|approve|deny');
+  }
+  if (typeof rules.injection.block !== 'boolean') {
+    throw new RuleSetError('injection.block 必须是布尔值（true=命中注入信号即阻断该次响应）');
+  }
+  if (!SEVERITIES.includes(rules.injection.blockAtOrAbove)) {
+    throw new RuleSetError(
+      `injection.blockAtOrAbove 必须是 high|medium|low，收到 ${JSON.stringify(rules.injection.blockAtOrAbove)}`,
+    );
+  }
+  if (!Array.isArray(rules.injection.signals)) {
+    throw new RuleSetError('injection.signals 必须是数组（每项 {id, text, severity}，旧版字符串也接受）');
+  }
+  for (const s of rules.injection.signals) {
+    if (!s?.id || typeof s.text !== 'string' || s.text.trim() === '') {
+      throw new RuleSetError('injection.signals 每项需要 id 与非空 text');
+    }
+    if (!SEVERITIES.includes(s.severity)) {
+      throw new RuleSetError(`injection.signals["${s.id}"].severity 必须是 high|medium|low`);
+    }
+  }
+  if (typeof rules.toolMetadata.block !== 'boolean') {
+    throw new RuleSetError('toolMetadata.block 必须是布尔值（true=命中即从 tools/list 摘除该工具）');
+  }
+  if (!SEVERITIES.includes(rules.toolMetadata.blockAtOrAbove)) {
+    throw new RuleSetError(
+      `toolMetadata.blockAtOrAbove 必须是 high|medium|low，收到 ${JSON.stringify(rules.toolMetadata.blockAtOrAbove)}`,
+    );
   }
   if (!Array.isArray(rules.auditHealth.expectations)) {
     throw new RuleSetError('auditHealth.expectations 必须是数组');

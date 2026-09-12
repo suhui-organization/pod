@@ -4,11 +4,14 @@ import type {
   AgentItem,
   AuthResponse,
   DashboardSummary,
+  HardenReportDetail,
+  HardenReportItem,
   LlmSettings,
   LlmTestResult,
   MeProfile,
   PasswordChangeResult,
   PolicyItem,
+  RulePackItem,
   SubscriptionInfo,
   TenantInfo,
   UserItem,
@@ -292,7 +295,38 @@ export const api = {
   testLlm(body: { provider?: string; model?: string; base_url?: string; api_key?: string }): Promise<LlmTestResult> {
     return http.post('/api/v1/settings/llm/test', body).then((r) => r.data)
   },
+
+  // ---- 熔断（web → 机器：期望状态，机器 pod sync 时收敛）----
+  quarantineAgent(agentId: number, reason: string): Promise<{ agent: AgentItem }> {
+    return http.post(`/api/v1/agents/${agentId}/quarantine`, { reason }).then((r) => r.data)
+  },
+  /** 解除熔断：只能解除云端下的那一条，人工在机器上手工加的熔断不受影响 */
+  releaseAgent(agentId: number): Promise<{ agent: AgentItem }> {
+    return http.delete(`/api/v1/agents/${agentId}/quarantine`).then((r) => r.data)
+  },
   gdprReportMarkdown(days = 30): Promise<string> {
     return http.get(`/api/v1/reports/gdpr?days=${days}&format=markdown`, { responseType: 'text' }).then((r) => r.data)
+  },
+
+  // ---- 规则包（订阅式加固：发布 → 机器 `pod rules pull --from-cloud` 拉取）----
+  rulePacks(): Promise<{ packs: RulePackItem[] }> {
+    return http.get('/api/v1/rules/packs').then((r) => r.data)
+  },
+  /** 发布并立即生效（上一版自动置为非生效） */
+  publishRulePack(body: { pack_json: string; note?: string }): Promise<{ pack: RulePackItem }> {
+    return http.post('/api/v1/rules/packs', body).then((r) => r.data)
+  },
+  /** 撤回/回滚到指定版本（保留历史，不删除） */
+  activateRulePack(packId: number): Promise<{ pack: RulePackItem }> {
+    return http.post(`/api/v1/rules/packs/${packId}/activate`, {}).then((r) => r.data)
+  },
+
+  // ---- 加固报告（pod harden --upload 的交付物）----
+  hardenReports(agentId?: number): Promise<{ reports: HardenReportItem[] }> {
+    const q = agentId ? `?agent_id=${agentId}` : ''
+    return http.get(`/api/v1/harden/reports${q}`).then((r) => r.data)
+  },
+  hardenReport(id: number): Promise<{ report: HardenReportDetail }> {
+    return http.get(`/api/v1/harden/reports/${id}`).then((r) => r.data)
   },
 }

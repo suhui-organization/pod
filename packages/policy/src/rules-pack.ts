@@ -19,7 +19,16 @@
  */
 import { stableStringify } from '@podsec/audit';
 import { signDetached, verifyDetached } from './sign.js';
-import { mergeRules, validateRules, type RuleSet, type RuleSetOverride } from './rules.js';
+import {
+  mergeRules,
+  severityRank,
+  validateRules,
+  type RuleSet,
+  type RuleSetOverride,
+  type Severity,
+} from './rules.js';
+
+const SEVERITY_NAMES = new Set(['high', 'medium', 'low']);
 
 export const RULE_PACK_SCHEMA = 'pod-rules-pack/v1';
 
@@ -135,8 +144,6 @@ export interface RuleChange {
   to?: string;
 }
 
-const SEVERITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
-
 /** 数组元素的身份字段：用来把"改了一条"和"删了一条+加了一条"区分开 */
 const ELEMENT_KEY_FIELDS = ['id', 'path', 'agent', 'name'] as const;
 
@@ -158,9 +165,11 @@ function brief(value: unknown): string | undefined {
 /** 方向判定：只对**语义明确**的字段下结论，其余标 unknown 交给人看 */
 function classifyChange(where: string, from: unknown, to: unknown): ChangeImpact {
   if (where.endsWith('severity') && typeof from === 'string' && typeof to === 'string') {
-    const a = SEVERITY_RANK[from];
-    const b = SEVERITY_RANK[to];
-    if (a !== undefined && b !== undefined) return b > a ? 'tighten' : b < a ? 'relax' : 'unknown';
+    if (SEVERITY_NAMES.has(from) && SEVERITY_NAMES.has(to)) {
+      const a = severityRank(from as Severity);
+      const b = severityRank(to as Severity);
+      return b > a ? 'tighten' : b < a ? 'relax' : 'unknown';
+    }
   }
   // 布尔：true→false 是关掉某项检查，一定是放宽
   if (typeof from === 'boolean' && typeof to === 'boolean') {
@@ -272,9 +281,64 @@ export function detectRelaxations(changes: RuleChange[]): RuleChange[] {
   return changes.filter((c) => c.impact === 'relax');
 }
 
+// ---------- 收紧守卫：放宽守卫的反方向 ----------
+
+/** 短于这个长度的子串信号会匹配一切，是笔误而不是安全策略 */
+export const MIN_SIGNAL_TEXT_LENGTH = 3;
+
+export interface BlockingExpansion {
+  /** 本次新增的、达到阻断级别的信号 id */
+  newBlockingSignals: string[];
+  /** 短到会匹配一切的新信号 */
+  tooShort: Array<{ id: string; text: string }>;
+}
+
+/**
+ * 检出"阻断面扩张"：本次包新增了多少条会真的拦东西的信号。
+ *
+ * 为什么放宽守卫不够：它只看"削弱"。而反方向的攻击同样成立——往订阅通道里
+ * 推一条文本长度为 1 的信号（或一批把正常输出也命中的模式），就能让**所有**
+ * 机器的工具输出被大面积拦下。这不是"更安全"，这是可用性攻击。
+ * 更常见的来源其实是自己发错包：词表里手滑写个 "."，效果与攻击一样。
+ */
+export function detectBlockingExpansion(base: RuleSet, next: RuleSet): BlockingExpansion {
+  const before = new Set(base.injection.signals.map((s) => s.id));
+  const threshold = severityRank(next.injection.blockAtOrAbove);
+  const newBlockingSignals: string[] = [];
+  const tooShort: Array<{ id: string; text: string }> = [];
+  for (const signal of next.injection.signals) {
+    if (before.has(signal.id)) continue;
+    if (severityRank(signal.severity) >= threshold) newBlockingSignals.push(signal.id);
+    if (signal.text.trim().length < MIN_SIGNAL_TEXT_LENGTH) tooShort.push({ id: signal.id, text: signal.text });
+  }
+  return { newBlockingSignals, tooShort };
+}
+
+/**
+ * 一次订阅包最多允许新增多少条"会阻断"的信号？
+ *
+ * TODO(walden) 这 5–10 行留给你——它是一个纯产品判断，没有唯一正确答案：
+ *   · 定得太小：正常的批量规则更新（比如一次补 10 条新注入词）会被自己人拒掉，
+ *     订阅的价值打折，用户会开始用 --allow-expansion 绕过，守卫名存实亡；
+ *   · 定得太大：一次误发包（或云端被攻破）就能让所有客户的工具输出大面积被拦，
+ *     而本地验签是"通过"的——签名只证明来源，不证明这份规则合理。
+ * 换个角度：这个数就是"你愿意让一次推送造成多大影响面"的上限。
+ *
+ * 现状默认：现有阻断级信号的 20%，下限 3 条。
+ * 备选思路：改成"每日累计新增上限"（需要本地记状态），比"单次上限"更抗多包慢速推。
+ */
+export function tighteningBudget(current: RuleSet): number {
+  const blocking = current.injection.signals.filter(
+    (signal) => severityRank(signal.severity) >= severityRank(current.injection.blockAtOrAbove),
+  ).length;
+  return Math.max(3, Math.ceil(blocking * 0.2));
+}
+
 export interface ApplyRulePackOptions {
   /** 默认 false：包一旦放宽任何已有规则就拒绝应用（fail-closed） */
   allowRelax?: boolean;
+  /** 默认 false：包一次把阻断面扩得过大（或含会匹配一切的短信号）时拒绝应用 */
+  allowExpansion?: boolean;
 }
 
 export interface ApplyRulePackResult {
@@ -313,6 +377,27 @@ export function applyRulePack(
     throw new RulePackError(
       `规则包 ${pack.packVersion} 放宽了 ${relaxations.length} 项已有规则，已拒绝应用：\n${preview}\n` +
         `若确认这是有意的，加 --allow-relax 重跑。`,
+    );
+  }
+
+  // 反方向守卫：不能悄悄削弱你，也不能一次把阻断面炸开（见 detectBlockingExpansion 注释）
+  const expansion = detectBlockingExpansion(base, merged);
+  if (expansion.tooShort.length > 0 && opts.allowExpansion !== true) {
+    const preview = expansion.tooShort
+      .slice(0, 5)
+      .map((s) => `  - "${s.text}"（${s.id}）`)
+      .join('\n');
+    throw new RulePackError(
+      `规则包 ${pack.packVersion} 新增了会匹配一切的过短信号（子串 < ${MIN_SIGNAL_TEXT_LENGTH} 字符），已拒绝应用：\n${preview}\n` +
+        `这类信号会把正常工具输出也拦下——确认无误再加 --allow-expansion 重跑。`,
+    );
+  }
+  const budget = tighteningBudget(base);
+  if (expansion.newBlockingSignals.length > budget && opts.allowExpansion !== true) {
+    throw new RulePackError(
+      `规则包 ${pack.packVersion} 一次新增 ${expansion.newBlockingSignals.length} 条会阻断的信号，` +
+        `超过本次上限 ${budget}（上限见 rules-pack.ts 的 tighteningBudget）。\n` +
+        `这不是"包有问题"的断言，而是让一次推送的影响面可控；确认无误再加 --allow-expansion 重跑。`,
     );
   }
   return { rules: merged, changes, relaxations };

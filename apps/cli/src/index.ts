@@ -45,13 +45,15 @@ import {
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { diffPolicies, draftPolicy, mostCommonAgent, renderPolicyDiff } from './policy-draft.js';
 import { runHarden } from './harden.js';
+import { runRedteam } from './redteam.js';
+import { renderRedteamReport } from '@podsec/redteam';
 import { signPolicy, verifyPolicy } from './policy-sign.js';
 import { applyOnboard, computeCoverage, discoverTargets, revertOnboard } from './onboard.js';
 import { notifyApproval } from './notify.js';
 import { watchPending } from './watch.js';
 import { buildDigest, renderDigest } from './digest.js';
 import { collectPathCandidates, createSnapshot, listSnapshots, restoreSnapshot } from './snapshot.js';
-import { runSync, pullPolicies } from './sync.js';
+import { runSync, pullPolicies, loadCloudConfig, uploadHardenReport } from './sync.js';
 import {
   buildTimeline,
   renderTimeline,
@@ -849,10 +851,14 @@ function cmdRulesApply(input: {
   rulesOverride?: string;
   auditDir: string;
   allowRelax: boolean;
+  allowExpansion: boolean;
 }): void {
   const target = input.rulesOverride ?? podPath('rules.json');
   const base = resolveRules(input.rulesOverride, POD_HOME);
-  const { rules, changes, relaxations } = applyRulePack(base, input.pack, { allowRelax: input.allowRelax });
+  const { rules, changes, relaxations } = applyRulePack(base, input.pack, {
+    allowRelax: input.allowRelax,
+    allowExpansion: input.allowExpansion,
+  });
   const tmp = `${target}.tmp`;
   writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n', 'utf8');
   renameSync(tmp, target);
@@ -969,7 +975,16 @@ async function main(): Promise<void> {
       'require-signature': { type: 'boolean' },
       url: { type: 'string' },
       'allow-relax': { type: 'boolean' },
+      'allow-expansion': { type: 'boolean' },
       'no-evidence': { type: 'boolean' },
+      upload: { type: 'boolean' },
+      scenarios: { type: 'string' },
+      'export-surface': { type: 'string' },
+      'from-cloud': { type: 'boolean' },
+      llm: { type: 'boolean' },
+      provider: { type: 'string' },
+      model: { type: 'string' },
+      'llm-base-url': { type: 'string' },
       'out-dir': { type: 'string' },
       home: { type: 'string' },
       'no-exec': { type: 'boolean' },
@@ -1193,6 +1208,19 @@ async function main(): Promise<void> {
     if (result.total_synced === 0) log('nothing to sync');
     for (const srv of result.servers) log(`synced ${srv.synced} events from "${srv.server}"`);
     for (const b of result.bindings) log(`total synced: ${b.synced} (agent #${b.agent_id})`);
+    // 云端熔断收敛：这是"出事时不用 SSH 上机器"的那条通道
+    for (const q of result.quarantine) {
+      if (q.applied.length > 0) {
+        log(`⛔ 云端下发熔断并已在本地生效（agent #${q.agent_id}）：${q.applied.join('、')}`);
+      }
+      if (q.released.length > 0) {
+        log(`✅ 云端解除熔断（agent #${q.agent_id}）：${q.released.join('、')}`);
+      }
+      if (q.desired === true && q.applied.length === 0) {
+        log(`⛔ 本地已处于熔断状态（agent #${q.agent_id}）`);
+      }
+      if (q.error) log(`⚠️ agent #${q.agent_id} 熔断状态未同步：${q.error}`);
+    }
     // 逐项报失败但整体继续:一条死 token / 一条断链不该让整台机器停止上云。
     // 退出码仍置 1,让脚本与自动化能发现"没有全部成功"。
     for (const f of result.failures) {
@@ -1328,19 +1356,87 @@ async function main(): Promise<void> {
     });
     if (values.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-      return;
+    } else {
+      const s = result.summary;
+      log(`加固审计报告已生成：${result.reportPath}`);
+      log(`  🔴 high ${s.high} · 🟠 medium ${s.medium} · 🟡 low ${s.low}`);
+      log(`  agent 平台 ${s.platforms.length} · MCP server ${s.mcpServers} · 疑似暴露密钥 ${s.exposedSecrets}`);
+      log(
+        `  审计链 ${s.auditChains} 条 / ${s.auditEntries} 条记录` +
+          (s.brokenChains > 0 ? `（⚠️ ${s.brokenChains} 条断裂）` : ''),
+      );
+      if (s.baselineMissing) log('  ⚠️ 未建立姿态基线：漂移类检查未生效，建议先跑 pod posture freeze');
+      log(`  交付目录：${result.outDir}`);
     }
-    const s = result.summary;
-    log(`加固审计报告已生成：${result.reportPath}`);
-    log(`  🔴 high ${s.high} · 🟠 medium ${s.medium} · 🟡 low ${s.low}`);
-    log(`  agent 平台 ${s.platforms.length} · MCP server ${s.mcpServers} · 疑似暴露密钥 ${s.exposedSecrets}`);
-    log(
-      `  审计链 ${s.auditChains} 条 / ${s.auditEntries} 条记录` +
-        (s.brokenChains > 0 ? `（⚠️ ${s.brokenChains} 条断裂）` : ''),
-    );
-    if (s.baselineMissing) log('  ⚠️ 未建立姿态基线：漂移类检查未生效，建议先跑 pod posture freeze');
-    log(`  交付目录：${result.outDir}`);
+
+    if (values.upload === true) {
+      const cfg = loadCloudConfig(values.config);
+      const syncToken = cfg.sync_token ?? cfg.agents?.[0]?.sync_token;
+      if (!syncToken) {
+        console.error(`云配置里没有 sync_token，无法上传（${values.config ?? '~/.pod/cloud.json'}）`);
+        process.exit(1);
+      }
+      const findingsRaw = readFileSync(join(result.outDir, 'findings.json'), 'utf8');
+      const { id } = await uploadHardenReport(
+        { api_url: cfg.api_url, sync_token: syncToken },
+        {
+          generated_at: result.generatedAt,
+          rules_version: result.summary.rulesVersion,
+          high: result.summary.high,
+          medium: result.summary.medium,
+          low: result.summary.low,
+          mcp_servers: result.summary.mcpServers,
+          exposed_secrets: result.summary.exposedSecrets,
+          broken_chains: result.summary.brokenChains,
+          report_md: readFileSync(result.reportPath, 'utf8'),
+          findings_json: findingsRaw,
+        },
+      );
+      // 说清楚传了什么、没传什么——本地优先的承诺要能被验证，而不是靠信任
+      log(`已上传到云端（报告 #${id}）：report.md + findings.json`);
+      log('  未上传：evidence.json（原始审计链）——它在本地目录里，需要时你自己决定要不要给。');
+    }
     return;
+  }
+
+  // ---------- 策略红队（大模型想攻击，网关判定器判结果） ----------
+
+  if (cmd === 'redteam') {
+    if (!values.policy) {
+      console.error('pod redteam requires --policy <file>');
+      console.error(usage());
+      process.exit(1);
+    }
+    const outDir = values.out ?? podPath('redteam');
+    try {
+      const result = await runRedteam({
+        policyPath: values.policy,
+        rules: resolveRules(values.rules, POD_HOME),
+        auditDir: values['audit-dir'] ?? podPath('audit'),
+        podHome: POD_HOME,
+        outDir,
+        ...(values.scenarios ? { scenariosPath: values.scenarios } : {}),
+        ...(values['export-surface'] ? { exportSurfacePath: values['export-surface'] } : {}),
+        useLlm: values.llm === true,
+        ...(values.provider ? { provider: values.provider } : {}),
+        ...(values.model ? { model: values.model } : {}),
+        ...(values['llm-base-url'] ? { baseUrl: values['llm-base-url'] } : {}),
+        json: values.json === true,
+        log,
+      });
+      if (values.json) {
+        process.stdout.write(JSON.stringify(result.report, null, 2) + '\n');
+      } else {
+        process.stdout.write(renderRedteamReport(result.report) + '\n');
+      }
+      log(`红队报告已写入：${join(outDir, 'redteam-report.md')}`);
+      // 高危绕过 → 退出码 1，便于挂 CI（与 pod posture --strict 同惯例）
+      if (result.report.findings.some((f) => f.severity === 'high')) process.exitCode = 1;
+      return;
+    } catch (err) {
+      console.error(`redteam 失败：${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
   }
 
   if (cmd === 'identity') {
@@ -1688,6 +1784,7 @@ async function main(): Promise<void> {
         frozenPaths: rules.freeze.paths.length,
         hookPatterns: rules.hookRisk.riskPatterns.length,
         injectionSignals: rules.injection.signals.length,
+        injectionBlock: rules.injection.block,
         metadataPatterns: rules.toolMetadata.suspiciousPatterns.length,
         memoryPaths: rules.memory.paths.length,
         egress: rules.egress.enabled,
@@ -1702,6 +1799,7 @@ async function main(): Promise<void> {
       log(`  version ${rules.version}`);
       log(
         `  冻结项 ${counts.frozenPaths} · 钩子模式 ${counts.hookPatterns} · 注入词 ${counts.injectionSignals}` +
+          `（${counts.injectionBlock ? '命中即阻断' : '仅标记'}）` +
           ` · 元数据模式 ${counts.metadataPatterns} · 记忆路径 ${counts.memoryPaths}`,
       );
       log(`  egress 判定：${counts.egress ? '开启' : '关闭（默认）'}`);
@@ -1744,18 +1842,61 @@ async function main(): Promise<void> {
 
     if (sub === 'apply' || sub === 'pull') {
       let text: string;
+      // 公钥解析顺序：--key（显式）> 云配置里的 rules_public_key / policy_public_key。
+      // 注意它**只从本地读**：公钥不能和包走同一条通道，否则中间人换包时把公钥一起
+      // 换掉，验签就成了摆设。所以这里没有"从响应里取公钥"的分支。
+      let keyPem: string | undefined = values.key ? readFileSync(values.key, 'utf8') : undefined;
       if (sub === 'pull') {
         // 网络来源必须验签：这是信任边界，不留"跳过验签"的口子
-        if (!values.url || !values.key) {
-          console.error('pod rules pull requires --url <pack-url> --key <public.pem>（网络来源必须验签）');
+        const fromCloud = values['from-cloud'] === true;
+        if (!fromCloud && !values.url) {
+          console.error(
+            'pod rules pull requires --url <pack-url> [--key <public.pem>]\n' +
+              '  或 --from-cloud：用 ~/.pod/cloud.json 的 api_url + sync_token 拉取该租户当前生效的包',
+          );
           process.exit(1);
         }
-        const resp = await fetch(values.url);
+        let url = values.url ?? '';
+        let headers: Record<string, string> = {};
+        let cloudNote = '';
+        if (fromCloud) {
+          const cfg = loadCloudConfig(values.config);
+          const syncToken = cfg.sync_token ?? cfg.agents?.[0]?.sync_token;
+          if (!syncToken) {
+            console.error(`云配置里没有 sync_token，无法拉取规则包（${values.config ?? '~/.pod/cloud.json'}）`);
+            process.exit(1);
+          }
+          url = `${cfg.api_url}/api/v1/rules/pack`;
+          headers = { 'X-Sync-Token': syncToken };
+          const keyPath = cfg.rules_public_key ?? cfg.policy_public_key;
+          if (keyPath && !keyPem) keyPem = readFileSync(expandPath(keyPath), 'utf8');
+          cloudNote = `（云配置 ${cfg.api_url}）`;
+        }
+        if (!keyPem) {
+          console.error(
+            '规则包验签需要公钥：加 --key <public.pem>，或在 ~/.pod/cloud.json 里配 rules_public_key。\n' +
+              '网络来源不验签等于把加固通道交给中间人——这里不提供"跳过验签"的开关。',
+          );
+          process.exit(1);
+        }
+        const resp = await fetch(url, { headers });
         if (!resp.ok) {
-          console.error(`规则包下载失败：HTTP ${resp.status} ${values.url}`);
+          const detail = await resp.text().catch(() => '');
+          console.error(`规则包拉取失败：HTTP ${resp.status} ${url}\n${detail.slice(0, 300)}`);
           process.exit(1);
         }
-        text = await resp.text();
+        if (fromCloud) {
+          // 云端响应是信封 {pack_json, pack_version, ...}，真正的包在 pack_json 里
+          const body = (await resp.json()) as { pack_json?: string; pack_version?: string };
+          if (typeof body.pack_json !== 'string') {
+            console.error('云端响应里没有 pack_json（服务端版本可能过旧）');
+            process.exit(1);
+          }
+          text = body.pack_json;
+          log(`云端当前生效版本：${body.pack_version ?? '?'} ${cloudNote}`);
+        } else {
+          text = await resp.text();
+        }
       } else {
         if (!values.in) {
           console.error('pod rules apply requires --in <pack.json>');
@@ -1764,8 +1905,8 @@ async function main(): Promise<void> {
         text = readFileSync(values.in, 'utf8');
       }
       const pack = parseRulePack(text);
-      if (values.key) {
-        if (!verifyRulePack(pack, readFileSync(values.key, 'utf8'))) {
+      if (keyPem) {
+        if (!verifyRulePack(pack, keyPem)) {
           console.error('规则包验签失败——拒绝应用（包内容与签名不匹配，或公钥不对）');
           process.exit(1);
         }
@@ -1777,6 +1918,7 @@ async function main(): Promise<void> {
         rulesOverride: values.rules,
         auditDir,
         allowRelax: values['allow-relax'] === true,
+        allowExpansion: values['allow-expansion'] === true,
       });
       return;
     }
@@ -2009,13 +2151,16 @@ Usage:
   pod coverage [--json] [--strict]
   pod scan [--json]
   pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
-             [--no-evidence] [--audit] [--json]
+             [--no-evidence] [--audit] [--upload] [--config <cloud.json>] [--json]
   pod rules [show] [--rules <file>] [--json]
   pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
                  --version <pack-version> --issued-by <who> [--note <text>]
   pod rules verify --in <pack.json> --key <public.pem>
   pod rules apply --in <pack.json> [--key <public.pem>] [--rules <file>] [--allow-relax]
-  pod rules pull --url <pack-url> --key <public.pem> [--rules <file>] [--allow-relax]
+  pod rules pull --url <pack-url> --key <public.pem> [--rules <file>] [--allow-relax] [--allow-expansion]
+  pod rules pull --from-cloud [--key <public.pem>] [--config <cloud.json>] [--rules <file>] [--allow-relax] [--allow-expansion]
+  pod redteam --policy <file> [--rules <file>] [--scenarios <file>] [--llm] \\
+              [--provider <id>] [--model <name>] [--export-surface <file>] [--out <dir>] [--json]
   pod posture [--rules <file>] [--baseline <file>] [--json] [--strict] [--audit]
   pod posture freeze [--rules <file>] [--baseline <file>]
   pod identity [list] | init --agent <name> | verify [--agent <name>] [--json]
@@ -2045,8 +2190,9 @@ onboard: discover and take over local MCP servers (dry-run by default; --yes wri
 digest: local weekly security digest (audit + coverage + hash-chain health; no network).
 coverage: managed coverage and config drift (--strict exits 1 when a server bypasses the gateway).
 posture: control-plane posture (hooks, frozen config, memory, package sources, identities, delegation); rules from --rules or ~/.pod/rules.json.
-harden: one-shot hardening audit deliverable — exposure scan + control-plane posture + least-privilege draft + evidence, all in one report directory (local only, never uploaded).
+harden: one-shot hardening audit deliverable — exposure scan + control-plane posture + least-privilege draft + evidence, all in one report directory. Local only; --upload sends just report.md + findings.json (never the raw evidence bundle).
 rules: rule packs for subscribed hardening (pack/verify/apply/pull). A pack that loosens your existing rules is refused unless --allow-relax.
+redteam: attack scenarios against your policy. The model (optional, --llm) only *proposes* scenarios as data; the verdict comes from the same pure pipeline the gateway uses, so results are reproducible and CI-able. Exit code 1 on a high-severity bypass.
 identity/delegate/grant/quarantine/anomaly/trace: identities, delegation narrowing, JIT grants, quarantine, trust-propagation anomalies, pollution tracing.
 approve/deny/pending: approval side channel (stdio is occupied by MCP; approve from another terminal).
 watch: resident approval queue — new requests pop up immediately; approve/deny inline on a TTY.
@@ -2094,13 +2240,16 @@ Usage:
   pod coverage [--json] [--strict]
   pod scan [--json]
   pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
-             [--no-evidence] [--audit] [--json]
+             [--no-evidence] [--audit] [--upload] [--config <cloud.json>] [--json]
   pod rules [show] [--rules <file>] [--json]
   pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
                  --version <pack-version> --issued-by <who> [--note <text>]
   pod rules verify --in <pack.json> --key <public.pem>
   pod rules apply --in <pack.json> [--key <public.pem>] [--rules <file>] [--allow-relax]
   pod rules pull --url <pack-url> --key <public.pem> [--rules <file>] [--allow-relax]
+  pod rules pull --from-cloud [--key <public.pem>] [--config <cloud.json>] [--rules <file>] [--allow-relax] [--allow-expansion]
+  pod redteam --policy <file> [--rules <file>] [--scenarios <file>] [--llm] \\
+              [--provider <id>] [--model <name>] [--export-surface <file>] [--out <dir>] [--json]
   pod posture [--rules <file>] [--baseline <file>] [--json] [--strict] [--audit]
   pod posture freeze [--rules <file>] [--baseline <file>]
   pod identity [list] | init --agent <name> | verify [--agent <name>] [--json]
@@ -2130,8 +2279,9 @@ onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--re
 digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
 coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。
 posture: 控制平面姿态检查（钩子/冻结项/记忆/包来源/身份/委托），规则来自 --rules 或 ~/.pod/rules.json。
-harden: 一次性加固审计交付物——暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份报告目录（全程本地，零上报）。
+harden: 一次性加固审计交付物——暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份报告目录。默认全程本地；--upload 只上传 report.md 与 findings.json，绝不上传原始证据包。
 rules:  规则包（订阅式加固的分发单元）：pack/verify/apply/pull；放宽已有规则的包默认拒绝应用，--allow-relax 才放行。
+redteam: 对你的策略做红队：模型（可选 --llm）只"提出"攻击场景这类数据，判定由网关同一条纯函数流水线给出，所以结论可复现、可进 CI；有高危绕过时退出码 1。
 identity/delegate/grant/quarantine/anomaly/trace: 身份、委托收窄、JIT 令牌、熔断、信任传播异常、污染溯源。
 approve/deny/pending: 审批旁路通道（stdio 被 MCP 占用，交互在另一个终端进行）。
 watch:  长驻审批队列：新请求立即提示，TTY 下可直接批准/拒绝。

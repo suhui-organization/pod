@@ -37,6 +37,13 @@ _COLUMN_MIGRATIONS = {
     "pod_alerts": {
         "state": "ALTER TABLE pod_alerts ADD COLUMN state VARCHAR(16) DEFAULT 'open'",
     },
+    "pod_agents": {
+        # 云端下发熔断（期望状态）：机器 pod sync 时收敛到本地 quarantine.json
+        "quarantined": "ALTER TABLE pod_agents ADD COLUMN quarantined BOOLEAN DEFAULT 0",
+        "quarantine_reason": "ALTER TABLE pod_agents ADD COLUMN quarantine_reason TEXT DEFAULT ''",
+        "quarantined_at": "ALTER TABLE pod_agents ADD COLUMN quarantined_at TIMESTAMP NULL",
+        "quarantined_by": "ALTER TABLE pod_agents ADD COLUMN quarantined_by VARCHAR(128) DEFAULT ''",
+    },
     "pod_subscriptions": {
         # 计费平台无关化：不再只存 stripe customer id
         "provider_customer_id": "ALTER TABLE pod_subscriptions ADD COLUMN provider_customer_id VARCHAR(64) DEFAULT ''",

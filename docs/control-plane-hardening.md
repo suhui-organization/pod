@@ -108,13 +108,24 @@ pod 的审计原本只覆盖**数据平面**（工具调用）。这批需求把
       { "id": "hidden-instruction", "re": "ignore (all )?(previous|above)|忽略(之前|上面)|do not tell", "severity": "high" },
       { "id": "credential-harvest","re": "\\.env|credentials|id_rsa|\\.ssh", "severity": "high" },
       { "id": "remote-endpoint",   "re": "https?://(?!localhost|127\\.0\\.0\\.1)", "severity": "medium" }
-    ]
+    ],
+    // true = 命中 ≥ blockAtOrAbove 的模式时，把该工具从 tools/list 摘除（默认开）。
+    // 摘除只切断"描述"这条影响路径；工具本身仍受策略管辖（硬报名字调用照样被判）。
+    "block": true,
+    "blockAtOrAbove": "high"
   },
   "injection": {
     "signals": [
-      "ignore previous", "忽略之前", "system prompt", "you are now",
-      "do not tell the user", "exfiltrate"
-    ]
+      { "id": "ignore-previous", "text": "ignore previous", "severity": "high" },
+      { "id": "do-not-tell",     "text": "do not tell the user", "severity": "high" },
+      { "id": "system-prompt",   "text": "system prompt", "severity": "low" }
+    ],
+    // true = 命中「级别 ≥ blockAtOrAbove」的信号即阻断该次工具响应（默认开）。
+    // 分级是"默认打开阻断"能站得住的前提：system prompt 这类词正常文档里到处都是，
+    // 按 high 处理等于随机打断工具调用。一段文本命中多级时取最高级。
+    // 老版字符串写法（["ignore previous"]）归一化时按 low 处理，升级不会突然开始拦。
+    "block": true,
+    "blockAtOrAbove": "high"
   },
   "quarantine": { "file": "~/.pod/quarantine.json" }
   ,
@@ -154,6 +165,7 @@ type AuditKind =
   | 'delegation'     // 委托签发/收窄校验
   | 'grant'          // JIT 令牌签发/消费
   | 'quarantine'     // 熔断加入/解除
+  | 'llm-call'       // 模型调用（出网留痕；只记 provider/model/字符数，不记 prompt 正文）
   | 'anomaly';       // 异常信号
 ```
 

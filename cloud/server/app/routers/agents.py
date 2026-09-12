@@ -4,6 +4,8 @@
 （服务端只存 sha256 哈希），网关用它在 sync 端点推送审计。
 """
 
+import json
+from datetime import datetime
 from hashlib import sha256
 from secrets import token_urlsafe
 
@@ -50,6 +52,11 @@ def agent_out(a: Agent, event_count: int = 0) -> dict:
         "status": a.status,
         "last_seen_at": a.last_seen_at.isoformat() if a.last_seen_at else None,
         "event_count": event_count,
+        # 熔断期望状态：web 下发，机器下次 pod sync 收敛到本地
+        "quarantined": bool(a.quarantined),
+        "quarantine_reason": a.quarantine_reason or "",
+        "quarantined_at": a.quarantined_at.isoformat() if a.quarantined_at else None,
+        "quarantined_by": a.quarantined_by or "",
         "created_at": a.created_at.isoformat(),
     }
 
@@ -103,6 +110,80 @@ def register_agent(
     db.add(AuditLog(tenant_id=tenant_id, user_id=user["id"], action="agent.register", detail_json=f'{{"agent_id": {agent.id}}}'))
     db.commit()
     return {"agent": agent_out(agent), "sync_token": sync_token}
+
+
+class QuarantineRequest(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+@router.post("/{agent_id}/quarantine")
+def quarantine_agent(
+    agent_id: int,
+    body: QuarantineRequest,
+    db: Session = Depends(get_db),
+    tenant_id: int = Depends(get_current_tenant_id),
+    user: dict = Depends(get_current_user),
+):
+    """下发熔断（期望状态）。
+
+    这里**不直接改机器**——机器可能在 NAT 后面、可能离线。云端只记录"这台 agent 应该处于
+    熔断状态"，机器下次 `pod sync` 时拉取并收敛到本地 quarantine.json，网关随即拒绝它的
+    全部调用。幂等：重复下发不会产生额外效果，离线再久上线后也会收敛。
+    """
+    require_admin(db, tenant_id, user)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.tenant_id == tenant_id).first()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent 不存在")
+    agent.quarantined = True
+    agent.quarantine_reason = body.reason
+    agent.quarantined_at = datetime.utcnow()
+    # JWT 里没有 email，落库查一次——"谁下的熔断"是事后追责的关键字段，不能用 id 糊弄
+    from app.models import User
+
+    row = db.query(User).filter(User.id == user["id"]).first()
+    agent.quarantined_by = row.email if row is not None else f"user:{user['id']}"
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            user_id=user["id"],
+            action="agent.quarantine",
+            detail_json=json.dumps({"agent_id": agent.id, "reason": body.reason}),
+        )
+    )
+    db.commit()
+    return {"agent": agent_out(agent)}
+
+
+@router.delete("/{agent_id}/quarantine")
+def release_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    tenant_id: int = Depends(get_current_tenant_id),
+    user: dict = Depends(get_current_user),
+):
+    """解除熔断。
+
+    机器侧只清理 `by=cloud` 的条目——**人工在机器上手工加的熔断不会被这里解除**
+    （否则云端（或拿到 token 的人）就能悄悄解除人工的处置，那正是攻击者想要的）。
+    """
+    require_admin(db, tenant_id, user)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.tenant_id == tenant_id).first()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent 不存在")
+    agent.quarantined = False
+    agent.quarantine_reason = ""
+    agent.quarantined_at = None
+    agent.quarantined_by = ""
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            user_id=user["id"],
+            action="agent.release",
+            detail_json=json.dumps({"agent_id": agent.id}),
+        )
+    )
+    db.commit()
+    return {"agent": agent_out(agent)}
 
 
 @router.post("/{agent_id}/rotate-token")
@@ -194,6 +275,114 @@ POD_DIR="$HOME/.pod"
 CFG="$POD_DIR/cloud.json"
 mkdir -p "$POD_DIR"
 umask 077
+
+# ── 定时同步 ──────────────────────────────────────────────────────────────
+# 熔断下发与规则包是"机器主动拉"的（机器在 NAT 后面，服务端推不到它）。
+# 没有定时任务，控制台上点的「熔断」永远到不了这台机器——通道是死的。
+# 用 launchd / systemd --user / cron 装一个周期任务，各自调同一个包装脚本。
+install_schedule() {
+  if [ "${POD_NO_SCHEDULE:-0}" = "1" ]; then
+    echo "   已跳过定时同步（POD_NO_SCHEDULE=1）。注意：不装的话，控制台上的熔断不会生效。"
+    return 0
+  fi
+  POD_BIN="$(command -v pod 2>/dev/null || true)"
+  if [ -z "$POD_BIN" ]; then
+    echo "   ⚠️ 没找到 pod CLI，未安装定时同步；装好 pod 后重跑本命令即可。"
+    return 0
+  fi
+  LOG="$POD_DIR/sync.log"
+  WRAPPER="$POD_DIR/sync-job.sh"
+  INTERVAL="${POD_SYNC_INTERVAL:-300}"
+
+  # 包装脚本：日志轮转（超过 1MB 只留最后 200 行）+ 同步。
+  # 每个调度器都只调它，规则不写三遍。
+  cat > "$WRAPPER" <<'WRAPEOF'
+#!/bin/bash
+# 由 pod 接入脚本生成；删除本文件与下面的调度配置即可停用。
+POD_DIR="$HOME/.pod"
+LOG="$POD_DIR/sync.log"
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 1000000 ]; then
+  tail -200 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+fi
+POD_BIN="__POD_BIN__"
+exec "$POD_BIN" sync >> "$LOG" 2>&1
+WRAPEOF
+  # 绝对路径在调度器的最小 PATH 下也能找到（launchd/systemd 不继承交互式 PATH）
+  python3 - "$WRAPPER" "$POD_BIN" <<'POD_SUBEOF'
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace("__POD_BIN__", sys.argv[2]), encoding="utf-8")
+POD_SUBEOF
+  chmod +x "$WRAPPER"
+
+  SCHED=""
+  case "$(uname -s)" in
+    Darwin)
+      PLIST="$HOME/Library/LaunchAgents/dev.podsec.sync.plist"
+      mkdir -p "$(dirname "$PLIST")"
+      cat > "$PLIST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>dev.podsec.sync</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$WRAPPER</string></array>
+  <key>StartInterval</key><integer>$INTERVAL</integer>
+  <key>RunAtLoad</key><false/>
+</dict></plist>
+PLISTEOF
+      launchctl unload "$PLIST" >/dev/null 2>&1 || true
+      launchctl load "$PLIST" >/dev/null 2>&1 && SCHED="launchd（每 ${INTERVAL}s）" || true
+      ;;
+    Linux)
+      if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+        UD="$HOME/.config/systemd/user"
+        mkdir -p "$UD"
+        cat > "$UD/pod-sync.service" <<UNITEOF
+[Unit]
+Description=Pod Cloud sync (push audit, pull quarantine/rules)
+[Service]
+Type=oneshot
+ExecStart=$WRAPPER
+UNITEOF
+        cat > "$UD/pod-sync.timer" <<TIMEREOF
+[Unit]
+Description=Periodic Pod Cloud sync
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=${INTERVAL}s
+
+[Install]
+WantedBy=timers.target
+TIMEREOF
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+        systemctl --user enable --now pod-sync.timer >/dev/null 2>&1 && SCHED="systemd --user（每 ${INTERVAL}s）" || true
+        # 用户没登录时也要跑（否则笔记本合上盖子、没人登录就不同步了）
+        loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+      fi
+      if [ -z "$SCHED" ] && command -v crontab >/dev/null 2>&1; then
+        MIN=$(( INTERVAL / 60 ))
+        [ "$MIN" -lt 1 ] && MIN=1
+        [ "$MIN" -gt 59 ] && MIN=59
+        MARK="# pod-sync (installed by pod agent-setup)"
+        ( crontab -l 2>/dev/null | grep -v -F "$MARK"; echo "*/$MIN * * * * $WRAPPER $MARK" ) | crontab - && SCHED="cron（每 ${MIN} 分钟）" || true
+      fi
+      ;;
+  esac
+
+  if [ -n "$SCHED" ]; then
+    # 注意这里必须写 ${VAR}：bash 在 C.UTF-8 下会把紧跟 `$VAR` 的多字节字符
+    # 的开头字节吃进变量名，结果是变量消失 + 这个汉字乱码。
+    echo "   ⏱  已安装定时同步：${SCHED}——控制台上的熔断/规则包由此才能下发到这台机器。"
+    echo "      日志：${LOG}　停用：删除 ${WRAPPER} 与对应的调度配置。"
+  else
+    echo "   ⚠️ 未能自动安装定时同步（没找到 launchd / systemd --user / cron）。"
+    echo "      请自行把这条命令挂进定时任务，否则控制台上的熔断不会生效："
+    echo "          $WRAPPER"
+  fi
+}
 
 python3 - "$CFG" "$LOCAL_AGENT" "$AID" "$TOKEN" "$API" <<'POD_PYEOF'
 import json
@@ -336,6 +525,7 @@ case "$CODE" in
       else
         echo "   回到控制台「Agent 资产」/「时间线」，能看到这些审计。"
       fi
+      install_schedule
     else
       echo "❌ 未接入：这个 sync token 属于 agent #${GOT}，不是本次要接入的 #${AID}。"
       echo "   解决：控制台 → Agent 资产 → agent #${AID} → 复制它的接入命令重跑一次。"

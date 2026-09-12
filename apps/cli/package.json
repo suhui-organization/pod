@@ -20,6 +20,7 @@
     "@podsec/i18n": "workspace:*",
     "@podsec/policy": "workspace:*",
     "@podsec/posture": "workspace:*",
+    "@podsec/redteam": "workspace:*",
     "@podsec/scan": "workspace:*"
   }
 }

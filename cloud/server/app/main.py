@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from app.database import Base, engine
 from app.i18n import resolve_locale, translate_detail
 from app.migrations import migrate
-from app.routers import admin, agents, alerts, auth, control_events, dashboard, policies, reports, settings, subscription, sync, tenants, timeline, traces, users
+from app.routers import admin, agents, alerts, auth, control_events, dashboard, harden, policies, reports, rules, settings, subscription, sync, tenants, timeline, traces, users
 
 Base.metadata.create_all(bind=engine)
 migrate(engine)  # 轻量列迁移(幂等,为已有库补新列)
@@ -86,6 +86,8 @@ app.include_router(agents.router, prefix=API)
 app.include_router(agents.setup_router, prefix=API)  # /api/v1/agent-setup/{id}/{token}：一键接入脚本（token 即凭证）
 app.include_router(sync.router, prefix=API)
 app.include_router(policies.router, prefix=API)
+app.include_router(rules.router, prefix=API)  # /api/v1/rules: 规则包（订阅式加固的分发）
+app.include_router(harden.router, prefix=API)  # /api/v1/harden: 加固审计报告（交付物上传与查看）
 app.include_router(dashboard.router, prefix=API)
 app.include_router(subscription.router, prefix=API)
 app.include_router(reports.router, prefix=API)

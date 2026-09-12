@@ -132,6 +132,13 @@ class Agent(Base):
     sync_token_hash: Mapped[str] = mapped_column(String(128), default="")  # sha256(sync token)，不存明文
     status: Mapped[str] = mapped_column(String(16), default="offline")  # online|offline
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    # 熔断（期望状态）：web 上下发，机器下次 pod sync 时收敛到本地 quarantine.json。
+    # 存"期望状态"而不是"命令"：命令是一次性的，机器离线时错过就永远丢了；
+    # 期望状态是幂等的，机器什么时候上线都会收敛过去。
+    quarantined: Mapped[bool] = mapped_column(Boolean, default=False)
+    quarantine_reason: Mapped[str] = mapped_column(Text, default="")
+    quarantined_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    quarantined_by: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -227,7 +234,62 @@ class PodPolicyVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PodRulePack(Base):
+    """Pod Cloud：规则包（订阅式加固的分发单元，对应本地 `pod rules`）。
+
+    本地 `pod rules pull` 拉取后由**客户端**验签 + 过放宽守卫才生效。
+    云端刻意不做任何判定：
+    - 不验签——公钥在客户端手里，云端验了也不构成信任（它能同时换掉包和公钥）；
+    - 不判断是否放宽——那是客户端守卫的职责（packages/policy/src/rules-pack.ts）。
+    云端只做三件事：存、标 active、记审计。
+
+    每租户同时只有一个 active：撤回 = 激活上一版，而不是删除——保留"曾经下发过什么"的证据。
+    """
+
+    __tablename__ = "pod_rule_packs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    pack_version: Mapped[str] = mapped_column(String(64))
+    issued_by: Mapped[str] = mapped_column(String(64))
+    note: Mapped[str] = mapped_column(Text, default="")
+    # 含 signature 的整包原文：客户端拿去自己验签，云端不解析内部语义
+    pack_json: Mapped[str] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PodHardenReport(Base):
+    """Pod Cloud：加固审计报告（`pod harden` 的交付物）。
+
+    只收**交付物**（report.md + findings.json），不收 evidence.json（原始审计链）。
+    后者是"本地优先"承诺的核心，客户没打算把它交出去。
+
+    上传是显式动作（`pod harden --upload`）：报告里含路径与工具名等业务信息，
+    不能因为"配了云"就默认传上去。
+    """
+
+    __tablename__ = "pod_harden_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
+    generated_at: Mapped[str] = mapped_column(String(64))
+    high: Mapped[int] = mapped_column(Integer, default=0)
+    medium: Mapped[int] = mapped_column(Integer, default=0)
+    low: Mapped[int] = mapped_column(Integer, default=0)
+    mcp_servers: Mapped[int] = mapped_column(Integer, default=0)
+    exposed_secrets: Mapped[int] = mapped_column(Integer, default=0)
+    broken_chains: Mapped[int] = mapped_column(Integer, default=0)
+    rules_version: Mapped[str] = mapped_column(String(64), default="")
+    # 报告正文（markdown）与机器可读发现；两者都是已脱敏的交付物
+    report_md: Mapped[str] = mapped_column(Text, default="")
+    findings_json: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Subscription(Base):
+    """Pod Cloud：订阅（按 Agent 数量分层计费：free 1-3 / pro 3+）。"""
     """Pod Cloud：订阅（按 Agent 数量分层计费：free 1-3 / pro 3+）。"""
 
     __tablename__ = "pod_subscriptions"

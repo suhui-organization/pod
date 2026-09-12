@@ -31,6 +31,13 @@ function baseRules() {
   return structuredClone(DEFAULT_RULES);
 }
 
+/** 注入信号现在带置信级别；这里给个最短构造器 */
+const sig = (text: string, severity: 'high' | 'medium' | 'low' = 'high') => ({
+  id: `t-${text}`,
+  text,
+  severity,
+});
+
 function packOf(rules: unknown, meta: { packVersion?: string; issuedBy?: string } = {}) {
   return buildRulePack(rules as never, {
     packVersion: meta.packVersion ?? '2026.09.12',
@@ -41,7 +48,7 @@ function packOf(rules: unknown, meta: { packVersion?: string; issuedBy?: string 
 
 describe('签名与解析', () => {
   it('签名后可以验签，内容被改则验签失败', () => {
-    const pack = packOf({ injection: { signals: ['ignore previous', '新注入词'] } });
+    const pack = packOf({ injection: { signals: [sig('ignore previous'), sig('新注入词')] } });
     const signed = signRulePack(pack, PRIVATE_PEM);
     expect(verifyRulePack(signed, PUBLIC_PEM)).toBe(true);
 
@@ -55,7 +62,7 @@ describe('签名与解析', () => {
   });
 
   it('规范序列化与键顺序无关：重排字段后签名仍然有效', () => {
-    const signed = signRulePack(packOf({ injection: { signals: ['a', 'b'] } }), PRIVATE_PEM);
+    const signed = signRulePack(packOf({ injection: { signals: [sig('a'), sig('b')] } }), PRIVATE_PEM);
     const reordered = {
       rules: signed.rules,
       issuedAt: signed.issuedAt,
@@ -83,7 +90,7 @@ describe('签名与解析', () => {
   });
 
   it('签名包能被解析回等价对象', () => {
-    const signed = signRulePack(packOf({ injection: { signals: ['x'] } }), PRIVATE_PEM);
+    const signed = signRulePack(packOf({ injection: { signals: [sig('x')] } }), PRIVATE_PEM);
     const parsed = parseRulePack(JSON.stringify(signed, null, 2));
     expect(verifyRulePack(parsed, PUBLIC_PEM)).toBe(true);
   });
@@ -92,20 +99,20 @@ describe('签名与解析', () => {
 describe('放宽守卫', () => {
   it('纯收紧的包直接应用', () => {
     const base = baseRules();
-    const pack = packOf({ injection: { signals: [...base.injection.signals, 'exfiltrate to'] } });
+    const pack = packOf({ injection: { signals: [...base.injection.signals, sig('exfiltrate to')] } });
     const { rules, relaxations } = applyRulePack(base, pack);
     expect(relaxations).toEqual([]);
-    expect(rules.injection.signals).toContain('exfiltrate to');
+    expect(rules.injection.signals.map((s) => s.text)).toContain('exfiltrate to');
   });
 
   it('包替换掉用户自己加的模式 → 拒绝应用', () => {
     const base = baseRules();
-    base.injection.signals = [...base.injection.signals, '我们内部的告警暗号'];
+    base.injection.signals = [...base.injection.signals, sig('我们内部的告警暗号')];
     // 订阅包只带自己那张表，数组整体替换 → 用户那条被挤掉
-    const pack = packOf({ injection: { signals: ['ignore previous'] } });
+    const pack = packOf({ injection: { signals: [sig('ignore previous')] } });
     expect(() => applyRulePack(base, pack)).toThrow(/放宽/);
     const { rules } = applyRulePack(base, pack, { allowRelax: true });
-    expect(rules.injection.signals).toEqual(['ignore previous']);
+    expect(rules.injection.signals.map((s) => s.text)).toEqual(['ignore previous']);
   });
 
   it('把 severity 从 high 降成 low → 判为放宽', () => {
@@ -151,5 +158,39 @@ describe('放宽守卫', () => {
     const change = changes.find((c) => c.where.endsWith('maxIdleHours'));
     expect(change?.impact).toBe('unknown');
     expect(detectRelaxations(changes)).toEqual([]);
+  });
+});
+
+describe('收紧守卫（放宽守卫的反方向）', () => {
+  it('会匹配一切的过短信号被拒绝——"e" 这种子串是笔误，不是安全策略', () => {
+    const base = baseRules();
+    const pack = packOf({ injection: { signals: [...base.injection.signals, sig('e')] } });
+    expect(() => applyRulePack(base, pack)).toThrow(/过短信号/);
+    expect(() => applyRulePack(base, pack, { allowExpansion: true })).not.toThrow();
+  });
+
+  it('一次新增的阻断级信号超过预算时被拒（让单次推送的影响面可控）', () => {
+    const base = baseRules();
+    const many = Array.from({ length: 6 }, (_, i) => sig(`新增信号-${i}`));
+    const pack = packOf({ injection: { signals: [...base.injection.signals, ...many] } });
+    expect(() => applyRulePack(base, pack)).toThrow(/超过本次上限/);
+    expect(applyRulePack(base, pack, { allowExpansion: true }).rules.injection.signals).toHaveLength(
+      base.injection.signals.length + 6,
+    );
+  });
+
+  it('正常的少量更新不受影响（守卫不能把订阅价值一起拦掉）', () => {
+    const base = baseRules();
+    const pack = packOf({
+      injection: { signals: [...base.injection.signals, sig('一条新注入词'), sig('另一条新注入词')] },
+    });
+    expect(applyRulePack(base, pack).relaxations).toEqual([]);
+  });
+
+  it('中低置信新增不占阻断预算（它们本来就不拦东西）', () => {
+    const base = baseRules();
+    const many = Array.from({ length: 10 }, (_, i) => sig(`低置信-${i}`, 'low'));
+    const pack = packOf({ injection: { signals: [...base.injection.signals, ...many] } });
+    expect(() => applyRulePack(base, pack)).not.toThrow();
   });
 });

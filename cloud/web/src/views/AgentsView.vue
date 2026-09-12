@@ -26,10 +26,25 @@
       <article v-for="a in agents" :key="a.id" class="agent-card">
         <header class="agent-head">
           <div class="agent-name">{{ a.name }}</div>
-          <el-tag :type="a.status === 'online' ? 'success' : 'info'" size="small" effect="plain">
-            {{ a.status === 'online' ? t('在线') : t('未接入') }}
-          </el-tag>
+          <div class="agent-tags">
+            <el-tag v-if="a.quarantined" type="danger" size="small" effect="dark">
+              {{ t('已熔断') }}
+            </el-tag>
+            <el-tag :type="a.status === 'online' ? 'success' : 'info'" size="small" effect="plain">
+              {{ a.status === 'online' ? t('在线') : t('未接入') }}
+            </el-tag>
+          </div>
         </header>
+
+        <p v-if="a.quarantined" class="agent-quarantine">
+          {{ t('网关会拒绝它的一切调用。原因：{reason}（{who} · {at}）', {
+            reason: a.quarantine_reason || '—',
+            who: a.quarantined_by || '—',
+            at: a.quarantined_at ? new Date(a.quarantined_at).toLocaleString('zh-CN') : '—',
+          }) }}
+          <br />
+          {{ t('下发是期望状态：机器下次 pod sync 时生效（不是实时推送到机器）。') }}
+        </p>
 
         <dl class="agent-meta">
           <div>
@@ -58,6 +73,12 @@
 
         <footer class="agent-actions">
           <el-button link size="small" @click="startConnect(a)">{{ t('接入命令') }}</el-button>
+          <el-button v-if="canEdit && !a.quarantined" link type="warning" size="small" @click="openQuarantine(a)">
+            {{ t('熔断') }}
+          </el-button>
+          <el-button v-if="canEdit && a.quarantined" link type="success" size="small" @click="release(a)">
+            {{ t('解除熔断') }}
+          </el-button>
           <el-popconfirm :title="t('删除该 Agent 及其审计？')" @confirm="remove(a)">
             <template #reference><el-button link type="danger" size="small">{{ t('删除') }}</el-button></template>
           </el-popconfirm>
@@ -67,6 +88,27 @@
     <div v-else-if="!loadError" class="empty">
       {{ t('还没有 Agent —— 点右上角「+ 添加 Agent」接入第一个。') }}
     </div>
+
+    <!-- 熔断：一定要写原因——事后复盘时"为什么切"比"切了"更重要 -->
+    <el-dialog v-model="quarantineOpen" :title="t('下发熔断')" width="520px">
+      <p class="q-hint">
+        {{ t('熔断后该 agent 的全部工具调用会被本地网关拒绝，直到你在这里解除（或到机器上手工解除）。') }}
+      </p>
+      <p class="q-hint q-hint--warn">
+        {{ t('这是期望状态，不是实时指令：机器下次 pod sync 时才生效。机器离线时，它会一直保持当前状态。') }}
+      </p>
+      <el-input
+        v-model="quarantineReason"
+        type="textarea"
+        :rows="3"
+        :placeholder="t('原因（必填）：例如「疑似被提示注入，先切断」')"
+      />
+      <p v-if="quarantineError" class="q-error">{{ quarantineError }}</p>
+      <template #footer>
+        <el-button @click="quarantineOpen = false">{{ t('取消') }}</el-button>
+        <el-button type="danger" :loading="saving" @click="confirmQuarantine">{{ t('确认熔断') }}</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 一个弹窗走完：填名称 → 拿命令 → 自动等它上线 -->
     <el-dialog
@@ -144,15 +186,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { parseApiError } from '../api/client'
 import type { AgentItem } from '../api/types'
+import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
 
 const { t, locale } = useI18n()
 
 const router = useRouter()
+const auth = useAuthStore()
+const canEdit = computed(() => auth.isAdmin)
 const agents = ref<AgentItem[]>([])
 const loading = ref(false)
 const lastLoadedAt = ref<Date | null>(null)
@@ -260,6 +305,62 @@ async function remove(agent: AgentItem) {
   }
 }
 
+// ── 熔断：web 下发期望状态，机器下次 pod sync 收敛 ──
+const quarantineOpen = ref(false)
+const quarantineTarget = ref<AgentItem | null>(null)
+const quarantineReason = ref('')
+const quarantineError = ref('')
+const saving = ref(false)
+
+function openQuarantine(agent: AgentItem) {
+  quarantineTarget.value = agent
+  quarantineReason.value = ''
+  quarantineError.value = ''
+  quarantineOpen.value = true
+}
+
+async function confirmQuarantine() {
+  const target = quarantineTarget.value
+  if (!target) return
+  // 原因必填：事后复盘时"为什么切"比"切了"更重要（与本地 CLI 的 reason 要求一致）
+  if (!quarantineReason.value.trim()) {
+    quarantineError.value = t('请填写原因')
+    return
+  }
+  saving.value = true
+  try {
+    await api.quarantineAgent(target.id, quarantineReason.value.trim())
+    ElMessage.success(t('已下发熔断：{name} 下次 pod sync 时生效', { name: target.name }))
+    quarantineOpen.value = false
+    await load()
+  } catch (e) {
+    quarantineError.value = parseApiError(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function release(agent: AgentItem) {
+  try {
+    await ElMessageBox.confirm(
+      t('解除对 {name} 的云端熔断？机器下次 pod sync 时恢复放行。注意：人工在机器上手工加的熔断不会被这里解除。', {
+        name: agent.name,
+      }),
+      t('解除熔断'),
+      { confirmButtonText: t('解除'), cancelButtonText: t('取消') },
+    )
+  } catch {
+    return
+  }
+  try {
+    await api.releaseAgent(agent.id)
+    ElMessage.success(t('已解除云端熔断：{name}', { name: agent.name }))
+    await load()
+  } catch (e) {
+    ElMessage.error(parseApiError(e))
+  }
+}
+
 // ── 实时等待:弹窗开着时每 5 秒问一次,接入成功立刻反映到界面上 ──
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -311,6 +412,19 @@ onUnmounted(stopWaiting)
 </script>
 
 <style scoped>
+.agent-tags { display: flex; align-items: center; gap: 6px; }
+.agent-quarantine {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 35%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.q-hint { margin: 0 0 8px; font-size: 13px; color: var(--pod-text-dim); }
+.q-hint--warn { color: var(--el-color-warning); }
+.q-error { margin: 8px 0 0; color: var(--el-color-danger); font-size: 13px; }
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
 .head h2 { margin: 0 0 4px; }
 .head__sub { margin: 0; font-size: 12px; color: var(--pod-text-dim); }

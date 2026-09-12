@@ -17,6 +17,8 @@ const router = createRouter({
     { path: '/traces', name: 'traces', component: () => import('../views/TracesView.vue'), meta: { title: '调用链' } },
     // 只读成员也要能看（后端 GET 已开放，写操作在页面内按角色隐藏）
     { path: '/policies', name: 'policies', component: () => import('../views/PoliciesView.vue'), meta: { title: '策略中心' } },
+    { path: '/rules', name: 'rules', component: () => import('../views/RulesView.vue'), meta: { title: '规则包' } },
+    { path: '/harden', name: 'harden', component: () => import('../views/HardenView.vue'), meta: { title: '加固报告' } },
     { path: '/subscription', name: 'subscription', component: () => import('../views/SubscriptionView.vue'), meta: { title: '订阅' } },
     { path: '/users', name: 'users', component: () => import('../views/UsersView.vue'), meta: { admin: true, title: '成员管理' } },
     { path: '/profile', name: 'profile', component: () => import('../views/ProfileView.vue'), meta: { title: '个人资料' } },

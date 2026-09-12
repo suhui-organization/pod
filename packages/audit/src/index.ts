@@ -23,6 +23,7 @@ export type AuditKind =
   | 'delegation'
   | 'grant'
   | 'quarantine'
+  | 'llm-call'
   | 'anomaly';
 
 /**
