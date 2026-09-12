@@ -17,6 +17,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sha256Hex, type AuditEntry } from '@podsec/audit';
+import { t } from '@podsec/i18n';
 import { renderMarkdown, scanMachine, type ScanResult } from '@podsec/scan';
 import type { Policy, RuleSet, Severity } from '@podsec/policy';
 import {
@@ -163,44 +164,49 @@ export function renderHardenReport(input: {
   artifacts: HardenArtifact[];
 }): string {
   const { summary, findings } = input;
-  const lines: string[] = ['# pod 加固审计报告', ''];
-  lines.push(`生成时间：${input.generatedAt}`);
-  lines.push(`机器：${input.home}`);
-  lines.push(`判定规则版本：${summary.rulesVersion}`);
+  const lines: string[] = [t('# pod 加固审计报告'), ''];
+  lines.push(t('生成时间：{ts}', { ts: input.generatedAt }));
+  lines.push(t('机器：{home}', { home: input.home }));
+  lines.push(t('判定规则版本：{version}', { version: summary.rulesVersion }));
   lines.push('');
-  lines.push('> 本报告由 pod 在本机生成，采集与计算全程不出机器。');
-  lines.push('> 所有结论都可追溯到具体事实与规则版本；报告附件的哈希见 §6。');
+  lines.push(t('> 本报告由 pod 在本机生成，采集与计算全程不出机器。'));
+  lines.push(t('> 所有结论都可追溯到具体事实与规则版本；报告附件的哈希见 §6。'));
   lines.push('');
 
-  lines.push('## 0. 摘要');
+  lines.push(t('## 0. 摘要'));
   lines.push('');
-  lines.push('| 严重级别 | 数量 |');
+  lines.push(t('| 严重级别 | 数量 |'));
   lines.push('|----------|-----:|');
   lines.push(`| 🔴 high | ${summary.high} |`);
   lines.push(`| 🟠 medium | ${summary.medium} |`);
   lines.push(`| 🟡 low | ${summary.low} |`);
   lines.push('');
   lines.push(
-    `发现 agent 平台 ${summary.platforms.length} 个、MCP server ${summary.mcpServers} 个、` +
-      `疑似暴露密钥 ${summary.exposedSecrets} 处；审计链 ${summary.auditChains} 条（${summary.auditEntries} 条记录），` +
-      `其中断裂 ${summary.brokenChains} 条。`,
+    t('发现 agent 平台 {platforms} 个、MCP server {servers} 个、疑似暴露密钥 {secrets} 处；审计链 {chains} 条（{entries} 条记录），其中断裂 {broken} 条。', {
+      platforms: summary.platforms.length,
+      servers: summary.mcpServers,
+      secrets: summary.exposedSecrets,
+      chains: summary.auditChains,
+      entries: summary.auditEntries,
+      broken: summary.brokenChains,
+    }),
   );
   lines.push(
     summary.baselineMissing
-      ? '⚠️ 尚未建立姿态基线：本次只能做静态判定，配置/记忆/钩子的**变更**类检查未生效——这是当前最大的可见性缺口。'
-      : '✅ 已建立姿态基线：配置、记忆、钩子、包来源的漂移检查均已生效。',
+      ? t('⚠️ 尚未建立姿态基线：本次只能做静态判定，配置/记忆/钩子的**变更**类检查未生效——这是当前最大的可见性缺口。')
+      : t('✅ 已建立姿态基线：配置、记忆、钩子、包来源的漂移检查均已生效。'),
   );
   lines.push('');
 
-  lines.push('## 1. 结论与待办');
+  lines.push(t('## 1. 结论与待办'));
   lines.push('');
   if (findings.length === 0) {
-    lines.push('未发现 high/medium/low 问题。');
+    lines.push(t('未发现 high/medium/low 问题。'));
   } else {
     const actionable = findings.filter((f) => f.severity !== 'low').slice(0, 15);
-    lines.push(`按严重级别排序，优先处理以下 ${actionable.length} 项：`);
+    lines.push(t('按严重级别排序，优先处理以下 {n} 项：', { n: actionable.length }));
     lines.push('');
-    lines.push('| 级别 | 来源 | 类别 | 问题 | 位置 |');
+    lines.push(t('| 级别 | 来源 | 类别 | 问题 | 位置 |'));
     lines.push('|------|------|------|------|------|');
     for (const f of actionable) {
       lines.push(
@@ -211,59 +217,59 @@ export function renderHardenReport(input: {
     }
     if (findings.length > actionable.length) {
       lines.push('');
-      lines.push(`（其余 ${findings.length - actionable.length} 项见 \`findings.json\`）`);
+      lines.push(t('（其余 {n} 项见 `findings.json`）', { n: findings.length - actionable.length }));
     }
   }
   lines.push('');
-  lines.push('### 建议的执行顺序');
+  lines.push(t('### 建议的执行顺序'));
   lines.push('');
   lines.push('```bash');
-  lines.push('pod identity init --agent <agent>   # 1. 每个 agent 一个身份');
-  lines.push('pod posture freeze                  # 2. 冻结当前姿态（此后任何变更都会报出来）');
+  lines.push(t('pod identity init --agent <agent>   # 1. 每个 agent 一个身份'));
+  lines.push(t('pod posture freeze                  # 2. 冻结当前姿态（此后任何变更都会报出来）'));
   lines.push('pod serve --agent <a> --server <s> \\');
-  lines.push('  --policy <draft> --policy-signature <sig>   # 3. 用编译出的最小权限策略接管流量');
-  lines.push('pod posture --strict                # 4. 挂进 CI / 定时任务，漂移即退出码非 0');
-  lines.push('pod rules pull --url <pack> --key <pub.pem>   # 5. 订阅规则更新（放宽守卫默认拦截）');
-  lines.push('pod quarantine add --agent <agent>  # 出事时熔断，网关下一次调用即生效');
+  lines.push(t('  --policy <draft> --policy-signature <sig>   # 3. 用编译出的最小权限策略接管流量'));
+  lines.push(t('pod posture --strict                # 4. 挂进 CI / 定时任务，漂移即退出码非 0'));
+  lines.push(t('pod rules pull --url <pack> --key <pub.pem>   # 5. 订阅规则更新（放宽守卫默认拦截）'));
+  lines.push(t('pod quarantine add --agent <agent>  # 出事时熔断，网关下一次调用即生效'));
   lines.push('```');
   lines.push('');
 
-  lines.push('## 2. 暴露面（静态扫描）');
+  lines.push(t('## 2. 暴露面（静态扫描）'));
   lines.push('');
   lines.push(demoteHeadings(input.scanReport));
   lines.push('');
 
-  lines.push('## 3. 控制平面姿态');
+  lines.push(t('## 3. 控制平面姿态'));
   lines.push('');
   lines.push(demoteHeadings(input.postureReport));
   lines.push('');
 
-  lines.push('## 4. 最小权限策略建议');
+  lines.push(t('## 4. 最小权限策略建议'));
   lines.push('');
   if (input.draftReport) {
     lines.push(demoteHeadings(input.draftReport));
   } else {
-    lines.push('审计目录为空，无法从真实行为编译最小权限策略。');
+    lines.push(t('审计目录为空，无法从真实行为编译最小权限策略。'));
     lines.push('');
-    lines.push('先采集语料：`pod record --config <mcp-manager.json> --server <name>`，');
-    lines.push('日常使用一段时间后再跑 `pod harden`——**没有语料的策略只是猜测**。');
+    lines.push(t('先采集语料：`pod record --config <mcp-manager.json> --server <name>`，'));
+    lines.push(t('日常使用一段时间后再跑 `pod harden`——**没有语料的策略只是猜测**。'));
   }
   lines.push('');
 
-  lines.push('## 5. 证据与可验证性');
+  lines.push(t('## 5. 证据与可验证性'));
   lines.push('');
   lines.push(demoteHeadings(input.verifyReport));
   lines.push('');
 
-  lines.push('## 6. 产物清单');
+  lines.push(t('## 6. 产物清单'));
   lines.push('');
-  lines.push('| 文件 | 字节 | sha256 |');
+  lines.push(t('| 文件 | 字节 | sha256 |'));
   lines.push('|------|-----:|--------|');
   for (const a of input.artifacts) {
     lines.push(`| \`${a.file}\` | ${a.bytes} | \`${a.sha256.slice(0, 16)}…\` |`);
   }
   lines.push('');
-  lines.push('完整哈希见 `manifest.json`。校验方式：对同名文件重算 sha256 比对。');
+  lines.push(t('完整哈希见 `manifest.json`。校验方式：对同名文件重算 sha256 比对。'));
   lines.push('');
   return lines.join('\n');
 }
@@ -363,12 +369,12 @@ export function runHarden(opts: HardenOptions): HardenResult {
       bytes: Buffer.byteLength(content, 'utf8'),
     });
   } else if (audits.length === 0) {
-    evidenceNote = '（审计目录为空，未导出证据包——**没有记录就没有可证明的历史**）';
+    evidenceNote = t('（审计目录为空，未导出证据包——**没有记录就没有可证明的历史**）');
   }
 
   const verifyReport =
     (audits.length === 0
-      ? '# 审计完整性自检\n\n（审计目录为空）'
+      ? t('# 审计完整性自检\n\n（审计目录为空）')
       : renderVerifyReport(audits, opts.auditDir)) + (evidenceNote ? `\n\n${evidenceNote}` : '');
   const report = renderHardenReport({
     generatedAt,

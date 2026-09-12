@@ -865,12 +865,22 @@ function cmdRulesApply(input: {
 
   const tightened = changes.filter((c) => c.impact === 'tighten').length;
   const unknown = changes.length - tightened - relaxations.length;
-  log(`规则包 ${input.pack.packVersion}（${input.pack.issuedBy}）已应用 → ${target}`);
-  log(`  收紧 ${tightened} 项 · 放宽 ${relaxations.length} 项 · 方向待人工确认 ${unknown} 项`);
+  log(t('规则包 {version}（{issuer}）已应用 → {target}', {
+    version: input.pack.packVersion,
+    issuer: input.pack.issuedBy,
+    target,
+  }));
+  log(
+    t('  收紧 {tightened} 项 · 放宽 {relaxed} 项 · 方向待人工确认 {unknown} 项', {
+      tightened,
+      relaxed: relaxations.length,
+      unknown,
+    }),
+  );
   // 带上具体内容：只说"injection.signals 少了一条"没法判断该不该放行
   for (const r of relaxations.slice(0, 5)) {
     const detail = r.from ?? r.to;
-    log(`  ⚠️ 放宽：${r.where}（${r.kind}${detail ? `: ${detail}` : ''}）`);
+    log(t('  ⚠️ 放宽：{where}（{kind}{detail}）', { where: r.where, kind: r.kind, detail: detail ? `: ${detail}` : '' }));
   }
 
   // 配置变更进控制平面审计链（G1）——"这条规则是谁、什么时候换上的"必须可查
@@ -890,7 +900,9 @@ function cmdRulesApply(input: {
     });
   } catch (err) {
     // 记不上账不等于应用失败，但绝不能静默——否则"看起来换上了、其实没进链"
-    console.error(`⚠️ 规则已应用，但未能写入审计链：${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      t('⚠️ 规则已应用，但未能写入审计链：{error}', { error: err instanceof Error ? err.message : String(err) }),
+    );
   }
 }
 
@@ -925,7 +937,7 @@ function cmdOnboard(opts: OnboardOptions): void {
     dryRun: opts.dryRun,
     podBin: opts.podBin,
   });
-  log(opts.dryRun ? 'pod onboard — 计划（dry-run，未修改任何文件）' : 'pod onboard — 已接管');
+  log(opts.dryRun ? t('pod onboard — 计划（dry-run，未修改任何文件）') : t('pod onboard — 已接管'));
   for (const t of targets) {
     log(`  ${t.configPath} (agent=${t.agent})`);
     for (const s of t.servers) {
@@ -1211,15 +1223,15 @@ async function main(): Promise<void> {
     // 云端熔断收敛：这是"出事时不用 SSH 上机器"的那条通道
     for (const q of result.quarantine) {
       if (q.applied.length > 0) {
-        log(`⛔ 云端下发熔断并已在本地生效（agent #${q.agent_id}）：${q.applied.join('、')}`);
+        log(t('⛔ 云端下发熔断并已在本地生效（agent #{id}）：{list}', { id: q.agent_id, list: q.applied.join('、') }));
       }
       if (q.released.length > 0) {
-        log(`✅ 云端解除熔断（agent #${q.agent_id}）：${q.released.join('、')}`);
+        log(t('✅ 云端解除熔断（agent #{id}）：{list}', { id: q.agent_id, list: q.released.join('、') }));
       }
       if (q.desired === true && q.applied.length === 0) {
-        log(`⛔ 本地已处于熔断状态（agent #${q.agent_id}）`);
+        log(t('⛔ 本地已处于熔断状态（agent #{id}）', { id: q.agent_id }));
       }
-      if (q.error) log(`⚠️ agent #${q.agent_id} 熔断状态未同步：${q.error}`);
+      if (q.error) log(t('⚠️ agent #{id} 熔断状态未同步：{error}', { id: q.agent_id, error: q.error }));
     }
     // 逐项报失败但整体继续:一条死 token / 一条断链不该让整台机器停止上云。
     // 退出码仍置 1,让脚本与自动化能发现"没有全部成功"。
@@ -1358,22 +1370,33 @@ async function main(): Promise<void> {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     } else {
       const s = result.summary;
-      log(`加固审计报告已生成：${result.reportPath}`);
+      log(t('加固审计报告已生成：{path}', { path: result.reportPath }));
       log(`  🔴 high ${s.high} · 🟠 medium ${s.medium} · 🟡 low ${s.low}`);
-      log(`  agent 平台 ${s.platforms.length} · MCP server ${s.mcpServers} · 疑似暴露密钥 ${s.exposedSecrets}`);
       log(
-        `  审计链 ${s.auditChains} 条 / ${s.auditEntries} 条记录` +
-          (s.brokenChains > 0 ? `（⚠️ ${s.brokenChains} 条断裂）` : ''),
+        t('  agent 平台 {platforms} · MCP server {servers} · 疑似暴露密钥 {secrets}', {
+          platforms: s.platforms.length,
+          servers: s.mcpServers,
+          secrets: s.exposedSecrets,
+        }),
       );
-      if (s.baselineMissing) log('  ⚠️ 未建立姿态基线：漂移类检查未生效，建议先跑 pod posture freeze');
-      log(`  交付目录：${result.outDir}`);
+      log(
+        t('  审计链 {chains} 条 / {entries} 条记录{broken}', {
+          chains: s.auditChains,
+          entries: s.auditEntries,
+          broken: s.brokenChains > 0 ? t('（⚠️ {n} 条断裂）', { n: s.brokenChains }) : '',
+        }),
+      );
+      if (s.baselineMissing) log(t('  ⚠️ 未建立姿态基线：漂移类检查未生效，建议先跑 pod posture freeze'));
+      log(t('  交付目录：{path}', { path: result.outDir }));
     }
 
     if (values.upload === true) {
       const cfg = loadCloudConfig(values.config);
       const syncToken = cfg.sync_token ?? cfg.agents?.[0]?.sync_token;
       if (!syncToken) {
-        console.error(`云配置里没有 sync_token，无法上传（${values.config ?? '~/.pod/cloud.json'}）`);
+        console.error(
+          t('云配置里没有 sync_token，无法上传（{config}）', { config: values.config ?? '~/.pod/cloud.json' }),
+        );
         process.exit(1);
       }
       const findingsRaw = readFileSync(join(result.outDir, 'findings.json'), 'utf8');
@@ -1393,8 +1416,8 @@ async function main(): Promise<void> {
         },
       );
       // 说清楚传了什么、没传什么——本地优先的承诺要能被验证，而不是靠信任
-      log(`已上传到云端（报告 #${id}）：report.md + findings.json`);
-      log('  未上传：evidence.json（原始审计链）——它在本地目录里，需要时你自己决定要不要给。');
+      log(t('已上传到云端（报告 #{id}）：report.md + findings.json', { id }));
+      log(t('  未上传：evidence.json（原始审计链）——它在本地目录里，需要时你自己决定要不要给。'));
     }
     return;
   }
@@ -1429,12 +1452,12 @@ async function main(): Promise<void> {
       } else {
         process.stdout.write(renderRedteamReport(result.report) + '\n');
       }
-      log(`红队报告已写入：${join(outDir, 'redteam-report.md')}`);
+      log(t('红队报告已写入：{path}', { path: join(outDir, 'redteam-report.md') }));
       // 高危绕过 → 退出码 1，便于挂 CI（与 pod posture --strict 同惯例）
       if (result.report.findings.some((f) => f.severity === 'high')) process.exitCode = 1;
       return;
     } catch (err) {
-      console.error(`redteam 失败：${err instanceof Error ? err.message : String(err)}`);
+      console.error(t('redteam 失败：{error}', { error: err instanceof Error ? err.message : String(err) }));
       process.exit(1);
     }
   }
@@ -1749,7 +1772,7 @@ async function main(): Promise<void> {
       }
       const policy = JSON.parse(readFileSync(values.in, 'utf8')) as Policy;
       writeFileSync(values.out, signPolicy(policy, readFileSync(values.key, 'utf8')) + '\n', 'utf8');
-      log(`签名已写入: ${values.out}`);
+      log(t('签名已写入: {path}', { path: values.out ?? '' }));
       return;
     }
     if (sub === 'verify') {
@@ -1795,14 +1818,18 @@ async function main(): Promise<void> {
         );
         return;
       }
-      log(`判定规则：${existsSync(rulesPath) ? rulesPath : '（尚未创建，当前使用代码内置默认值）'}`);
+      log(
+        t('判定规则：{path}', {
+          path: existsSync(rulesPath) ? rulesPath : t('（尚未创建，当前使用代码内置默认值）'),
+        }),
+      );
       log(`  version ${rules.version}`);
       log(
         `  冻结项 ${counts.frozenPaths} · 钩子模式 ${counts.hookPatterns} · 注入词 ${counts.injectionSignals}` +
           `（${counts.injectionBlock ? '命中即阻断' : '仅标记'}）` +
           ` · 元数据模式 ${counts.metadataPatterns} · 记忆路径 ${counts.memoryPaths}`,
       );
-      log(`  egress 判定：${counts.egress ? '开启' : '关闭（默认）'}`);
+      log(t('  egress 判定：{state}', { state: counts.egress ? t('开启') : t('关闭（默认）') }));
       return;
     }
 
@@ -1821,7 +1848,7 @@ async function main(): Promise<void> {
       });
       const signed = signRulePack(pack, readFileSync(values.key, 'utf8'));
       writeFileSync(values.out, JSON.stringify(signed, null, 2) + '\n', 'utf8');
-      log(`规则包已签名并写入：${values.out}`);
+      log(t('规则包已签名并写入：{path}', { path: values.out ?? '' }));
       log(`  ${signed.issuedBy} · ${signed.packVersion} · ${signed.issuedAt}`);
       return;
     }
@@ -1836,7 +1863,13 @@ async function main(): Promise<void> {
         console.error(t('签名无效：包内容与签名不匹配（可能被篡改），或公钥不对'));
         process.exit(1);
       }
-      log(`✅ 签名有效（${pack.issuedBy} · ${pack.packVersion} · ${pack.issuedAt}）`);
+      log(
+        t('✅ 签名有效（{issuer} · {version} · {at}）', {
+          issuer: pack.issuedBy,
+          version: pack.packVersion,
+          at: pack.issuedAt,
+        }),
+      );
       return;
     }
 
@@ -1863,7 +1896,11 @@ async function main(): Promise<void> {
           const cfg = loadCloudConfig(values.config);
           const syncToken = cfg.sync_token ?? cfg.agents?.[0]?.sync_token;
           if (!syncToken) {
-            console.error(`云配置里没有 sync_token，无法拉取规则包（${values.config ?? '~/.pod/cloud.json'}）`);
+            console.error(
+              t('云配置里没有 sync_token，无法拉取规则包（{config}）', {
+                config: values.config ?? '~/.pod/cloud.json',
+              }),
+            );
             process.exit(1);
           }
           url = `${cfg.api_url}/api/v1/rules/pack`;
@@ -1882,18 +1919,18 @@ async function main(): Promise<void> {
         const resp = await fetch(url, { headers });
         if (!resp.ok) {
           const detail = await resp.text().catch(() => '');
-          console.error(`规则包拉取失败：HTTP ${resp.status} ${url}\n${detail.slice(0, 300)}`);
+          console.error(t('规则包拉取失败：HTTP {status} {url}\n{detail}', { status: resp.status, url, detail: detail.slice(0, 300) }));
           process.exit(1);
         }
         if (fromCloud) {
           // 云端响应是信封 {pack_json, pack_version, ...}，真正的包在 pack_json 里
           const body = (await resp.json()) as { pack_json?: string; pack_version?: string };
           if (typeof body.pack_json !== 'string') {
-            console.error('云端响应里没有 pack_json（服务端版本可能过旧）');
+            console.error(t('云端响应里没有 pack_json（服务端版本可能过旧）'));
             process.exit(1);
           }
           text = body.pack_json;
-          log(`云端当前生效版本：${body.pack_version ?? '?'} ${cloudNote}`);
+          log(t('云端当前生效版本：{version} {note}', { version: body.pack_version ?? '?', note: cloudNote }));
         } else {
           text = await resp.text();
         }
@@ -1907,11 +1944,11 @@ async function main(): Promise<void> {
       const pack = parseRulePack(text);
       if (keyPem) {
         if (!verifyRulePack(pack, keyPem)) {
-          console.error('规则包验签失败——拒绝应用（包内容与签名不匹配，或公钥不对）');
+          console.error(t('规则包验签失败——拒绝应用（包内容与签名不匹配，或公钥不对）'));
           process.exit(1);
         }
       } else {
-        log('⚠️ 未提供 --key：跳过验签。本地文件适用，但无法证明这个包确实来自签发方。');
+        log(t('⚠️ 未提供 --key：跳过验签。本地文件适用，但无法证明这个包确实来自签发方。'));
       }
       cmdRulesApply({
         pack,

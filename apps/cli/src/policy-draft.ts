@@ -13,6 +13,7 @@
  * - 人类复核是最后一道闸门：输出 Markdown 报告 + JSON 草稿，不自动启用。
  */
 import type { AuditEntry } from '@podsec/audit';
+import { t } from '@podsec/i18n';
 import { lintPolicy, type Policy, type ServerPolicy } from '@podsec/policy';
 
 export type Proposed = 'allow' | 'approve' | 'deny';
@@ -152,7 +153,7 @@ export function draftPolicyFromEntries(input: DraftInput[], opts: DraftOptions):
     }
   }
 
-  if (total === 0) notes.push('审计目录为空或没有匹配记录，无法生成草稿');
+  if (total === 0) notes.push(t('审计目录为空或没有匹配记录，无法生成草稿'));
 
   const servers: Record<string, ServerPolicy> = {};
   const stats: ToolStat[] = [];
@@ -196,20 +197,25 @@ export function draftPolicyFromEntries(input: DraftInput[], opts: DraftOptions):
     },
   };
 
-  notes.push(`草稿基于 ${total} 条录制记录；启用前请人工复核并运行 pod lint`);
+  notes.push(t('草稿基于 {n} 条录制记录；启用前请人工复核并运行 pod lint', { n: total }));
   return { policy, stats, notes };
 }
 
 /** 人类可读的草稿报告 */
 export function renderDraftReport(result: DraftResult): string {
   const lines: string[] = ['# pod policy draft — 从录制语料生成的最小权限草稿', ''];
-  lines.push(`生成时间：${new Date().toISOString()}`);
-  lines.push(`agent：${result.policy.agent}　未登记 server 默认：${result.policy.defaultDecision}`);
+  lines.push(t('生成时间：{ts}', { ts: new Date().toISOString() }));
+  lines.push(
+    t('agent：{agent}　未登记 server 默认：{defaultDecision}', {
+      agent: result.policy.agent,
+      defaultDecision: result.policy.defaultDecision ?? '',
+    }),
+  );
   lines.push('');
   if (result.stats.length === 0) {
-    lines.push('（没有可用的录制记录）');
+    lines.push(t('（没有可用的录制记录）'));
   } else {
-    lines.push('| server | tool | 调用 | ok | err | blocked | 敏感 | 建议 | 依据 |');
+    lines.push(t('| server | tool | 调用 | ok | err | blocked | 敏感 | 建议 | 依据 |'));
     lines.push('|--------|------|-----:|----:|----:|--------:|-----:|------|------|');
     for (const s of result.stats) {
       lines.push(
@@ -218,15 +224,15 @@ export function renderDraftReport(result: DraftResult): string {
     }
   }
   lines.push('');
-  lines.push('## 复核要点');
+  lines.push(t('## 复核要点'));
   lines.push('');
-  lines.push('- `allow` 只代表"录制期间只读/未命中高危动词"，不代表绝对安全；');
-  lines.push('- `approve` 是写/执行类，保留人工闸门；`deny` 是破坏性动作或观测到敏感命中；');
-  lines.push('- 未在语料中出现的工具不会进策略，启用后按 `defaultDecision` 处理（fail-closed）。');
+  lines.push(t('- `allow` 只代表"录制期间只读/未命中高危动词"，不代表绝对安全；'));
+  lines.push(t('- `approve` 是写/执行类，保留人工闸门；`deny` 是破坏性动作或观测到敏感命中；'));
+  lines.push(t('- 未在语料中出现的工具不会进策略，启用后按 `defaultDecision` 处理（fail-closed）。'));
   lines.push('');
   for (const n of result.notes) lines.push(`> ${n}`);
   lines.push('');
-  lines.push('**下一步**：复核本报告 → `pod lint --policy <draft>` → `pod serve --policy <draft>`');
+  lines.push(t('**下一步**：复核本报告 → `pod lint --policy <draft>` → `pod serve --policy <draft>`'));
   return lines.join('\n');
 }
 
@@ -325,11 +331,11 @@ export function renderPolicyDiff(diff: PolicyDiff): string {
   };
   const lines: string[] = ['## 策略 diff（baseline → draft）', ''];
   if (diff.entries.length === 0) {
-    lines.push('（无差异）');
+    lines.push(t('（无差异）'));
     return lines.join('\n');
   }
 
-  lines.push('| server | tool | baseline | draft | 变化 |');
+  lines.push(t('| server | tool | baseline | draft | 变化 |'));
   lines.push('|--------|------|----------|-------|------|');
   for (const e of diff.entries) {
     lines.push(`| ${e.server} | ${e.tool} | ${e.from} | ${e.to} | ${label[e.kind]} |`);
@@ -339,7 +345,7 @@ export function renderPolicyDiff(diff: PolicyDiff): string {
     `**汇总**：收紧 ${diff.tightened} · 新增 ${diff.added} · 移除 ${diff.removed} · 放宽 ${diff.loosened}`,
   );
   if (diff.loosened > 0) {
-    lines.push('', '> ⚠️ 有放宽项，启用前必须人工复核。');
+    lines.push('', t('> ⚠️ 有放宽项，启用前必须人工复核。'));
   }
   return lines.join('\n');
 }

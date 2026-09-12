@@ -11,6 +11,7 @@
  * 不发参数、不发审计、不发路径。这是云端 `shape_alert` 白名单在本地的对应物。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { t } from '@podsec/i18n';
 import { join } from 'node:path';
 import type { Policy, RuleSet } from '@podsec/policy';
 import {
@@ -118,13 +119,18 @@ export interface RedteamOutputs {
 
 export async function runRedteam(opts: RedteamCliOptions): Promise<RedteamOutputs> {
   if (!existsSync(opts.policyPath)) {
-    throw new Error(`策略文件不存在：${opts.policyPath}`);
+    throw new Error(t('策略文件不存在：{path}', { path: opts.policyPath }));
   }
   let policy: Policy;
   try {
     policy = JSON.parse(readFileSync(opts.policyPath, 'utf8')) as Policy;
   } catch (err) {
-    throw new Error(`策略文件不是合法 JSON：${opts.policyPath}（${err instanceof Error ? err.message : String(err)}）`);
+    throw new Error(
+      t('策略文件不是合法 JSON：{path}（{error}）', {
+        path: opts.policyPath,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 
   const baseline = generateBaselineScenarios({ policy, rules: opts.rules });
@@ -138,14 +144,20 @@ export async function runRedteam(opts: RedteamCliOptions): Promise<RedteamOutput
     const result = validateScenarios(JSON.parse(text), policy, 'file');
     scenarios.push(...result.accepted);
     rejected.push(...result.rejected);
-    notes.push(`场景文件 ${opts.scenariosPath}：接收 ${result.accepted.length} 条，丢弃 ${result.rejected.length} 条。`);
+    notes.push(
+      t('场景文件 {path}：接收 {accepted} 条，丢弃 {rejected} 条。', {
+        path: opts.scenariosPath,
+        accepted: result.accepted.length,
+        rejected: result.rejected.length,
+      }),
+    );
   }
 
   const surface = buildSurface(policy);
 
   if (opts.exportSurfacePath) {
     writeFileSync(opts.exportSurfacePath, JSON.stringify(surface, null, 2) + '\n', 'utf8');
-    opts.log(`权限面已导出：${opts.exportSurfacePath}（这是唯一需要交给模型的东西）`);
+    opts.log(t('权限面已导出：{path}（这是唯一需要交给模型的东西）', { path: opts.exportSurfacePath }));
   }
 
   if (opts.useLlm) {

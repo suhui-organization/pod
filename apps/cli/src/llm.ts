@@ -12,6 +12,7 @@
  *      与云端一样只记 provider/model/字符数，**不记 prompt 正文**。
  */
 import { readFileSync, existsSync } from 'node:fs';
+import { t } from '@podsec/i18n';
 import { join } from 'node:path';
 import { appendControlEvent } from './control-plane.js';
 
@@ -196,7 +197,9 @@ function ledger(
     });
   } catch (err) {
     // 记不上账不能反过来打断命令，但必须说出来——否则"留痕"是假的
-    console.error(`⚠️ 模型调用未能写入审计链：${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      t('⚠️ 模型调用未能写入审计链：{error}', { error: err instanceof Error ? err.message : String(err) }),
+    );
   }
 }
 
@@ -320,7 +323,7 @@ export async function callChat(
   try {
     const data = (await resp.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
     const raw = data.choices?.[0]?.message?.content;
-    if (typeof raw !== 'string' || !raw.trim()) throw new Error('空内容');
+    if (typeof raw !== 'string' || !raw.trim()) throw new Error(t('空内容'));
     content = raw;
   } catch (err) {
     const message = `模型响应解析失败：${err instanceof Error ? err.message : String(err)}`;

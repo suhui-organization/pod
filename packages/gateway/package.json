@@ -16,6 +16,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@podsec/audit": "workspace:*",
+    "@podsec/i18n": "workspace:*",
     "@podsec/identity": "workspace:*",
     "@podsec/policy": "workspace:*",
     "zod": "^3.25.76"

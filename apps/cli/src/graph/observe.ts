@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { t } from '@podsec/i18n';
 import { existsSync } from 'node:fs';
 import {
   capabilityMapFromGraph,
@@ -108,7 +109,10 @@ export function buildObservedGraph(opts: BuildObservedOptions): { graph: Capabil
   }
 
   if (entries === 0) {
-    warnings.push({ code: 'corpus_empty', message: `审计目录 ${opts.auditDir} 在给定时间窗内没有记录` });
+    warnings.push({
+      code: 'corpus_empty',
+      message: t('审计目录 {dir} 在给定时间窗内没有记录', { dir: opts.auditDir }),
+    });
   }
   const fingerprint = `sha256:${createHash('sha256')
     .update(JSON.stringify({ auditDir: opts.auditDir, since: opts.since ?? null, files: files.length, entries }))

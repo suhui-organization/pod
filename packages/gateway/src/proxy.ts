@@ -9,6 +9,7 @@
  *     approve 按 fail-closed 阻断，审批流 Phase 1 实现）。
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { t } from '@podsec/i18n';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { serveHttp, type HttpServeResult } from './http-server.js';
@@ -763,7 +764,9 @@ export async function createStdioProxy(opts: StdioProxyOptions): Promise<Server>
   // T4：来源白名单校验——策略声明了 source 且不匹配时拒绝启动（fail-closed）
   const sourceCheck = checkServerSource(opts.policy.servers?.[opts.serverName]?.source, opts.command, opts.args);
   if (sourceCheck !== null) {
-    throw new Error(`server "${opts.serverName}" 未通过来源白名单校验（T4）：${sourceCheck}`);
+    throw new Error(
+      t('server "{name}" 未通过来源白名单校验（T4）：{detail}', { name: opts.serverName, detail: sourceCheck }),
+    );
   }
   const transport = new StdioClientTransport({ command: opts.command, args: opts.args, env: opts.env });
   const client = new Client({ name: 'pod-gateway-upstream', version: '0.1.0' }, { capabilities: {} });
@@ -791,7 +794,9 @@ export async function createHttpProxy(opts: HttpProxyOptions): Promise<HttpServe
   // T4：来源白名单校验（与 createStdioProxy 一致）
   const sourceCheck = checkServerSource(opts.policy.servers?.[opts.serverName]?.source, opts.command, opts.args);
   if (sourceCheck !== null) {
-    throw new Error(`server "${opts.serverName}" 未通过来源白名单校验（T4）：${sourceCheck}`);
+    throw new Error(
+      t('server "{name}" 未通过来源白名单校验（T4）：{detail}', { name: opts.serverName, detail: sourceCheck }),
+    );
   }
   let upstream: Client | undefined;
   const getUpstream = async (): Promise<Client> => {
