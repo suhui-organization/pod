@@ -1,14 +1,21 @@
 # 我扫描了自己的机器：6 个 AI Agent、14 个 MCP 服务器、5 处明文密钥
 
 > 发布渠道：GitHub / 即刻 / V2EX / Hacker News
-> 状态：草稿（发布前核对数据时间戳）
+> 状态：v0.2.0 校订版（数字于 2026-09-12 复扫确认，与首扫 2026-09-01 一致）
 
 我的电脑上装了 6 个 AI Agent 平台：DeepSeek Harness、OpenClaw、Claude Code、
 Cursor、Codex、OpenCode。它们一共配置了 14 个 MCP 服务器。
 
-我写了一个只读扫描器（`pod scan`，[GitHub](https://github.com/podsec/pod)），
-花 0.3 秒扫了一遍——结论有点吓人。这份报表就是我的 Agent 的**信任基线**：
-看清风险面，是给每一步留下不可篡改证据的第一步：
+我写了一个只读扫描器（`pod scan`，[项目主页](https://gitee.com/suhuisoftwares/pod)），
+实测 **0.19 秒**扫完——结论有点吓人。这份报表就是我的 Agent 的**信任基线**：
+看清风险面，是给每一步留下不可篡改证据的第一步。
+
+想在自己机器上跑同一份扫描（只读、不联网、不上传任何数据）：
+
+```bash
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.2.0/scripts/install.sh | sh
+pod scan
+```
 
 ## 发现 1：12/14 的 MCP 服务器没有锁定版本
 
@@ -48,8 +55,10 @@ Cursor 知道自己的权限，OpenClaw 知道自己的，但没有一个工具�
 3. **加一道闸门**：让 agent 的工具调用经过一个策略层（`pod serve`），
    敏感路径直接拒绝、密钥输出直接拦截、每次调用留哈希链审计
 
-扫描器开源免费：`npm i -g @podsec/cli && pod scan`（只读、不上传任何数据）。
+扫描器开源免费（Apache-2.0）。安装见上面那条命令；`pod scan` 只读本地配置，
+不联网、不上传任何数据——报表里的密钥一律掩码显示。
 
 ---
 
-*文中的数据来自作者真实机器的扫描结果（2026-09-01）。*
+*文中的数据来自作者真实机器的扫描结果（首扫 2026-09-01，v0.2.0 发布前于 2026-09-12 复扫确认）。
+具体密钥值不公布——任何人都可以在自己机器上跑 `pod scan` 得到属于自己的那一份。*

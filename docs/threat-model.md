@@ -1,6 +1,10 @@
 # Security Pod — 威胁模型
 
 > 框架：STRIDE-lite + [OWASP Agentic AI Top 10（2025-12 发布）](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/) 映射。
+> 编号用官方的 **ASI01–ASI10**（Agent Goal Hijack / Tool Misuse / Identity & Privilege Abuse /
+> Agentic Supply Chain / Unexpected Code Execution / Memory & Context Poisoning /
+> Insecure Inter-Agent Communication / Cascading Failures / Human-Agent Trust Exploitation /
+> Rogue Agents），不另造编号。
 > 目的：每个产品决策都能回答"它在防哪个威胁"；公开威胁模型本身是安全产品的信任资产。
 
 ---
@@ -30,42 +34,43 @@
 
 ### T1 提示注入 → 工具滥用/数据外泄 【严重】
 - **场景**：网页/邮件/文档里的恶意内容注入 agent 上下文，诱导其调用工具（读密钥文件、发请求到攻击者服务器、改代码）。
-- **OWASP 映射**：AG-01 直接提示注入、AG-02 间接提示注入、AG-03 工具幻觉/误用、AG-10 数据外泄。
+- **OWASP 映射**：ASI01 目标劫持（直接/间接提示注入）、ASI02 工具误用。
 - **防线**：策略闸门（deny/approve 规则）为主；`deny_output_matching` 防密钥经工具输出外泄；egress 主机黑名单；审批要求 reason。
 - **产品叙事**："不是防 AI 变坏，是防坏内容利用 AI 的手。"
 
 ### T2 密钥/凭据被读出并外泄 【严重】
 - **场景**：agent 读 `~/.aws/credentials`、`.env`、`~/.ssh/id_*` 后经工具调用或响应输出传走。
-- **OWASP 映射**：AG-10（数据外泄）+ AG-06（权限过载）。
+- **OWASP 映射**：ASI03 身份与权限滥用（凭据被读出后即具备越权能力）。
 - **防线**：策略 deny 敏感路径读取；输出侧脱敏正则；审计只记哈希不记原文。
 - **产品叙事**：pod scan 的"密钥暴露面"是最好 demo。
 
 ### T3 破坏性操作 【高】
 - **场景**：`rm -rf`、`git push --force`、数据库 DELETE、云资源销毁。
-- **OWASP 映射**：AG-04（工具权限过载）/ AG-07（资源滥用）。
+- **OWASP 映射**：ASI02 工具误用。
 - **防线**：高危工具默认 approve 甚至 deny；写操作审批；fail-closed 超时。
 - **注**：原计划中"半夜访问数据库"类异常检测降级为辅助信号（行为漂移导致误报高），主防线是"写操作必须经过审批"这种可判定的规则。
 
 ### T4 MCP 供应链投毒 【高】
 - **场景**：安装恶意 npm MCP 包（postgrid-mcp 先例：窃取 .env 上传）；或依赖未锁版本被上游劫持。
-- **OWASP 映射**：AG-08（供应链/依赖风险）。
+- **OWASP 映射**：ASI04 供应链风险。
 - **防线**：pod scan 检查 server 包来源、版本锁定；gateway 对未知 server 默认 deny；策略模板"新 server 零权限"。
 - **产品叙事**：scan 报表第 1 屏就是"你的 17 个 MCP server 里 3 个没锁版本"。
 
 ### T5 数据经 prompt 外泄给 LLM 提供商 【高】
 - **场景**：agent 把客户数据、代码、密钥上下文发往第三方 LLM API（OPC 常同时用多家 provider）。
-- **OWASP 映射**：AG-10。
+- **OWASP 映射**：ASI03 身份与权限滥用（数据随合法凭据流出）。
 - **防线**：egress 主机策略；提示用户"哪些 provider 可访问哪些目录"（资产级最小权限）；企业数据目录标记。
 - **产品叙事**："你的代码在哪些模型手里？"——OPC 出海做 GDPR 的硬需求。
 
 ### T6 影子 agent（无清单、无治理）【中】
 - **场景**：OPC 机器上多个未登记 agent（Cursor 内置、OpenClaw、Claude Code、DSH…），无人知道整体暴露面。
-- **OWASP 映射**：AG-06（资产/权限管理缺失）。
+- **OWASP 映射**：ASI03 身份与权限滥用（资产不清 = 治理无从谈起）。
 - **防线**：Asset Registry 自动发现 + 定期 scan；"一个 agent 一个身份一份策略"。
 - **产品叙事**：scan 报表"你其实有 5 个 agent"。
 
 ### T7 审计被篡改/合规证据不足 【中】
 - **场景**：需要向客户/监管证明"我的 agent 做了什么"（GDPR Art.30 处理活动记录、SOC 2 审计问答）。
+- **OWASP 映射**：ASI10 失控 agent（无法回答"它到底做了什么"时就无法兜底）。
 - **防线**：SHA-256 哈希链不可变审计；策略版本随审计记录（可证明"当时是什么策略"）。
 - **产品叙事**：合规报告一键生成（付费功能）。
 
@@ -75,29 +80,35 @@
 
 ### T9 误配置/误批准（人为）【低-中】
 - **场景**：用户批量批准、策略写得太宽。
+- **OWASP 映射**：ASI09 人机信任利用（agent 的解释诱导人批准）。
 - **防线**：审批要求 reason；超时 fail-closed；策略 lint（`pod lint` 检查危险模式如 `deny: []` 空拒绝）；默认模板保守。
 
 ### T10 生命周期钩子被静默木马化（HookPry 类）【严重】
 - **场景**：Agent harness 把 shell 命令绑定到运行时事件（会话启动、工具调用、文件编辑），这些命令以主机权限运行，却以配置项形式分发，且可能在 LLM 完全看不到的时机触发。攻击者只需控制插件元数据 + 钩子配置，就能让一个良性插件在"更新"后把攻击者的命令挂到良性事件上。
 - **防线**：`pod posture` 采集钩子配置（Claude Code hooks / pod hooks / launchd），按 `rules.hookRisk.riskPatterns` 判定（网络出口、持久化、改写 shell 启动文件、编码载荷）；`riskPatterns: []` 即用户手动关闭。钩子内容进基线，**新增/改动钩子按 `freeze.requireApprovalToChange` 的级别报警**——这正是"良性插件更新即木马化"的发现点。`requireSigned` 打开后无签名钩子另行报警。
 - **边界**：pod 不执行钩子、也不阻断钩子（钩子跑在 harness 里，不经过网关）；能力是**发现 + 取证 + 变更审计**。
+- **OWASP 映射**：ASI04 供应链（钩子作为配置分发）+ ASI05 意外代码执行。
 
 ### T11 配置降级（审批关闭 / 网关地址被改 / 密钥明文）【严重】
 - **场景**：攻击者不创造新的恶意动作，只在合法配置里替换一个关键参数——把密钥引用改成明文、把内部地址改成公开地址、关掉人工审批、扩大共享范围。Agent 仍然"正确"完成任务，但安全态势被悄悄降级。
 - **防线**：`freeze.paths` 里声明的配置文件在 `pod posture freeze` 时记入基线哈希；此后任何改动报 `config-change`（严重级别由用户规则决定），并写进同一条哈希链。pod 自身的策略文件另有签名与 `pod lint`。
+- **OWASP 映射**：ASI03 身份与权限滥用（把限制悄悄摘掉）。
 
 ### T12 身份与委托失控（共享凭证 / 权限扩散 / 无 JIT）【高】
 - **场景**：多个 agent 共用一份凭证，出事无法回答"是谁做的"；高权限 agent 把权限委托给低权限子 agent 后权限扩散；长期静态令牌一旦泄露长期有效。
 - **防线**：`pod identity` 给每个 agent 一对 ed25519 密钥（**策略身份 → 密码学身份**）；`pod delegate` 的委托链逐跳签名、能力必须逐跳收窄、受 `maxDepth` 与 `forbiddenEscalation` 约束；`pod grant` 的 JIT 令牌带 TTL、作用域（server/tool/capability）与单次消费；`pod delegate check` 静态校验两份策略之间的能力包含关系。
+- **OWASP 映射**：ASI03 身份与权限滥用、ASI07 agent 间通信不安全（委托链部分）。
 
 ### T13 记忆投毒【高】
 - **场景**：长期记忆（CLAUDE.md、AGENTS.md、pod memory 目录）被写入恶意内容，影响的不只是当前会话，而是之后每一次决策。
 - **防线**：`memory.paths` 进基线，漂移按 high 报（记忆写入比普通数据更需要人工确认来源）。pod 不解释记忆内容语义，只保证"你看到的和上次是不是同一份"。
+- **OWASP 映射**：ASI06 记忆与上下文投毒。
 
 ### T14 级联失效与信任传播【高】
 - **场景**：一个被污染的 agent 会在数小时内影响大量下游 agent——被攻破的 agent 发出的委托与消息会被下游当作可信输入，绕过原有防御。
 - **防线**：`pod quarantine` 熔断（网关下一次调用即 deny，写链）；`pod anomaly` 按用户阈值（`rules.anomaly`）检测窗口内的委托爆发与高风险能力扩散；`pod trace` 沿委托链 + 审计链反向定位污染源并列出可能受影响的下游。
 - **边界**：pod 只看得到经过网关的调用与 pod 自己的委托记录，看不到 agent 之间的对话。跨 agent 的"推理级联"（Planner→Executor→Reviewer）不在覆盖范围内。
+- **OWASP 映射**：ASI08 级联失效。
 
 ## 3. 设计决策的威胁溯源
 

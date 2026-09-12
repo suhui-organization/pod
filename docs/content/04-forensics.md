@@ -7,7 +7,11 @@ AI Agent 出事的两种结局：
 - **没有审计**：你只能猜。删库的 agent 永远不知道它为什么、什么时候、经谁批准。
 - **有哈希链审计**：5 分钟拿出完整时间线，还能证明时间线没被改过。
 
-pod 是第二种。[GitHub](https://github.com/podsec/pod)
+pod 是第二种。[项目主页](https://gitee.com/suhuisoftwares/pod)
+
+```bash
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.2.0/scripts/install.sh | sh
+```
 
 ## 剧本：凌晨 1:40，agent 试图删除文件
 
@@ -21,6 +25,12 @@ $ pod timeline --since 2h --tool delete_file
 ```
 
 三秒钟看清三件事：**谁**（openclaw-main）、**想干什么**（delete_file）、**为什么没干成**（策略 deny，当时策略版本 0.1.0）。
+
+（真实输出是紧凑的一行，长这样：）
+
+```
+2026-09-01 01:40:08  [deny   ] delete_file        filesystem   agent=openclaw-main  args=cb1533f3… pol=0.1.0  reason=tool "delete_file" is denied on "filesystem"  blocked
+```
 
 ## 第一步：时间线回放（2 分钟）
 
@@ -37,10 +47,12 @@ pod timeline --agent openclaw-main # 只看某个 agent
 
 ```bash
 $ pod verify-audit
-## filesystem.jsonl
+# pod 审计完整性自检报告
+
+## openclaw-main/filesystem.jsonl
 - 状态：✅ 哈希链完整
 - 条目数：8
-- 链首 hash：f7a56fb90350…
+- 链首 hash：f7a56fb90350…（完整 64 位十六进制，此处省略）
 - 链尾 hash：06f31666c4e8…
 **结论：全部审计记录可验证、不可篡改。**
 ```
@@ -52,8 +64,9 @@ $ pod verify-audit
 ```bash
 $ pod export-evidence
 [pod] 证据包已导出: ~/.pod/evidence/pod-evidence-2026-09-01.json
-[pod]   审计文件: 1 个 | 策略快照: 3 个
+[pod]   审计文件: 1 个 | 策略快照: 1 个
 [pod]   顶层哈希: 9f9e6ed35ed1c0b9…
+[pod]   一页式报告: ~/.pod/evidence/pod-evidence-2026-09-01.json.md
 
 $ pod verify-evidence --out ~/.pod/evidence/pod-evidence-2026-09-01.json
 [pod] ✅ 证据包有效（顶层哈希匹配，未被修改）
@@ -68,8 +81,15 @@ $ pod verify-evidence --out ~/.pod/evidence/pod-evidence-2026-09-01.json
 pod sync    # 审计上云
 ```
 
-Pod Cloud「时间线」页：所有 agent 的事件统一回放，GDPR 报告内嵌最近 20 条事件时间线。
-免费版就有完整哈希链；专业版解锁跨 Agent 证据链与合规报告。
+云端控制平面也在同一个开源仓库里（Apache-2.0），一条命令起一个：
+
+```bash
+bash deploy/install.sh
+```
+
+「时间线」页把所有 agent 的事件统一回放；合规报告（GDPR Art.30 支撑证据）
+内嵌最近 20 条事件时间线。数据方向是单向的：本地只推 SHA-256 哈希上云，
+审计原文不出你的机器；云端挂了也不影响本地执法。
 
 ## 为什么是哈希链，不是普通日志
 
@@ -83,4 +103,10 @@ Pod Cloud「时间线」页：所有 agent 的事件统一回放，GDPR 报告�
 
 > 不是所有 agent 都听话。pod 保证：**它做了什么，永远赖不掉。**
 
-5 分钟上手：`npm i -g @podsec/cli && pod init --template baseline && pod serve ...`
+5 分钟上手：
+
+```bash
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.2.0/scripts/install.sh | sh
+pod init --template baseline
+pod serve --agent <name> --server <name> --policy ~/.pod/policies/baseline.json --command <cmd>
+```
