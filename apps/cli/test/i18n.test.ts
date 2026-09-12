@@ -87,4 +87,21 @@ describe('pod --lang', () => {
     expect(deleg).toContain('Delegation issued: demo → worker');
     expect(deleg).toContain('Capabilities: read-private-data');
   });
+
+  it('控制平面与报表的剩余输出不留中文（coverage / timeline / doctor / trace）', () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-i18n-rest-'));
+    for (const args of [
+      ['coverage'],
+      ['timeline'],
+      ['doctor'],
+      ['trace', 'demo'],
+      ['anomaly'],
+      ['quarantine', 'list'],
+    ]) {
+      const out = run([...args, '--lang', 'en-US'], { HOME: home });
+      const cn = out.split('\n').filter((l) => /[\u4e00-\u9fa5]/.test(l));
+      // 这里只拦"整句仍是中文"：本用例跑在空 HOME 下，不会有中文的机器名/路径混进来
+      expect(cn, `${args.join(' ')} 仍有中文：${cn.join(' | ')}`).toEqual([]);
+    }
+  });
 });

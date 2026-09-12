@@ -283,14 +283,17 @@ async function cmdServe(opts: ServeOptions): Promise<void> {
         const map = capabilityMapFromGraph(graph);
         // 策略里显式声明的映射优先；图只补缺
         policy.capabilityMap = { ...map, ...(policy.capabilityMap ?? {}) };
-        log(`capabilityRules: 从 ${graphPath} 加载 ${Object.keys(map).length} 个工具的能力映射`);
+        log(t('capabilityRules: 从 {path} 加载 {n} 个工具的能力映射', { path: graphPath, n: Object.keys(map).length }));
       } catch (err) {
         log(
-          `⚠️ capabilityRules 已配置，但读取 ${graphPath} 失败：${err instanceof Error ? err.message : String(err)}；能力规则可能不生效`,
+          t('⚠️ capabilityRules 已配置，但读取 {path} 失败：{err}；能力规则可能不生效', {
+            path: graphPath,
+            err: err instanceof Error ? err.message : String(err),
+          }),
         );
       }
     } else {
-      log(`⚠️ capabilityRules 已配置，但找不到 ${graphPath}；先运行 pod graph build 或 pod graph apply`);
+      log(t('⚠️ capabilityRules 已配置，但找不到 {path}；先运行 pod graph build 或 pod graph apply', { path: graphPath }));
     }
   }
 
@@ -582,7 +585,11 @@ function cmdDoctor(policyPath: string | undefined): void {
   }
   // 审计目录
   const auditDir = podPath('audit');
-  log(existsSync(auditDir) ? `✅ 审计目录: ${auditDir}` : `ℹ️ 审计目录不存在（首次 record/serve 时创建）: ${auditDir}`);
+  log(
+    existsSync(auditDir)
+      ? t('✅ 审计目录: {path}', { path: auditDir })
+      : t('ℹ️ 审计目录不存在（首次 record/serve 时创建）: {path}', { path: auditDir }),
+  );
 }
 
 function cmdTimeline(opts: TimelineOptions): void {
@@ -677,31 +684,31 @@ function cmdCoverage(opts: CoverageCliOptions): void {
   if (opts.json) {
     process.stdout.write(JSON.stringify(coverage, null, 2) + '\n');
   } else {
-    const lines: string[] = ['# pod 受管覆盖率', ''];
-    lines.push(`- 已受管：${coverage.managed.length} 个`);
-    lines.push(`- 未受管：${coverage.unmanaged.length} 个（可绕过策略/审计）`);
-    lines.push(`- 不支持包装：${coverage.unsupported.length} 个（非 stdio transport）`);
+    const lines: string[] = [t('# pod 受管覆盖率'), ''];
+    lines.push(t('- 已受管：{n} 个', { n: coverage.managed.length }));
+    lines.push(t('- 未受管：{n} 个（可绕过策略/审计）', { n: coverage.unmanaged.length }));
+    lines.push(t('- 不支持包装：{n} 个（非 stdio transport）', { n: coverage.unsupported.length }));
     lines.push('');
     if (coverage.unmanaged.length > 0) {
-      lines.push('## 未受管 MCP server');
+      lines.push(t('## 未受管 MCP server'));
       lines.push('');
-      lines.push('| server | agent | 命令 | 配置 |');
+      lines.push(t('| server | agent | 命令 | 配置 |'));
       lines.push('|--------|-------|------|------|');
       for (const u of coverage.unmanaged) {
         lines.push(`| ${u.server} | ${u.agent} | ${u.command} | ${u.configPath} |`);
       }
       lines.push('');
-      lines.push('修复：`pod onboard --yes` 接管，或 `pod onboard` 先看计划。');
+      lines.push(t('修复：`pod onboard --yes` 接管，或 `pod onboard` 先看计划。'));
       lines.push('');
     }
     if (coverage.unsupported.length > 0) {
-      lines.push('## 无法包装（v0 只支持 stdio）');
+      lines.push(t('## 无法包装（v0 只支持 stdio）'));
       lines.push('');
       for (const u of coverage.unsupported) lines.push(`- ${u.server}（${u.transport}）→ ${u.configPath}`);
       lines.push('');
     }
     lines.push('---');
-    lines.push('pod coverage 只读配置，不修改任何文件。');
+    lines.push(t('pod coverage 只读配置，不修改任何文件。'));
     lines.push('');
     process.stdout.write(lines.join('\n'));
   }
@@ -1279,9 +1286,14 @@ async function main(): Promise<void> {
     const baselinePath = values.baseline ?? podPath('posture', 'baseline.json');
     if (positionals[1] === 'freeze') {
       const r = freezePosture({ rules, auditDir, baselinePath, home: homedir() });
-      log(`基线已写入 ${r.baselinePath}`);
+      log(t('基线已写入 {path}', { path: r.baselinePath }));
       log(
-        `  冻结项 ${r.counts.configs} · 记忆 ${r.counts.memory} · 钩子 ${r.counts.hooks} · MCP 来源 ${r.counts.packages}`,
+        t('  冻结项 {configs} · 记忆 {memory} · 钩子 {hooks} · MCP 来源 {packages}', {
+          configs: r.counts.configs,
+          memory: r.counts.memory,
+          hooks: r.counts.hooks,
+          packages: r.counts.packages,
+        }),
       );
       log(t('  之后任何变更都会在 pod posture 里报出来（规则决定严重级别）。'));
       return;
@@ -1424,8 +1436,8 @@ async function main(): Promise<void> {
       log(`${r.ok ? '✅' : '❌'} ${t('委托收窄校验：{parent} → {child}', { parent: parentPolicy.agent, child: childPolicy.agent })}`);
       log(t('  父能力: {caps}', { caps: r.parent.join('、') || t('（无）') }));
       log(t('  子能力: {caps}', { caps: r.child.join('、') || t('（无）') }));
-      if (r.escaped.length > 0) log(`  ✗ 子 agent 扩大了权限: ${r.escaped.join('、')}`);
-      if (r.forbidden.length > 0) log(`  ✗ 命中了不可委托能力: ${r.forbidden.join('、')}`);
+      if (r.escaped.length > 0) log(t('  ✗ 子 agent 扩大了权限: {caps}', { caps: r.escaped.join('、') }));
+      if (r.forbidden.length > 0) log(t('  ✗ 命中了不可委托能力: {caps}', { caps: r.forbidden.join('、') }));
       if (!r.ok) process.exitCode = 1;
       return;
     }
@@ -1473,7 +1485,7 @@ async function main(): Promise<void> {
     for (const row of rows) {
       log(
         `${row.valid ? '✅' : '❌'} ${row.id} agent=${row.agent} ` +
-          `${row.consumed ? '（已消费）' : ''} 到期 ${row.expiresAt}`,
+          t('{consumed}到期 {ts}', { consumed: row.consumed ? t('（已消费）') : '', ts: row.expiresAt }),
       );
     }
     return;
@@ -1494,8 +1506,12 @@ async function main(): Promise<void> {
         sub === 'add'
           ? quarantineAdd({ file, agent: values.agent, reason: values.reason ?? '人工熔断', by, auditDir })
           : quarantineRemove({ file, agent: values.agent, by, auditDir });
-      log(sub === 'add' ? `已熔断：${values.agent}` : `已解除熔断：${values.agent}`);
-      log(`  当前熔断 ${Object.keys(state.agents).length} 个 agent`);
+      log(
+        sub === 'add'
+          ? t('已熔断：{agent}', { agent: values.agent })
+          : t('已解除熔断：{agent}', { agent: values.agent }),
+      );
+      log(t('  当前熔断 {n} 个 agent', { n: Object.keys(state.agents).length }));
       log(t('  网关下一次调用即生效（无需重启）。'));
       return;
     }
@@ -1526,7 +1542,7 @@ async function main(): Promise<void> {
       return;
     }
     if (findings.length === 0) {
-      log(`✅ 未发现信任传播异常（窗口 ${rules.anomaly.windowMinutes} 分钟）`);
+      log(t('✅ 未发现信任传播异常（窗口 {min} 分钟）', { min: rules.anomaly.windowMinutes }));
       return;
     }
     for (const f of findings) log(`${f.severity === 'high' ? '🔴' : '🟠'} [${f.rule}] ${f.agent}: ${f.detail}`);
@@ -1567,16 +1583,37 @@ async function main(): Promise<void> {
     log(t('## 委托链（上游）'));
     if (report.hops.length === 0) log(t('- 没有记录到委托关系（该 agent 不是任何委托的接收方）'));
     for (const hop of report.hops) {
-      log(`- ${hop.parent} → ${hop.child} [${hop.capabilities.join('、') || '无能力'}] @ ${hop.issuedAt}`);
+      log(
+        t('- {parent} → {child} [{caps}] @ {ts}', {
+          parent: hop.parent,
+          child: hop.child,
+          caps: hop.capabilities.join('、') || t('无能力'),
+          ts: hop.issuedAt,
+        }),
+      );
     }
     log('');
     log(t('## 下游（可能被影响的 agent）'));
-    log(report.downstream.length === 0 ? '- 无' : report.downstream.map((d) => `- ${d}`).join('\n'));
+    log(report.downstream.length === 0 ? t('- 无') : report.downstream.map((d) => `- ${d}`).join('\n'));
     log('');
     log(t('## 审计时间线'));
-    log(`- 相关事件 ${report.entries.length} 条，其中被拒绝/阻断 ${report.blocked.length} 条`);
+    log(
+      t('- 相关事件 {total} 条，其中被拒绝/阻断 {blocked} 条', {
+        total: report.entries.length,
+        blocked: report.blocked.length,
+      }),
+    );
     for (const entry of report.blocked.slice(-10)) {
-      log(`  - ${entry.ts} ${entry.agent} ${entry.server}.${entry.tool} → ${entry.decision}（${entry.reason ?? ''}）`);
+      log(
+        t('  - {ts} {agent} {server}.{tool} → {decision}（{reason}）', {
+          ts: entry.ts,
+          agent: entry.agent,
+          server: entry.server,
+          tool: entry.tool,
+          decision: entry.decision,
+          reason: entry.reason ?? '',
+        }),
+      );
     }
     return;
   }

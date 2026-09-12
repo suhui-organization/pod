@@ -10,6 +10,7 @@ import { dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog, loadAuditFile, sha256Hex, stableStringify } from '@podsec/audit';
+import { t } from '@podsec/i18n';
 
 // ---------- 通用 ----------
 
@@ -135,11 +136,11 @@ export function buildTimeline(opts: TimelineOptions): { entries: TimelineEntry[]
 export function renderTimeline(entries: TimelineEntry[], broken: string[]): string {
   const lines: string[] = [];
   if (broken.length > 0) {
-    lines.push(`⚠️ 以下审计文件哈希链损坏（篡改或中断），已跳过：${broken.join(', ')}`);
+    lines.push(t('⚠️ 以下审计文件哈希链损坏（篡改或中断），已跳过：{list}', { list: broken.join(', ') }));
     lines.push('');
   }
   if (entries.length === 0) {
-    lines.push('（无匹配事件）');
+    lines.push(t('（无匹配事件）'));
     return lines.join('\n');
   }
   for (const e of entries) {

@@ -207,4 +207,84 @@ export const enUS: Record<string, string> = {
   '{count} 项失败，其余已照常同步；修好上面这些再跑一次 pod sync。':
     '{count} items failed; everything else synced. Fix the ones above and run pod sync again.',
   '{reason}，{label} 退出': '{reason}; {label} exiting',
+
+  // ── 控制平面命令的剩余明细行（posture freeze / grant / quarantine / anomaly / trace）──
+  'capabilityRules: 从 {path} 加载 {n} 个工具的能力映射':
+    'capabilityRules: loaded capability mappings for {n} tools from {path}',
+  '⚠️ capabilityRules 已配置，但读取 {path} 失败：{err}；能力规则可能不生效':
+    '⚠️ capabilityRules is configured but reading {path} failed: {err}; capability rules may not take effect',
+  '⚠️ capabilityRules 已配置，但找不到 {path}；先运行 pod graph build 或 pod graph apply':
+    '⚠️ capabilityRules is configured but {path} is missing; run pod graph build or pod graph apply first',
+  '  冻结项 {configs} · 记忆 {memory} · 钩子 {hooks} · MCP 来源 {packages}':
+    '  Frozen configs {configs} · memory {memory} · hooks {hooks} · MCP sources {packages}',
+  '{consumed}到期 {ts}': '{consumed}expires {ts}',
+  '（已消费）': '(consumed) ',
+  '  ✗ 子 agent 扩大了权限: {caps}': '  ✗ child agent widened its capabilities: {caps}',
+  '  ✗ 命中了不可委托能力: {caps}': '  ✗ hit a capability that cannot be delegated: {caps}',
+  '  当前熔断 {n} 个 agent': '  {n} agents currently quarantined',
+  '✅ 未发现信任传播异常（窗口 {min} 分钟）':
+    '✅ No trust-propagation anomalies found (window {min} min)',
+  '- {parent} → {child} [{caps}] @ {ts}': '- {parent} → {child} [{caps}] @ {ts}',
+  '无能力': 'no capabilities',
+  '- 无': '- none',
+  '- 相关事件 {total} 条，其中被拒绝/阻断 {blocked} 条':
+    '- {total} related events, {blocked} of them denied/blocked',
+  '  - {ts} {agent} {server}.{tool} → {decision}（{reason}）':
+    '  - {ts} {agent} {server}.{tool} → {decision} ({reason})',
+
+  // ── 补完：已经包了 t() 但词表漏掉的串（带参数的注意占位符与调用点一致）──
+  '   修复: pod onboard --yes（或先 pod onboard 看计划）':
+    '   Fix: pod onboard --yes (or run pod onboard first to see the plan)',
+  '  之后任何变更都会在 pod posture 里报出来（规则决定严重级别）。':
+    '  Any later change will show up in pod posture (your rules decide the severity).',
+  '  网关下一次调用即生效（无需重启）。':
+    '  Takes effect on the next gateway call (no restart needed).',
+  '## 下游（可能被影响的 agent）': '## Downstream (agents that may be affected)',
+  '## 委托链（上游）': '## Delegation chain (upstream)',
+  '## 审计时间线': '## Audit timeline',
+  '- 没有记录到委托关系（该 agent 不是任何委托的接收方）':
+    '- No delegations recorded (this agent is not the receiver of any delegation)',
+  'token 只在本机终端出现；页面加载后会从地址栏移除。按 Ctrl+C 停止。':
+    'The token appears only in this terminal; the page drops it from the URL once loaded. Press Ctrl+C to stop.',
+  '{why}（规则 {rule}）：{command}': '{why} (rule {rule}): {command}',
+  'ℹ️ 未配置 cloud.json（pod sync/pull-policy 不可用，本地功能不受影响）':
+    'ℹ️ cloud.json is not configured (pod sync / pull-policy are unavailable; local features are unaffected)',
+  '❌ cloud.json 解析失败': '❌ cloud.json could not be parsed',
+  '下一步: 正常使用 agent 采集语料 → pod policy draft → 复核后切换执法模式':
+    'Next: keep using your agent to collect traces → pod policy draft → review, then switch to enforcement mode',
+  '回滚: pod onboard --revert': 'Roll back: pod onboard --revert',
+  '没有可校验的身份（先 pod identity init --agent <name>）':
+    'No identity to verify (run pod identity init --agent <name> first)',
+  '签名无效：包内容与签名不匹配（可能被篡改），或公钥不对':
+    'Invalid signature: the pack contents do not match the signature (possibly tampered with), or the public key is wrong',
+  '签名无效：策略内容与签名不匹配（可能被篡改）':
+    'Invalid signature: the policy contents do not match the signature (possibly tampered with)',
+  '签名有效': 'Signature valid',
+  '（已写入审计链）': '(written to the audit chain)',
+  '基线文件损坏，无法解析：{path}（删掉它重新 pod posture freeze）':
+    'Baseline file is corrupt and cannot be parsed: {path} (delete it and run pod posture freeze again)',
+  '⚠️ {n} 条发现未能写入审计链：': '⚠️ {n} findings could not be written to the audit chain:',
+  '没有身份（先 pod identity init）': 'No identity (run pod identity init first)',
+  '私钥缺失': 'Private key is missing',
+  '签名自检失败': 'Signature self-check failed',
+  '熔断文件损坏：{file}': 'Quarantine file is corrupt: {file}',
+  '✅ 审计目录: {path}': '✅ Audit directory: {path}',
+  'ℹ️ 审计目录不存在（首次 record/serve 时创建）: {path}':
+    'ℹ️ Audit directory does not exist yet (created on first record/serve): {path}',
+
+  // ── pod coverage / pod timeline 报表 ──
+  '# pod 受管覆盖率': '# pod managed coverage',
+  '- 已受管：{n} 个': '- Managed: {n}',
+  '- 未受管：{n} 个（可绕过策略/审计）': '- Unmanaged: {n} (these can bypass policy and audit)',
+  '- 不支持包装：{n} 个（非 stdio transport）': '- Cannot be wrapped: {n} (non-stdio transport)',
+  '## 未受管 MCP server': '## Unmanaged MCP servers',
+  '| server | agent | 命令 | 配置 |': '| server | agent | command | config |',
+  '修复：`pod onboard --yes` 接管，或 `pod onboard` 先看计划。':
+    'Fix: run `pod onboard --yes` to take them over, or `pod onboard` to see the plan first.',
+  '## 无法包装（v0 只支持 stdio）': '## Cannot be wrapped (v0 supports stdio only)',
+  'pod coverage 只读配置，不修改任何文件。':
+    'pod coverage only reads configuration; it does not modify any file.',
+  '⚠️ 以下审计文件哈希链损坏（篡改或中断），已跳过：{list}':
+    '⚠️ These audit files have a broken hash chain (tampering or truncation) and were skipped: {list}',
+  '（无匹配事件）': '(no matching events)',
 }

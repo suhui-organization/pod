@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import { t } from '@podsec/i18n';
 import {
   AuditLog,
   appendEntryExclusive,
@@ -154,7 +155,7 @@ export function readBaseline(path: string): Baseline | null {
     return parseBaseline(readFileSync(path, 'utf8'));
   } catch {
     // 基线损坏不能当成"没有基线"——那会静默跳过所有漂移检查，改为显式报错
-    throw new Error(`基线文件损坏，无法解析：${path}（删掉它重新 pod posture freeze）`);
+    throw new Error(t('基线文件损坏，无法解析：{path}（删掉它重新 pod posture freeze）', { path }));
   }
 }
 
@@ -191,7 +192,7 @@ export function runPosture(opts: PostureOptions & { strict?: boolean }): Posture
       }
     }
     if (failures.length > 0) {
-      console.error(`⚠️ ${failures.length} 条发现未能写入审计链：`);
+      console.error(t('⚠️ {n} 条发现未能写入审计链：', { n: failures.length }));
       for (const f of failures.slice(0, 5)) console.error(`   - ${f}`);
     }
   }
@@ -294,13 +295,15 @@ export function identityList(dir: string): IdentityReport[] {
 /** 自检：用私钥签一个挑战，再用公钥验——证明这把钥匙真的能用 */
 export function identityVerify(agent: string, dir: string, now: Date = new Date()): { ok: boolean; reason: string } {
   const identity = loadAgentIdentity(agent, dir);
-  if (!identity) return { ok: false, reason: '没有身份（先 pod identity init）' };
-  if (!hasPrivateKey(agent, dir)) return { ok: false, reason: '私钥缺失' };
+  if (!identity) return { ok: false, reason: t('没有身份（先 pod identity init）') };
+  if (!hasPrivateKey(agent, dir)) return { ok: false, reason: t('私钥缺失') };
   const challenge = { agent, at: now.toISOString() };
   try {
     const sig = signAsAgent(agent, dir, challenge);
     const ok = verifyWithPem(identity.publicKeyPem, challenge, sig);
-    return ok ? { ok: true, reason: `签名自检通过（fingerprint=${identity.fingerprint}）` } : { ok: false, reason: '签名自检失败' };
+    return ok
+      ? { ok: true, reason: t('签名自检通过（fingerprint={fp}）', { fp: identity.fingerprint ?? '' }) }
+      : { ok: false, reason: t('签名自检失败') };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -507,7 +510,7 @@ export function readQuarantineFile(file: string): QuarantineState {
     const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<QuarantineState>;
     return { agents: raw.agents ?? {} };
   } catch {
-    throw new Error(`熔断文件损坏：${file}`);
+    throw new Error(t('熔断文件损坏：{file}', { file }));
   }
 }
 
