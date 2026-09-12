@@ -21,3 +21,61 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+
+  # 本地闭环冒烟：装完就能跑通"采语料 → 编译策略 → 留证据"这条主路径。
+  # 存在的意义是替下载者挡掉"能构建但用不了"这类问题。
+  local-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile && pnpm build
+      - name: 主路径冒烟（隔离 HOME，不碰真实 ~/.pod）
+        run: |
+          export HOME="$(mktemp -d)"
+          POD="node $GITHUB_WORKSPACE/apps/cli/dist/index.js"
+          $POD init --template baseline
+          $POD ingest --agent ci --server filesystem --tool read_file --decision allow --outcome ok --args '{"path":"/tmp/x"}'
+          $POD policy draft --out "$HOME/draft.json"
+          $POD lint --policy "$HOME/draft.json"
+          $POD verify-audit
+          $POD posture freeze
+          $POD identity init --agent ci
+          $POD identity verify
+      - name: 官方 demo 脚本
+        run: bash scripts/demo-least-privilege.sh
+
+  # 云端控制平面：后端单测 + 前端构建。
+  cloud-server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud/server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  cloud-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud/web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloud/web/package-lock.json
+      - run: npm ci
+      - run: npm run build
