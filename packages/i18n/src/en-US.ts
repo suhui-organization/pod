@@ -545,4 +545,38 @@ export const enUS: Record<string, string> = {
   '{path} → "{name}" (transport={transport}，v0 只支持 stdio)':
     '{path} → "{name}" (transport={transport}; v0 supports stdio only)',
   '令牌不是合法 JSON': 'Token is not valid JSON',
+
+  // ── 策略求值与 lint（packages/policy）──
+  'source.command 不匹配：策略要求 "{expected}"，实际 "{actual}"':
+    'source.command mismatch: the policy requires "{expected}" but the actual command is "{actual}"',
+  'source.package 要求 "{expected}"，但启动命令不是 npx 来源':
+    'source.package requires "{expected}", but the launch command is not an npx source',
+  'source.package 不匹配：策略要求 "{expected}"，实际 "{actual}"':
+    'source.package mismatch: the policy requires "{expected}" but the actual package is "{actual}"',
+  'source.version 不匹配：策略要求 "{expected}"，实际 "{actual}"':
+    'source.version mismatch: the policy requires "{expected}" but the actual version is "{actual}"',
+  '(未锁定)': '(unpinned)',
+  'defaultDecision="{value}" 是 fail-open，未登记 server 将被放行（建议 deny）':
+    'defaultDecision="{value}" is fail-open: unregistered servers will be allowed (deny is recommended)',
+  '未配置任何 server 规则（空策略）': 'No server rules configured (empty policy)',
+  '未声明 server 来源白名单（建议声明 command 或 npm package，见 T4）':
+    'No server source allowlist declared (declare command or npm package; see T4)',
+  'deny 为空数组（无实际拒绝规则）': 'deny is an empty array (no actual deny rules)',
+  'allow 含 "*"（该 server 全部工具放行；建议最小授权）':
+    'allow contains "*" (every tool on that server is allowed; prefer least privilege)',
+  '未配置 secrets 规则（建议加 deny_input_paths 与 deny_output_matching，见 T2）':
+    'No secrets rules configured (add deny_input_paths and deny_output_matching; see T2)',
+  '"{pattern}" 的前缀会被归一化，按路径段匹配任意位置；若只想限制当前用户目录，请写绝对路径':
+    '"{pattern}" has its prefix normalised, so it matches that path segment anywhere; if you only mean the current user directory, write an absolute path',
+  '非法正则: {pattern}': 'Invalid regex: {pattern}',
+  '未启用输出侧熵检测（建议 enabled=true，兜底未知格式密钥，见 T2）':
+    'Output-side entropy detection is off (consider enabled=true as a backstop for unknown key formats; see T2)',
+  'threshold={value} 偏低，可能误伤正常文本（建议 ≥4.0）':
+    'threshold={value} is low and may flag normal text (4.0 or higher is recommended)',
+  '未知能力标签 "{capability}"（不会生效）': 'Unknown capability label "{capability}" (it has no effect)',
+  '未知能力标签 "{capability}"': 'Unknown capability label "{capability}"',
+  '配置了 capabilityRules 但没有 capabilityMap/capabilities，规则不会命中任何工具；先运行 pod graph apply':
+    'capabilityRules is configured but there is no capabilityMap/capabilities, so no tool will ever match; run pod graph apply first',
+  'capabilityRules.allow 是放宽规则（未在 servers 显式登记的工具会按能力放行）；请确保 capabilityMap 覆盖准确':
+    'capabilityRules.allow loosens things (tools not explicitly listed under servers are allowed by capability); make sure the capabilityMap is accurate',
 }

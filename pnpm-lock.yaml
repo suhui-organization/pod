@@ -136,6 +136,9 @@ importers:
       '@podsec/audit':
         specifier: workspace:*
         version: link:../audit
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
 
   packages/posture:
     dependencies:

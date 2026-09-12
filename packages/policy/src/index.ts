@@ -7,6 +7,7 @@
  * - 规则为工具名精确匹配或 "*" 通配，v0 不引入 DSL；
  * - 纯函数、无副作用，便于 100% 单测。
  */
+import { t } from '@podsec/i18n';
 
 /** 用户可编辑的规则集（控制平面加固规则，见 docs/control-plane-hardening.md） */
 export * from './rules.js';
@@ -239,16 +240,25 @@ export function checkServerSource(
 ): string | null {
   if (!source) return null; // 未声明来源 = 不限制（lint 会提示）
   if (source.command !== undefined && command !== source.command) {
-    return `source.command 不匹配：策略要求 "${source.command}"，实际 "${command}"`;
+    return t('source.command 不匹配：策略要求 "{expected}"，实际 "{actual}"', {
+      expected: source.command,
+      actual: command,
+    });
   }
   if (source.package !== undefined) {
     const pkg = parseNpxPackageFromArgs([command, ...args]);
-    if (!pkg) return `source.package 要求 "${source.package}"，但启动命令不是 npx 来源`;
+    if (!pkg) return t('source.package 要求 "{expected}"，但启动命令不是 npx 来源', { expected: source.package });
     if (pkg.name !== source.package) {
-      return `source.package 不匹配：策略要求 "${source.package}"，实际 "${pkg.name}"`;
+      return t('source.package 不匹配：策略要求 "{expected}"，实际 "{actual}"', {
+        expected: source.package,
+        actual: pkg.name,
+      });
     }
     if (source.version !== undefined && pkg.version !== source.version) {
-      return `source.version 不匹配：策略要求 "${source.version}"，实际 "${pkg.version ?? '(未锁定)'}"`;
+      return t('source.version 不匹配：策略要求 "{expected}"，实际 "{actual}"', {
+        expected: source.version,
+        actual: pkg.version ?? t('(未锁定)'),
+      });
     }
   }
   return null;
@@ -413,13 +423,15 @@ export function lintPolicy(policy: Policy): LintIssue[] {
     issues.push({
       severity: 'warn',
       where: 'defaultDecision',
-      message: `defaultDecision="${policy.defaultDecision}" 是 fail-open，未登记 server 将被放行（建议 deny）`,
+      message: t('defaultDecision="{value}" 是 fail-open，未登记 server 将被放行（建议 deny）', {
+        value: policy.defaultDecision,
+      }),
     });
   }
 
   const servers = policy.servers ?? {};
   if (Object.keys(servers).length === 0) {
-    issues.push({ severity: 'info', where: 'servers', message: '未配置任何 server 规则（空策略）' });
+    issues.push({ severity: 'info', where: 'servers', message: t('未配置任何 server 规则（空策略）') });
   }
 
   for (const [server, sp] of Object.entries(servers)) {
@@ -427,17 +439,21 @@ export function lintPolicy(policy: Policy): LintIssue[] {
       issues.push({
         severity: 'info',
         where: `servers.${server}.source`,
-        message: '未声明 server 来源白名单（建议声明 command 或 npm package，见 T4）',
+        message: t('未声明 server 来源白名单（建议声明 command 或 npm package，见 T4）'),
       });
     }
     if (sp.deny && sp.deny.length === 0) {
-      issues.push({ severity: 'warn', where: `servers.${server}.deny`, message: 'deny 为空数组（无实际拒绝规则）' });
+      issues.push({
+        severity: 'warn',
+        where: `servers.${server}.deny`,
+        message: t('deny 为空数组（无实际拒绝规则）'),
+      });
     }
     if (sp.allow && sp.allow.includes('*')) {
       issues.push({
         severity: 'warn',
         where: `servers.${server}.allow`,
-        message: `allow 含 "*"（该 server 全部工具放行；建议最小授权）`,
+        message: t('allow 含 "*"（该 server 全部工具放行；建议最小授权）'),
       });
     }
   }
@@ -447,7 +463,7 @@ export function lintPolicy(policy: Policy): LintIssue[] {
     issues.push({
       severity: 'info',
       where: 'secrets',
-      message: '未配置 secrets 规则（建议加 deny_input_paths 与 deny_output_matching，见 T2）',
+      message: t('未配置 secrets 规则（建议加 deny_input_paths 与 deny_output_matching，见 T2）'),
     });
   } else {
     for (const pattern of secrets?.deny_input_paths ?? []) {
@@ -455,7 +471,9 @@ export function lintPolicy(policy: Policy): LintIssue[] {
         issues.push({
           severity: 'info',
           where: 'secrets.deny_input_paths',
-          message: `"${pattern}" 的前缀会被归一化，按路径段匹配任意位置；若只想限制当前用户目录，请写绝对路径`,
+          message: t('"{pattern}" 的前缀会被归一化，按路径段匹配任意位置；若只想限制当前用户目录，请写绝对路径', {
+            pattern,
+          }),
         });
       }
     }
@@ -466,7 +484,7 @@ export function lintPolicy(policy: Policy): LintIssue[] {
         issues.push({
           severity: 'error',
           where: 'secrets.deny_output_matching',
-          message: `非法正则: ${pattern}`,
+          message: t('非法正则: {pattern}', { pattern }),
         });
       }
     }
@@ -475,14 +493,16 @@ export function lintPolicy(policy: Policy): LintIssue[] {
       issues.push({
         severity: 'info',
         where: 'secrets.entropy',
-        message: '未启用输出侧熵检测（建议 enabled=true，兜底未知格式密钥，见 T2）',
+        message: t('未启用输出侧熵检测（建议 enabled=true，兜底未知格式密钥，见 T2）'),
       });
     } else {
       if ((entropy.threshold ?? 4.5) < 3.5) {
         issues.push({
           severity: 'warn',
           where: 'secrets.entropy.threshold',
-          message: `threshold=${entropy.threshold} 偏低，可能误伤正常文本（建议 ≥4.0）`,
+          message: t('threshold={value} 偏低，可能误伤正常文本（建议 ≥4.0）', {
+            value: entropy.threshold ?? '',
+          }),
         });
       }
       for (const pattern of entropy.allow_patterns ?? []) {
@@ -492,7 +512,7 @@ export function lintPolicy(policy: Policy): LintIssue[] {
           issues.push({
             severity: 'error',
             where: 'secrets.entropy.allow_patterns',
-            message: `非法正则: ${pattern}`,
+            message: t('非法正则: {pattern}', { pattern }),
           });
         }
       }
@@ -508,14 +528,22 @@ export function lintPolicy(policy: Policy): LintIssue[] {
   for (const [where, values] of capabilityRuleLists) {
     for (const capability of values ?? []) {
       if (!knownCapabilities.has(capability)) {
-        issues.push({ severity: 'warn', where, message: `未知能力标签 "${capability}"（不会生效）` });
+        issues.push({
+          severity: 'warn',
+          where,
+          message: t('未知能力标签 "{capability}"（不会生效）', { capability }),
+        });
       }
     }
   }
   for (const [key, values] of Object.entries(policy.capabilityMap ?? {})) {
     for (const capability of values) {
       if (!knownCapabilities.has(capability)) {
-        issues.push({ severity: 'warn', where: `capabilityMap.${key}`, message: `未知能力标签 "${capability}"` });
+        issues.push({
+          severity: 'warn',
+          where: `capabilityMap.${key}`,
+          message: t('未知能力标签 "{capability}"', { capability }),
+        });
       }
     }
   }
@@ -523,14 +551,14 @@ export function lintPolicy(policy: Policy): LintIssue[] {
     issues.push({
       severity: 'warn',
       where: 'capabilityRules',
-      message: '配置了 capabilityRules 但没有 capabilityMap/capabilities，规则不会命中任何工具；先运行 pod graph apply',
+      message: t('配置了 capabilityRules 但没有 capabilityMap/capabilities，规则不会命中任何工具；先运行 pod graph apply'),
     });
   }
   if (policy.capabilityRules?.allow?.length) {
     issues.push({
       severity: 'warn',
       where: 'capabilityRules.allow',
-      message: 'capabilityRules.allow 是放宽规则（未在 servers 显式登记的工具会按能力放行）；请确保 capabilityMap 覆盖准确',
+      message: t('capabilityRules.allow 是放宽规则（未在 servers 显式登记的工具会按能力放行）；请确保 capabilityMap 覆盖准确'),
     });
   }
 
