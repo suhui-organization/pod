@@ -316,12 +316,12 @@ onUnmounted(stopWaiting)
 <style scoped>
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
 .head h2 { margin: 0 0 4px; }
-.head__sub { margin: 0; font-size: 12px; color: var(--fh-text-dim); }
+.head__sub { margin: 0; font-size: 12px; color: var(--pod-text-dim); }
 .head__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.head__stamp { font-size: 12px; color: var(--fh-text-dim); }
+.head__stamp { font-size: 12px; color: var(--pod-text-dim); }
 .alert { margin-bottom: 16px; }
 .alert__hint { margin: 4px 0 0; font-size: 12px; line-height: 1.6; }
-.hint { color: var(--fh-text-dim); font-size: 12px; margin: 0; line-height: 1.7; }
+.hint { color: var(--pod-text-dim); font-size: 12px; margin: 0; line-height: 1.7; }
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -330,9 +330,9 @@ onUnmounted(stopWaiting)
 .agent-card {
   display: flex; flex-direction: column; gap: 12px;
   padding: 16px 18px; border-radius: 12px;
-  background: var(--fh-panel-bg, #161a1f); border: 1px solid var(--fh-border, #2a2f37);
+  background: var(--pod-panel-bg, #161a1f); border: 1px solid var(--pod-border, #2a2f37);
 }
-.agent-card:hover { border-color: var(--fh-border-strong, #2a2f37); }
+.agent-card:hover { border-color: var(--pod-border-strong, #2a2f37); }
 .agent-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agent-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .agent-meta {
@@ -340,20 +340,20 @@ onUnmounted(stopWaiting)
   gap: 10px 12px; margin: 0;
 }
 .agent-meta > .span2 { grid-column: span 2; }
-.agent-meta dt { margin-bottom: 2px; font-size: 11px; color: var(--fh-text-dim, #9aa3af); }
-.agent-meta dd { margin: 0; font-size: 13px; color: var(--fh-text, #e6e8ec); overflow-wrap: anywhere; }
+.agent-meta dt { margin-bottom: 2px; font-size: 11px; color: var(--pod-text-dim, #9aa3af); }
+.agent-meta dd { margin: 0; font-size: 13px; color: var(--pod-text, #e6e8ec); overflow-wrap: anywhere; }
 .agent-meta dd.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .agent-tip {
   margin: 0; padding: 8px 10px; border-radius: 8px;
   font-size: 12px; line-height: 1.7;
-  color: var(--fh-text-dim); background: var(--fh-bg-soft);
+  color: var(--pod-text-dim); background: var(--pod-bg-soft);
 }
 .agent-actions {
   display: flex; justify-content: flex-end; gap: 4px;
-  margin-top: auto; padding-top: 10px; border-top: 1px solid var(--fh-divider, rgba(255, 255, 255, 0.05));
+  margin-top: auto; padding-top: 10px; border-top: 1px solid var(--pod-divider, rgba(255, 255, 255, 0.05));
 }
-.empty { padding: 40px 0; text-align: center; font-size: 13px; color: var(--fh-text-dim, #9aa3af); }
-.step { margin: 0 0 8px; font-size: 13px; line-height: 1.7; color: var(--fh-text); }
+.empty { padding: 40px 0; text-align: center; font-size: 13px; color: var(--pod-text-dim, #9aa3af); }
+.step { margin: 0 0 8px; font-size: 13px; line-height: 1.7; color: var(--pod-text); }
 .step code { background: rgba(127, 127, 127, 0.12); padding: 1px 6px; border-radius: 4px; }
 .token-box { display: flex; gap: 10px; margin: 8px 0; align-items: center; }
 .token-box code {
@@ -362,10 +362,10 @@ onUnmounted(stopWaiting)
 }
 .wait {
   margin: 14px 0 10px; padding: 12px 14px; border-radius: 8px;
-  border: 1px solid var(--fh-border-strong, #2a2f37);
+  border: 1px solid var(--pod-border-strong, #2a2f37);
 }
-.wait--pending { background: var(--fh-bg-soft); }
-.wait--ok { background: var(--fh-accent-soft); border-color: var(--fh-accent); }
-.wait__title { font-size: 13px; font-weight: 600; color: var(--fh-text); }
-.wait__body { margin-top: 4px; font-size: 12px; line-height: 1.7; color: var(--fh-text-dim); }
+.wait--pending { background: var(--pod-bg-soft); }
+.wait--ok { background: var(--pod-accent-soft); border-color: var(--pod-accent); }
+.wait__title { font-size: 13px; font-weight: 600; color: var(--pod-text); }
+.wait__body { margin-top: 4px; font-size: 12px; line-height: 1.7; color: var(--pod-text-dim); }
 </style>

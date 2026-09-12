@@ -158,6 +158,6 @@ onMounted(async () => {
 .filters { display: flex; gap: 8px; }
 .ai-card { margin-bottom: 14px; }
 .ai-head { display: flex; justify-content: space-between; align-items: center; }
-.ai-meta { font-size: 12px; color: var(--fh-text-dim, #9aa3af); margin-bottom: 8px; }
+.ai-meta { font-size: 12px; color: var(--pod-text-dim, #9aa3af); margin-bottom: 8px; }
 .ai-body { font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 </style>

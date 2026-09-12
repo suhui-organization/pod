@@ -76,7 +76,7 @@ function isActive(to: string): boolean {
 .admin-layout { display: flex; height: 100vh; overflow: hidden; }
 .admin-nav {
   width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
-  background: var(--fh-panel-bg, #161a1f); border-right: 1px solid var(--fh-border, #2a2f37);
+  background: var(--pod-panel-bg, #161a1f); border-right: 1px solid var(--pod-border, #2a2f37);
 }
 .nav-logo { display: flex; align-items: center; gap: 8px; padding: 16px 18px; cursor: pointer; }
 .logo-mark {
@@ -87,16 +87,16 @@ function isActive(to: string): boolean {
 .nav-scroll { flex: 1; overflow-y: auto; padding: 8px 10px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px;
-  cursor: pointer; color: var(--fh-text-dim, #9aa3af); margin-bottom: 2px; user-select: none;
+  cursor: pointer; color: var(--pod-text-dim, #9aa3af); margin-bottom: 2px; user-select: none;
 }
-.nav-item:hover { background: rgba(127, 127, 127, 0.08); color: var(--fh-text, #e8eaed); }
+.nav-item:hover { background: rgba(127, 127, 127, 0.08); color: var(--pod-text, #e8eaed); }
 .nav-item.active { background: rgba(79, 124, 255, 0.14); color: #4f7cff; }
 .nav-label { font-size: 14px; }
-.nav-foot { padding: 8px 10px 14px; border-top: 1px solid var(--fh-border, #2a2f37); }
+.nav-foot { padding: 8px 10px 14px; border-top: 1px solid var(--pod-border, #2a2f37); }
 .admin-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .admin-topbar {
   height: 52px; display: flex; align-items: center; justify-content: space-between;
-  padding: 0 20px; border-bottom: 1px solid var(--fh-border, #2a2f37); flex-shrink: 0;
+  padding: 0 20px; border-bottom: 1px solid var(--pod-border, #2a2f37); flex-shrink: 0;
 }
 .topbar-title { font-size: 15px; font-weight: 600; }
 .admin-content { flex: 1; overflow-y: auto; padding: 20px; }

@@ -259,7 +259,7 @@ onMounted(load)
 .page {
   min-height: 100%;
   height: 100%;
-  background: var(--fh-bg);
+  background: var(--pod-bg);
   display: flex;
   flex-direction: column;
 }
@@ -269,23 +269,23 @@ onMounted(load)
   gap: 12px;
   height: 52px;
   padding: 0 24px;
-  background: var(--fh-bg-soft);
-  border-bottom: 1px solid var(--fh-border);
+  background: var(--pod-bg-soft);
+  border-bottom: 1px solid var(--pod-border);
   flex-shrink: 0;
 }
 .brand {
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  color: var(--fh-text);
+  color: var(--pod-text);
 }
 .back {
   cursor: pointer;
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
 }
 .crumb {
-  font-size: var(--fh-size-md);
-  color: var(--fh-text-dim);
+  font-size: var(--pod-size-md);
+  color: var(--pod-text-dim);
 }
 .content {
   flex: 1;
@@ -304,13 +304,13 @@ onMounted(load)
   margin: 0 0 6px;
   font-size: 18px;
   font-weight: 600;
-  color: var(--fh-text);
+  color: var(--pod-text);
   text-wrap: balance;
 }
 .heading p {
   margin: 0;
-  font-size: var(--fh-size-sm);
-  color: var(--fh-text-faint);
+  font-size: var(--pod-size-sm);
+  color: var(--pod-text-faint);
   max-width: 52ch;
   line-height: 1.5;
 }
@@ -324,16 +324,16 @@ onMounted(load)
   width: 240px;
 }
 .search-icon {
-  color: var(--fh-text-faint);
+  color: var(--pod-text-faint);
   font-size: 15px;
   line-height: 1;
 }
 .table-panel {
   max-width: 960px;
   margin: 0 auto;
-  background: var(--fh-bg-elev);
-  border: 1px solid var(--fh-border);
-  border-radius: var(--fh-radius);
+  background: var(--pod-bg-elev);
+  border: 1px solid var(--pod-border);
+  border-radius: var(--pod-radius);
   overflow: hidden;
 }
 .user-cell {
@@ -345,9 +345,9 @@ onMounted(load)
 .avatar {
   width: 32px;
   height: 32px;
-  border-radius: var(--fh-radius-sm);
-  background: var(--fh-bg-soft);
-  color: var(--fh-text-dim);
+  border-radius: var(--pod-radius-sm);
+  background: var(--pod-bg-soft);
+  color: var(--pod-text-dim);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -356,15 +356,15 @@ onMounted(load)
   flex-shrink: 0;
 }
 .avatar.self {
-  background: var(--fh-accent-soft);
-  color: var(--fh-accent);
+  background: var(--pod-accent-soft);
+  color: var(--pod-accent);
 }
 .user-meta {
   min-width: 0;
 }
 .name {
-  font-size: var(--fh-size-md);
-  color: var(--fh-text);
+  font-size: var(--pod-size-md);
+  color: var(--pod-text);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -372,21 +372,21 @@ onMounted(load)
 }
 .self-label {
   font-size: 11px;
-  color: var(--fh-accent);
-  background: var(--fh-accent-soft);
-  border-radius: var(--fh-radius-sm);
+  color: var(--pod-accent);
+  background: var(--pod-accent-soft);
+  border-radius: var(--pod-radius-sm);
   padding: 1px 5px;
 }
 .email {
-  font-size: var(--fh-size-sm);
-  color: var(--fh-text-faint);
+  font-size: var(--pod-size-sm);
+  color: var(--pod-text-faint);
   margin-top: 2px;
 }
 .status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--fh-size-sm);
+  font-size: var(--pod-size-sm);
 }
 .dot {
   width: 6px;
@@ -395,31 +395,31 @@ onMounted(load)
   background: currentColor;
 }
 .status.on {
-  color: var(--fh-success);
+  color: var(--pod-success);
 }
 .status.off {
-  color: var(--fh-danger);
+  color: var(--pod-danger);
 }
 .created {
-  font-size: var(--fh-size-sm);
-  color: var(--fh-text-dim);
+  font-size: var(--pod-size-sm);
+  color: var(--pod-text-dim);
 }
 .muted-action {
-  color: var(--fh-text-faint);
+  color: var(--pod-text-faint);
 }
 .empty-state {
   padding: 48px 16px;
   text-align: center;
 }
 .empty-title {
-  font-size: var(--fh-size-md);
-  color: var(--fh-text);
+  font-size: var(--pod-size-md);
+  color: var(--pod-text);
   font-weight: 500;
 }
 .empty-desc {
   margin: 6px 0 16px;
-  font-size: var(--fh-size-sm);
-  color: var(--fh-text-faint);
+  font-size: var(--pod-size-sm);
+  color: var(--pod-text-faint);
 }
 .create-form {
   padding: 4px 4px 0;
@@ -440,19 +440,19 @@ onMounted(load)
   gap: 10px;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--fh-border);
-  border-radius: var(--fh-radius);
-  background: var(--fh-bg-soft);
+  border: 1px solid var(--pod-border);
+  border-radius: var(--pod-radius);
+  background: var(--pod-bg-soft);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
   box-sizing: border-box;
 }
 .role-card:hover {
-  border-color: var(--fh-accent);
+  border-color: var(--pod-accent);
 }
 .role-card.is-active {
-  border-color: var(--fh-accent);
-  background: var(--fh-accent-soft);
+  border-color: var(--pod-accent);
+  background: var(--pod-accent-soft);
 }
 .role-card .el-radio__label {
   display: flex;
@@ -463,13 +463,13 @@ onMounted(load)
   line-height: 1.4;
 }
 .role-card__name {
-  font-size: var(--fh-size-md);
+  font-size: var(--pod-size-md);
   font-weight: 500;
-  color: var(--fh-text);
+  color: var(--pod-text);
 }
 .role-card__desc {
-  font-size: var(--fh-size-sm);
-  color: var(--fh-text-dim);
+  font-size: var(--pod-size-sm);
+  color: var(--pod-text-dim);
   line-height: 1.5;
   white-space: normal;
 }
@@ -480,8 +480,8 @@ onMounted(load)
   gap: 16px;
 }
 .dialog-hint {
-  font-size: var(--fh-size-sm);
-  color: var(--fh-text-faint);
+  font-size: var(--pod-size-sm);
+  color: var(--pod-text-faint);
   max-width: 32ch;
   text-align: left;
 }

@@ -98,13 +98,13 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--fh-bg);
+  background: var(--pod-bg);
 }
 .reset-card {
   width: 400px;
-  background: var(--fh-bg-elev);
-  border: 1px solid var(--fh-border);
-  border-radius: var(--fh-radius-lg);
+  background: var(--pod-bg-elev);
+  border: 1px solid var(--pod-border);
+  border-radius: var(--pod-radius-lg);
   padding: 32px;
 }
 .reset-logo {
@@ -118,13 +118,13 @@ async function submit() {
 }
 .title {
   margin: 0 0 4px;
-  color: var(--fh-text);
+  color: var(--pod-text);
   font-size: 22px;
   font-weight: 600;
 }
 .subtitle {
   margin: 0 0 20px;
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -138,6 +138,6 @@ async function submit() {
   margin: 12px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
 }
 </style>

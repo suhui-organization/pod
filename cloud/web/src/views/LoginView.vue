@@ -1,8 +1,8 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <div class="login-logo"><img src="/logo.svg" alt="FinHarness" /></div>
-      <h1 class="title">FinHarness</h1>
+      <div class="login-logo"><img src="/logo.svg" alt="Pod Cloud" /></div>
+      <h1 class="title">Pod Cloud</h1>
       <p class="subtitle">金融垂直智能助手 · SaaS / 私有化</p>
       <el-tabs v-if="mode !== 'forgot'" v-model="mode" stretch>
         <el-tab-pane label="登录" name="login" />
@@ -11,7 +11,7 @@
       <p v-else class="subtitle subtitle--forgot">输入注册时用的邮箱，我们发一条重置链接给你。</p>
       <el-form label-position="top" @submit.prevent>
         <el-form-item v-if="showServer" label="服务地址(私有化实例填写,留空为公有 SaaS)">
-          <el-input v-model="serverUrl" placeholder="如 https://finharness.your-company.com" />
+          <el-input v-model="serverUrl" placeholder="如 https://podcloud.your-company.com" />
         </el-form-item>
         <el-form-item label="邮箱">
           <el-input v-model="email" type="email" placeholder="you@company.com" />
@@ -137,7 +137,7 @@ async function submit() {
     } else {
       await auth.register(cleanEmail, password.value, fullName.value)
     }
-    ElMessage.success('欢迎使用 FinHarness')
+    ElMessage.success('欢迎使用 Pod Cloud')
     router.push('/')
   } catch (e) {
     errorMsg.value = parseApiError(e)
@@ -147,7 +147,7 @@ async function submit() {
 }
 </script>
 
-.legal-links { font-size: 12px; color: var(--fh-text-dim, #9aa3af); text-align: center; margin-top: 8px; }
+.legal-links { font-size: 12px; color: var(--pod-text-dim, #9aa3af); text-align: center; margin-top: 8px; }
 .legal-links a { color: #4f7cff; text-decoration: none; }
 <style scoped>
 .login-page {
@@ -155,25 +155,25 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--fh-bg);
+  background: var(--pod-bg);
 }
 .login-card {
   width: 400px;
-  background: var(--fh-bg-elev);
-  border: 1px solid var(--fh-border);
-  border-radius: var(--fh-radius-lg);
+  background: var(--pod-bg-elev);
+  border: 1px solid var(--pod-border);
+  border-radius: var(--pod-radius-lg);
   padding: 32px;
 }
 .title {
   margin: 0 0 4px;
-  color: var(--fh-text);
+  color: var(--pod-text);
   font-size: 24px;
   font-weight: 600;
   letter-spacing: 0.5px;
 }
 .subtitle {
   margin: 0 0 20px;
-  color: var(--fh-text-faint);
+  color: var(--pod-text-faint);
   font-size: 13px;
 }
 .submit {
@@ -190,21 +190,21 @@ async function submit() {
 .notice {
   margin-top: 14px;
   padding: 12px 14px;
-  border: 1px solid var(--fh-border-strong);
-  border-radius: var(--fh-radius);
-  background: var(--fh-bg-soft);
+  border: 1px solid var(--pod-border-strong);
+  border-radius: var(--pod-radius);
+  background: var(--pod-bg-soft);
 }
 .notice__title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--fh-text);
+  color: var(--pod-text);
   margin-bottom: 4px;
 }
 .notice__body {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
 }
 .server-toggle {
   margin-top: 12px;

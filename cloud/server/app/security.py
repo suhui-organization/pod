@@ -93,11 +93,10 @@ def create_access_token(user_id: int, tenant_id: int, client: str = "web") -> st
 
 
 def create_internal_token(user_id: int, tenant_id: int) -> str:
-    """内部服务令牌(不限过期):注入 Fluvia 流程 / 数据网关 / 定时任务等服务对服务通道。
+    """内部服务令牌（不限过期）：服务对服务的通道（定时任务、内部回调）。
 
-    永不过期(无 exp 声明):与 Web 登录 token(create_access_token,12h 过期)分离语义。
-    仅用于 FinHarness 系统内部(chat 路由 → Fluvia → 数据网关回调),
-    校验端(网关 data_query / Fluvia 组件)接受无 exp 的 access 类型 JWT。
+    永不过期（无 exp 声明）：与 Web 登录 token（create_access_token）语义分离。
+    仅限内部使用——它只在进程内/内网可信路径上签发与校验。
     """
     payload = {
         "sub": str(user_id),

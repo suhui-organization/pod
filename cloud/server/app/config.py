@@ -17,9 +17,9 @@ _ENV = os.environ.get("PODCLOUD_ENV", "dev")
 @dataclass
 class Settings:
     db_url: str = os.environ.get(
-        "PODCLOUD_DB_URL", os.environ.get("FINHARNESS_DB_URL", "sqlite:///./finharness.db")
+        "PODCLOUD_DB_URL", "sqlite:///./podcloud.db"
     )
-    jwt_secret: str = os.environ.get("PODCLOUD_JWT_SECRET", os.environ.get("FINHARNESS_JWT_SECRET", "dev-secret-change-me"))
+    jwt_secret: str = os.environ.get("PODCLOUD_JWT_SECRET", "dev-secret-change-me")
     jwt_expire_minutes: int = int(os.environ.get("PODCLOUD_JWT_EXPIRE_MINUTES", "720"))
     is_private: bool = os.environ.get("PODCLOUD_IS_PRIVATE", "false").lower() == "true"
     podcloud_env: str = _ENV

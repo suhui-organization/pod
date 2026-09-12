@@ -327,25 +327,25 @@ onBeforeUnmount(() => {
 .dash-meta { text-align: right; font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 8px; min-height: 16px; }
 .stat-card {
   flex: 1; padding: 18px 20px; border-radius: 12px;
-  background: var(--fh-panel-bg, #161a1f); border: 1px solid var(--fh-border, #2a2f37);
+  background: var(--pod-panel-bg, #161a1f); border: 1px solid var(--pod-border, #2a2f37);
 }
 .stat-num { font-size: 28px; font-weight: 700; color: #4f7cff; }
-.stat-slash { font-size: 16px; color: var(--fh-text-dim, #9aa3af); }
+.stat-slash { font-size: 16px; color: var(--pod-text-dim, #9aa3af); }
 .link-card { text-decoration: none; transition: transform 0.15s; }
 .link-card:hover { transform: translateY(-2px); }
 .link-card.danger .stat-num { color: #f56c6c; }
 .high-tag { display: inline-block; padding: 1px 8px; border-radius: 10px; background: rgba(245, 108, 108, 0.15); color: #f56c6c; font-weight: 600; }
-.stat-label { margin-top: 4px; font-size: 13px; color: var(--fh-text-dim, #9aa3af); }
-.stat-sub { margin-top: 2px; font-size: 12px; color: var(--fh-text-dim, #9aa3af); opacity: 0.8; }
+.stat-label { margin-top: 4px; font-size: 13px; color: var(--pod-text-dim, #9aa3af); }
+.stat-sub { margin-top: 2px; font-size: 12px; color: var(--pod-text-dim, #9aa3af); opacity: 0.8; }
 .link { color: #4f7cff; text-decoration: none; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-.panel { padding: 16px 18px; border-radius: 12px; background: var(--fh-panel-bg, #161a1f); border: 1px solid var(--fh-border, #2a2f37); }
+.panel { padding: 16px 18px; border-radius: 12px; background: var(--pod-panel-bg, #161a1f); border: 1px solid var(--pod-border, #2a2f37); }
 .panel.span2 { grid-column: span 2; }
 .panel h3 { margin: 0 0 12px; font-size: 14px; }
 .alert-list { display: flex; flex-direction: column; gap: 8px; }
 .alert-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .alert-kind { font-weight: 600; white-space: nowrap; }
-.alert-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fh-text-dim, #9aa3af); }
-.alert-time { color: var(--fh-text-dim, #9aa3af); font-size: 11px; white-space: nowrap; }
+.alert-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pod-text-dim, #9aa3af); }
+.alert-time { color: var(--pod-text-dim, #9aa3af); font-size: 11px; white-space: nowrap; }
 .empty { margin-top: 10px; }
 </style>

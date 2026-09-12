@@ -56,9 +56,9 @@ function onCommand(cmd: string) {
 .user-menu { display: flex; align-items: center; gap: 10px; }
 .um-icon {
   width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent;
-  display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--fh-text-dim, #9aa3af);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--pod-text-dim, #9aa3af);
 }
-.um-icon:hover { background: rgba(127, 127, 127, 0.1); color: var(--fh-text, #e8eaed); }
+.um-icon:hover { background: rgba(127, 127, 127, 0.1); color: var(--pod-text, #e8eaed); }
 .um-user { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
 .um-user:hover { background: rgba(127, 127, 127, 0.08); }
 .um-avatar {

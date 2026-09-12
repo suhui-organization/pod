@@ -1,1 +1,1 @@
-"""FinHarness SaaS 后端。"""
+"""Pod Cloud 控制平面后端（可选组件：本地 pod 不依赖它）。"""

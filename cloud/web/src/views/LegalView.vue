@@ -70,6 +70,6 @@ const body = computed(() => (route.name === 'privacy' ? PRIVACY : TERMS))
 <style scoped>
 .legal { max-width: 760px; margin: 0 auto; }
 .legal h2 { margin-bottom: 16px; }
-.legal-body { padding: 20px; border-radius: 12px; background: var(--fh-panel-bg, #161a1f); border: 1px solid var(--fh-border, #2a2f37); }
-pre { white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.7; color: var(--fh-text-dim, #9aa3af); }
+.legal-body { padding: 20px; border-radius: 12px; background: var(--pod-panel-bg, #161a1f); border: 1px solid var(--pod-border, #2a2f37); }
+pre { white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.7; color: var(--pod-text-dim, #9aa3af); }
 </style>

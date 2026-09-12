@@ -498,7 +498,7 @@ function applyTheme() {
 }
 
 function applyFont() {
-  document.documentElement.style.setProperty('--fh-font-scale', String(fontScale.value))
+  document.documentElement.style.setProperty('--pod-font-scale', String(fontScale.value))
   localStorage.setItem('podcloud_font_scale', String(fontScale.value))
 }
 
@@ -555,9 +555,9 @@ onMounted(async () => {
 <style scoped>
 .card { margin-bottom: 16px; max-width: 720px; }
 .report-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.report-summary { font-size: 13px; color: var(--fh-text-dim, #9aa3af); }
-.hint { font-size: 12px; color: var(--fh-text-dim, #9aa3af); }
-.mono { font-family: var(--fh-font-mono); font-size: 12px; }
+.report-summary { font-size: 13px; color: var(--pod-text-dim, #9aa3af); }
+.hint { font-size: 12px; color: var(--pod-text-dim, #9aa3af); }
+.mono { font-family: var(--pod-font-mono); font-size: 12px; }
 
 /* ── AI 模型面板 ─────────────────────────────────────────── */
 .llm-head { display: inline-flex; align-items: center; gap: 8px; }
@@ -568,48 +568,48 @@ onMounted(async () => {
 /* 状态色 + 文字双通道：不靠颜色单独表意 */
 /* 徽章文字向正文色混一档：纯 token 色压在 tint 上只有 ~2.5:1，两种主题都过不了 4.5 */
 .llm-badge--ok {
-  color: color-mix(in srgb, var(--fh-success, #8dc149) 58%, var(--fh-text, #e6e8ec));
+  color: color-mix(in srgb, var(--pod-success, #8dc149) 58%, var(--pod-text, #e6e8ec));
   background: rgba(141, 193, 73, 0.14);
 }
 .llm-badge--off {
-  color: color-mix(in srgb, var(--fh-warning, #e37933) 55%, var(--fh-text, #e6e8ec));
+  color: color-mix(in srgb, var(--pod-warning, #e37933) 55%, var(--pod-text, #e6e8ec));
   background: rgba(227, 121, 51, 0.14);
 }
 
 .llm-state {
   margin: 0; font-size: 13px; line-height: 1.7;
-  color: var(--fh-text, #e6e8ec);
+  color: var(--pod-text, #e6e8ec);
 }
-.llm-state--off { color: var(--fh-text-dim, #9aa3b1); }
-.llm-sep { margin: 0 6px; color: var(--fh-text-faint, #6b7280); }
+.llm-state--off { color: var(--pod-text-dim, #9aa3b1); }
+.llm-sep { margin: 0 6px; color: var(--pod-text-faint, #6b7280); }
 .llm-tag {
   margin-left: 8px; padding: 1px 8px; border-radius: 999px;
-  font-size: 12px; color: var(--fh-text-dim, #9aa3b1);
-  background: var(--fh-panel-elev, #1c2128);
+  font-size: 12px; color: var(--pod-text-dim, #9aa3b1);
+  background: var(--pod-panel-elev, #1c2128);
 }
 .llm-sub {
   margin: 4px 0 0; font-size: 12px; line-height: 1.6;
-  color: var(--fh-text-dim, #9aa2b1);
+  color: var(--pod-text-dim, #9aa2b1);
 }
 .llm-form { margin-top: 16px; }
 
 .llm-test {
   margin: 12px 0 0; padding: 10px 12px; border-radius: 10px;
   font-size: 13px; line-height: 1.7;
-  background: var(--fh-panel-elev, #1c2128);
-  border: 1px solid var(--fh-border, rgba(255, 255, 255, 0.07));
+  background: var(--pod-panel-elev, #1c2128);
+  border: 1px solid var(--pod-border, rgba(255, 255, 255, 0.07));
 }
-.llm-test--ok { color: var(--fh-success, #8dc149); }
-.llm-test--bad { color: var(--fh-danger, #cc3e44); }
+.llm-test--ok { color: var(--pod-success, #8dc149); }
+.llm-test--bad { color: var(--pod-danger, #cc3e44); }
 
-.llm-deps { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--fh-divider, rgba(255, 255, 255, 0.05)); }
-.llm-deps__title { font-size: 12px; color: var(--fh-text-dim, #9aa2b1); }
+.llm-deps { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--pod-divider, rgba(255, 255, 255, 0.05)); }
+.llm-deps__title { font-size: 12px; color: var(--pod-text-dim, #9aa2b1); }
 .llm-deps__list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .llm-deps__item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
-.llm-deps__name { color: var(--fh-text, #e6e8ec); font-weight: 500; }
-.llm-deps__where { font-size: 12px; color: var(--fh-text-dim, #9aa2b1); }
-.llm-deps__deg { flex-basis: 100%; font-size: 12px; line-height: 1.6; color: var(--fh-text-dim, #9aa3b1); }
+.llm-deps__name { color: var(--pod-text, #e6e8ec); font-weight: 500; }
+.llm-deps__where { font-size: 12px; color: var(--pod-text-dim, #9aa2b1); }
+.llm-deps__deg { flex-basis: 100%; font-size: 12px; line-height: 1.6; color: var(--pod-text-dim, #9aa3b1); }
 
 /* 从别处跳进来时的高亮：只描边，不加阴影 */
-.card--focus { border-color: var(--fh-accent, #6ea4f9); }
+.card--focus { border-color: var(--pod-accent, #6ea4f9); }
 </style>

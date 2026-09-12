@@ -29,7 +29,7 @@ export const PREF_KEYS = [
 ] as const
 export type PrefKey = typeof PREF_KEYS[number]
 
-const STORE_KEY = '__finharness_prefs_cache__' // 进程内单一可信源
+const STORE_KEY = '__podcloud_prefs_cache__' // 进程内单一可信源
 const LS_MIGRATION_FLAG = 'fh_prefs_migrated_v1'
 
 interface PrefCache {

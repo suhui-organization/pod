@@ -8,9 +8,9 @@ import router from './router'
 import { useDragScroll } from './composables/useDragScroll'
 
 // 持久化主题(暗色默认;设置中心可切换亮色)
-document.documentElement.dataset.theme = localStorage.getItem('finharness_theme') || 'dark'
-// 持久化字号缩放(--fh-font-scale 为 CSS 变量,刷新后必须在此恢复,否则字号回落默认)
-document.documentElement.style.setProperty('--fh-font-scale', localStorage.getItem('finharness_font_scale') || '1')
+document.documentElement.dataset.theme = localStorage.getItem('podcloud_theme') || 'dark'
+// 持久化字号缩放(--pod-font-scale 为 CSS 变量,刷新后必须在此恢复,否则字号回落默认)
+document.documentElement.style.setProperty('--pod-font-scale', localStorage.getItem('podcloud_font_scale') || '1')
 
 const app = createApp(App)
 app.use(createPinia())

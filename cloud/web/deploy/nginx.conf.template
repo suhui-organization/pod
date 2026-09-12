@@ -1,4 +1,4 @@
-# FinHarness Web 端 nginx 配置模板(envsubst 注入 upstream;K8s 生产最佳实践)
+# Pod Cloud Web 端 nginx 配置模板(envsubst 注入 upstream;K8s 生产最佳实践)
 server {
     listen 80;
     server_name _;

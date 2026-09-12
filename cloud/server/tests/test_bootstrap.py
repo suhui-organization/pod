@@ -8,7 +8,7 @@ SERVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _run_bootstrap(db_path):
-    env = dict(os.environ, FINHARNESS_DB_URL=f"sqlite:///{db_path}")
+    env = dict(os.environ, PODCLOUD_DB_URL=f"sqlite:///{db_path}")
     return subprocess.run(
         [sys.executable, "-m", "scripts.bootstrap_admin", "--email", "admin@x.com", "--password", "secret123"],
         capture_output=True, text=True, cwd=SERVER_DIR, env=env, timeout=60,

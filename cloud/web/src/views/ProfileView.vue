@@ -200,14 +200,14 @@ onMounted(load)
   margin: 0 0 6px;
   font-size: 18px;
   font-weight: 600;
-  color: var(--fh-text);
+  color: var(--pod-text);
 }
 .head p {
   margin: 0;
-  font-size: var(--fh-size-sm);
-  /* 用 dim 而非 faint：--fh-text-faint(#6b7280) 压在暗色卡片上只有 3.85:1，
+  font-size: var(--pod-size-sm);
+  /* 用 dim 而非 faint：--pod-text-faint(#6b7280) 压在暗色卡片上只有 3.85:1，
      够不到 PRODUCT.md 要求的 4.5:1；dim 在两种主题下都 ≥7:1 */
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
   max-width: 60ch;
   line-height: 1.5;
 }
@@ -221,6 +221,6 @@ onMounted(load)
   margin: 12px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
 }
 </style>

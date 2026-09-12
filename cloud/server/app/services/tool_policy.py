@@ -18,7 +18,7 @@ from datetime import datetime
 
 from app.models import ToolApproval, ToolApprovalCache
 
-logger = logging.getLogger("finharness.server")
+logger = logging.getLogger("podcloud.server")
 
 ASK_POLL_INTERVAL = 2.0     # ask 轮询间隔(秒)
 ASK_TIMEOUT = 600.0         # ask 等待上限(秒)

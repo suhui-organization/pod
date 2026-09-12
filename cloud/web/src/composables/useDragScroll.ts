@@ -8,7 +8,7 @@
  * - 拖拽超过阈值(5px)且横向位移占优才接管 —— 纵向拖动让位原生滚动,避免误伤;
  * - 交互元素(a/button/input/textarea/select/th 表头/可编辑区等)不触发,
  *   保证点击、表格列宽拖拽、文本选择等原生行为不受影响;
- * - 拖动期间容器加 .fh-dragging(cursor:grabbing + user-select:none),结束自动还原。
+ * - 拖动期间容器加 .pod-dragging(cursor:grabbing + user-select:none),结束自动还原。
  */
 export function useDragScroll(): void {
   if (typeof window === 'undefined') return
@@ -74,7 +74,7 @@ export function useDragScroll(): void {
       if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return
       if (Math.abs(dy) > Math.abs(dx)) { stop(); return } // 纵向意图:让位原生滚动
       dragging = true
-      el.classList.add('fh-dragging')
+      el.classList.add('pod-dragging')
       const sel = window.getSelection()
       if (sel && !sel.isCollapsed) sel.removeAllRanges()
     }
@@ -88,7 +88,7 @@ export function useDragScroll(): void {
 
   function stop(): void {
     if (el) {
-      el.classList.remove('fh-dragging')
+      el.classList.remove('pod-dragging')
       el = null
     }
     dragging = false

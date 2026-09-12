@@ -1,92 +1,92 @@
-/* FinHarness × Reasonix 设计语言
+/* Pod Cloud 设计语言
  * 暗色优先 + slate 灰蓝(提取自 Reasonix 设计 token 体系)
  * 背景三级递进 / 前景多级灰阶 / 极淡边框 / accent-soft 底 + accent 前景
  */
 :root {
   /* 背景三级递进 */
-  --fh-bg: #090a0c;
-  --fh-bg-soft: #0b0e12;
-  --fh-bg-elev: #101318;
+  --pod-bg: #090a0c;
+  --pod-bg-soft: #0b0e12;
+  --pod-bg-elev: #101318;
 
   /* 前景多级灰阶 */
-  --fh-text: #e6e8ec;
-  --fh-text-dim: #9aa2b1;
-  --fh-text-faint: #6b7280;
+  --pod-text: #e6e8ec;
+  --pod-text-dim: #9aa2b1;
+  --pod-text-faint: #6b7280;
 
   /* 边框(极淡,Reasonix --border-soft) */
-  --fh-border: rgba(255, 255, 255, 0.07);
-  --fh-border-strong: rgba(255, 255, 255, 0.12);
-  --fh-divider: rgba(255, 255, 255, 0.05);  /* 更淡的分隔线(Linear 风细分割) */
-  --fh-hover-soft: rgba(255, 255, 255, 0.03);  /* 更柔和的 hover */
+  --pod-border: rgba(255, 255, 255, 0.07);
+  --pod-border-strong: rgba(255, 255, 255, 0.12);
+  --pod-divider: rgba(255, 255, 255, 0.05);  /* 更淡的分隔线(Linear 风细分割) */
+  --pod-hover-soft: rgba(255, 255, 255, 0.03);  /* 更柔和的 hover */
 
   /* 面(surface)层级:此前只被 var() 引用、从未定义,各页面全靠兜底值渲染,
      导致亮色主题下面板仍是暗色。补齐后暗色视觉不变 */
-  --fh-panel-bg: #161a1f;    /* 卡片/面板底 */
-  --fh-panel-elev: #1c2128;  /* 面板内的次级块(代码块/详情区) */
+  --pod-panel-bg: #161a1f;    /* 卡片/面板底 */
+  --pod-panel-elev: #1c2128;  /* 面板内的次级块(代码块/详情区) */
 
   /* accent:slate 灰蓝 */
-  --fh-accent: #6ea4f9;
-  --fh-accent-hover: #8ab1fa;
-  --fh-accent-soft: rgba(110, 164, 249, 0.14);
-  --fh-accent-fg: #061129;
+  --pod-accent: #6ea4f9;
+  --pod-accent-hover: #8ab1fa;
+  --pod-accent-soft: rgba(110, 164, 249, 0.14);
+  --pod-accent-fg: #061129;
 
   /* 状态色 */
-  --fh-danger: #cc3e44;
-  --fh-success: #8dc149;
-  --fh-warning: #e37933;
+  --pod-danger: #cc3e44;
+  --pod-success: #8dc149;
+  --pod-warning: #e37933;
 
   /* 交互态 */
-  --fh-hover: rgba(255, 255, 255, 0.04);
-  --fh-scrollbar: rgba(255, 255, 255, 0.12);
+  --pod-hover: rgba(255, 255, 255, 0.04);
+  --pod-scrollbar: rgba(255, 255, 255, 0.12);
 
   /* 圆角 */
-  --fh-radius: 10px;
-  --fh-radius-sm: 4px;  /* 小元素(tag/徽标):方角小圆角,与卡片语言一致 */
-  --fh-radius-lg: 12px;
+  --pod-radius: 10px;
+  --pod-radius-sm: 4px;  /* 小元素(tag/徽标):方角小圆角,与卡片语言一致 */
+  --pod-radius-lg: 12px;
 
   /* 输入框统一 token(对标对话 composer-card 内层风格:elev 底色 + 细边 + radius-lg + focus accent) */
-  --fh-input-bg: var(--fh-bg-elev);
-  --fh-input-border: var(--fh-border);
-  --fh-input-border-hover: var(--fh-border-strong);
-  --fh-input-border-focus: var(--fh-accent);
-  --fh-input-radius: var(--fh-radius-lg);
-  --fh-input-height: 36px;
-  --fh-input-font-size: calc(14px * var(--fh-font-scale));
-  --fh-input-line-height: 1.5;
-  --fh-input-placeholder: var(--fh-text-faint);
-  --fh-input-color: var(--fh-text);
-  --fh-focus-ring: 0 0 0 3px var(--fh-accent-soft);
+  --pod-input-bg: var(--pod-bg-elev);
+  --pod-input-border: var(--pod-border);
+  --pod-input-border-hover: var(--pod-border-strong);
+  --pod-input-border-focus: var(--pod-accent);
+  --pod-input-radius: var(--pod-radius-lg);
+  --pod-input-height: 36px;
+  --pod-input-font-size: calc(14px * var(--pod-font-scale));
+  --pod-input-line-height: 1.5;
+  --pod-input-placeholder: var(--pod-text-faint);
+  --pod-input-color: var(--pod-text);
+  --pod-focus-ring: 0 0 0 3px var(--pod-accent-soft);
 
-  /* 字体与字号(小字号高密度;--fh-font-scale 全局缩放,外观设置可调) */
-  --fh-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+  /* 字体与字号(小字号高密度;--pod-font-scale 全局缩放,外观设置可调) */
+  --pod-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
-  --fh-font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code',
+  --pod-font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code',
     Consolas, monospace;
-  --fh-font-scale: 1;
-  --fh-size-sm: calc(12px * var(--fh-font-scale));
-  --fh-size-md: calc(13px * var(--fh-font-scale));
-  --fh-size-base: calc(14px * var(--fh-font-scale));
+  --pod-font-scale: 1;
+  --pod-size-sm: calc(12px * var(--pod-font-scale));
+  --pod-size-md: calc(13px * var(--pod-font-scale));
+  --pod-size-base: calc(14px * var(--pod-font-scale));
 
   /* Element Plus 暗色映射 */
-  --el-color-primary: var(--fh-accent);
+  --el-color-primary: var(--pod-accent);
   --el-color-primary-light-3: #8ab1fa;
   --el-color-primary-light-5: rgba(110, 164, 249, 0.5);
   --el-color-primary-light-7: rgba(110, 164, 249, 0.3);
   --el-color-primary-light-8: rgba(110, 164, 249, 0.2);
-  --el-color-primary-light-9: var(--fh-accent-soft);
+  --el-color-primary-light-9: var(--pod-accent-soft);
   --el-color-primary-dark-2: #4d8df6;
-  --el-bg-color: var(--fh-bg);
-  --el-bg-color-page: var(--fh-bg);
-  --el-bg-color-overlay: var(--fh-bg-elev);
-  --el-text-color-primary: var(--fh-text);
-  --el-text-color-regular: var(--fh-text-dim);
-  --el-text-color-secondary: var(--fh-text-faint);
-  --el-text-color-placeholder: var(--fh-text-faint);
-  --el-border-color: var(--fh-border-strong);
-  --el-border-color-light: var(--fh-border);
-  --el-border-color-lighter: var(--fh-border);
-  --el-border-color-extra-light: var(--fh-border);
-  --el-fill-color-blank: var(--fh-bg-soft);
+  --el-bg-color: var(--pod-bg);
+  --el-bg-color-page: var(--pod-bg);
+  --el-bg-color-overlay: var(--pod-bg-elev);
+  --el-text-color-primary: var(--pod-text);
+  --el-text-color-regular: var(--pod-text-dim);
+  --el-text-color-secondary: var(--pod-text-faint);
+  --el-text-color-placeholder: var(--pod-text-faint);
+  --el-border-color: var(--pod-border-strong);
+  --el-border-color-light: var(--pod-border);
+  --el-border-color-lighter: var(--pod-border);
+  --el-border-color-extra-light: var(--pod-border);
+  --el-fill-color-blank: var(--pod-bg-soft);
   --el-fill-color-light: rgba(255, 255, 255, 0.06);
   --el-fill-color: rgba(255, 255, 255, 0.08);
   --el-mask-color: rgba(0, 0, 0, 0.6);
@@ -101,44 +101,44 @@
 
 /* 亮色主题(Reasonix 亮色 token):外观设置里切换,body 默认暗色 */
 :root[data-theme='light'] {
-  --fh-bg: #f7f8fb;
-  --fh-bg-soft: #eef0f4;
-  --fh-bg-elev: #ffffff;
-  --fh-text: #1f2937;
-  --fh-text-dim: #4b5563;
-  --fh-text-faint: #6b7280;
-  --fh-border: rgba(20, 28, 46, 0.07);
-  --fh-border-strong: rgba(20, 28, 46, 0.12);
-  --fh-panel-bg: #ffffff;
-  --fh-panel-elev: #f2f4f8;
-  --fh-accent: #2f6fe0;
-  --fh-accent-hover: #244f91;
-  --fh-accent-soft: rgba(47, 111, 224, 0.12);
-  --fh-accent-fg: #ffffff;
-  --fh-danger: #c0392b;
-  --fh-success: #5f9e34;
-  --fh-warning: #cc6d2e;
-  --fh-hover: rgba(0, 0, 0, 0.04);
-  --fh-scrollbar: rgba(0, 0, 0, 0.15);
+  --pod-bg: #f7f8fb;
+  --pod-bg-soft: #eef0f4;
+  --pod-bg-elev: #ffffff;
+  --pod-text: #1f2937;
+  --pod-text-dim: #4b5563;
+  --pod-text-faint: #6b7280;
+  --pod-border: rgba(20, 28, 46, 0.07);
+  --pod-border-strong: rgba(20, 28, 46, 0.12);
+  --pod-panel-bg: #ffffff;
+  --pod-panel-elev: #f2f4f8;
+  --pod-accent: #2f6fe0;
+  --pod-accent-hover: #244f91;
+  --pod-accent-soft: rgba(47, 111, 224, 0.12);
+  --pod-accent-fg: #ffffff;
+  --pod-danger: #c0392b;
+  --pod-success: #5f9e34;
+  --pod-warning: #cc6d2e;
+  --pod-hover: rgba(0, 0, 0, 0.04);
+  --pod-scrollbar: rgba(0, 0, 0, 0.15);
 
   /* Element Plus 亮色还原 */
-  --el-color-primary: var(--fh-accent);
+  --el-color-primary: var(--pod-accent);
   --el-color-primary-light-3: #5e8ee8;
   --el-color-primary-light-5: rgba(47, 111, 224, 0.5);
   --el-color-primary-light-7: rgba(47, 111, 224, 0.3);
   --el-color-primary-light-8: rgba(47, 111, 224, 0.2);
-  --el-color-primary-light-9: var(--fh-accent-soft);
+  --el-color-primary-light-9: var(--pod-accent-soft);
   --el-color-primary-dark-2: #244f91;
   --el-bg-color: #ffffff;
-  --el-bg-color-page: var(--fh-bg);
+  --el-bg-color-page: var(--pod-bg);
   --el-bg-color-overlay: #ffffff;
-  --el-text-color-primary: var(--fh-text);
-  --el-text-color-regular: var(--fh-text-dim);
-  --el-text-color-secondary: var(--fh-text-faint);
-  --el-border-color: var(--fh-border-strong);
-  --el-border-color-light: var(--fh-border);
-  --el-border-color-lighter: var(--fh-border);
-  --el-border-color-extra-light: var(--fh-border);
+  --el-text-color-primary: var(--pod-text);
+  --el-text-color-regular: var(--pod-text-dim);
+  --el-text-color-secondary: var(--pod-text-faint);
+  --el-border-color: var(--pod-border-strong);
+  --el-border-color-light: var(--pod-border);
+  --el-border-color-lighter: var(--pod-border);
+  --el-border-color-extra-light: var(--pod-border);
   --el-fill-color-blank: #ffffff;
   --el-fill-color-light: rgba(0, 0, 0, 0.04);
   --el-fill-color: rgba(0, 0, 0, 0.06);
@@ -147,10 +147,10 @@
 
 body {
   margin: 0;
-  font-family: var(--fh-font-ui);
-  font-size: var(--fh-size-base);
-  color: var(--fh-text);
-  background: var(--fh-bg);
+  font-family: var(--pod-font-ui);
+  font-size: var(--pod-size-base);
+  color: var(--pod-text);
+  background: var(--pod-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -158,37 +158,37 @@ body {
 .el-card,
 .el-dialog,
 .el-message-box {
-  background: var(--fh-bg-elev);
-  border: 1px solid var(--fh-border);
-  border-radius: var(--fh-radius);
-  color: var(--fh-text);
+  background: var(--pod-bg-elev);
+  border: 1px solid var(--pod-border);
+  border-radius: var(--pod-radius);
+  color: var(--pod-text);
 }
 
 .el-input__wrapper,
 .el-textarea__inner {
-  background: var(--fh-bg-soft);
-  box-shadow: 0 0 0 1px var(--fh-border) inset;
+  background: var(--pod-bg-soft);
+  box-shadow: 0 0 0 1px var(--pod-border) inset;
 }
 
 .el-tabs__item {
-  color: var(--fh-text-dim);
+  color: var(--pod-text-dim);
 }
 
 .el-tabs__item.is-active {
-  color: var(--fh-accent);
+  color: var(--pod-accent);
 }
 
 .el-tabs__active-bar {
-  background: var(--fh-accent);
+  background: var(--pod-accent);
 }
 
 .el-table {
-  --el-table-bg-color: var(--fh-bg-elev);
-  --el-table-tr-bg-color: var(--fh-bg-elev);
-  --el-table-header-bg-color: var(--fh-bg-soft);
-  --el-table-border-color: var(--fh-border);
-  --el-table-text-color: var(--fh-text);
-  --el-table-header-text-color: var(--fh-text-dim);
+  --el-table-bg-color: var(--pod-bg-elev);
+  --el-table-tr-bg-color: var(--pod-bg-elev);
+  --el-table-header-bg-color: var(--pod-bg-soft);
+  --el-table-border-color: var(--pod-border);
+  --el-table-text-color: var(--pod-text);
+  --el-table-header-text-color: var(--pod-text-dim);
   --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.04);
   /* 斑马纹(stripe)与填充色:随主题,防白底 */
   --el-fill-color-lighter: rgba(255, 255, 255, 0.03);
@@ -202,7 +202,7 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--fh-scrollbar);
+  background: var(--pod-scrollbar);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-track {
@@ -235,7 +235,7 @@ form .el-form-item__label {
 /* 窄屏(<1200):右侧面板/侧栏收缩 */
 @media (max-width: 1199px) {
   :root {
-    --fh-panel-w: 240px;
+    --pod-panel-w: 240px;
   }
 }
 
@@ -335,32 +335,32 @@ form .el-form-item__label {
  * ───────────────────────────────────────────────────────────────── */
 .el-input__wrapper,
 .el-textarea__wrapper {
-  background: var(--fh-input-bg) !important;
-  border: 1px solid var(--fh-input-border) !important;
-  border-radius: var(--fh-input-radius) !important;
+  background: var(--pod-input-bg) !important;
+  border: 1px solid var(--pod-input-border) !important;
+  border-radius: var(--pod-input-radius) !important;
   box-shadow: none !important;
   padding: 4px 12px !important;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .el-input.is-hover .el-input__wrapper,
 .el-textarea:hover .el-textarea__wrapper {
-  border-color: var(--fh-input-border-hover) !important;
+  border-color: var(--pod-input-border-hover) !important;
 }
 .el-input.is-focus .el-input__wrapper,
 .el-textarea.is-focus .el-textarea__wrapper {
-  border-color: var(--fh-input-border-focus) !important;
-  box-shadow: var(--fh-focus-ring) !important;
+  border-color: var(--pod-input-border-focus) !important;
+  box-shadow: var(--pod-focus-ring) !important;
 }
 .el-input__inner,
 .el-textarea__inner {
   background: transparent !important;
-  color: var(--fh-input-color) !important;
-  font-family: var(--fh-font-ui) !important;
-  font-size: var(--fh-input-font-size) !important;
-  line-height: var(--fh-input-line-height) !important;
+  color: var(--pod-input-color) !important;
+  font-family: var(--pod-font-ui) !important;
+  font-size: var(--pod-input-font-size) !important;
+  line-height: var(--pod-input-line-height) !important;
 }
 .el-input__inner {
-  height: var(--fh-input-height) !important;
+  height: var(--pod-input-height) !important;
   padding: 0 14px !important;        /* 与对话 composer-card 的 14px padding 对齐,placeholder/文本有舒适内距 */
 }
 .el-textarea__inner {
@@ -371,14 +371,14 @@ form .el-form-item__label {
 .el-input__inner::placeholder,
 .el-textarea__inner::placeholder,
 .el-input .el-input__inner::placeholder {
-  color: var(--fh-input-placeholder) !important;
+  color: var(--pod-input-placeholder) !important;
 }
 .el-input.is-disabled .el-input__wrapper,
 .el-textarea.is-disabled .el-textarea__wrapper {
   opacity: 0.5;
   cursor: not-allowed;
-  background: var(--fh-bg-soft) !important;
-  border-color: var(--fh-border) !important;
+  background: var(--pod-bg-soft) !important;
+  border-color: var(--pod-border) !important;
 }
 /* size=small (GenuiRenderer 内):保持紧凑 */
 .el-input--small .el-input__wrapper {
@@ -386,7 +386,7 @@ form .el-form-item__label {
   min-height: 24px;
 }
 .el-input--small .el-input__inner {
-  font-size: calc(12px * var(--fh-font-scale)) !important;
+  font-size: calc(12px * var(--pod-font-scale)) !important;
   height: 20px !important;
 }
 
@@ -480,13 +480,13 @@ form .el-form-item__label {
   min-width: 44px;
   padding: 0 10px;
   border-radius: 6px;
-  background: var(--fh-bg-elev);
-  border: 1px solid var(--fh-accent);
+  background: var(--pod-bg-elev);
+  border: 1px solid var(--pod-accent);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  color: var(--fh-text);
+  color: var(--pod-text);
   font-size: 12px;
   font-weight: 600;
-  font-family: var(--fh-font-mono);
+  font-family: var(--pod-font-mono);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -537,37 +537,37 @@ form .el-form-item__label {
 .module-panel .mp-body[data-density="tiny"] .el-table th { padding: 2px 4px; }
 .module-panel .mp-body[data-density="tiny"] .el-table .cell { font-size: 11px; }
 
-/* 横向拖拽滚动(fh-dragging 由 useDragScroll 在拖动期间加到滚动容器上):
+/* 横向拖拽滚动(pod-dragging 由 useDragScroll 在拖动期间加到滚动容器上):
    内容超出可视范围的区域按住左键左右拖动,拖动中显示抓取光标并禁止选中文本 */
-.fh-dragging {
+.pod-dragging {
   cursor: grabbing !important;
   user-select: none !important;
   -webkit-user-select: none !important;
 }
 
 /* 单行内容横向溢出区域的滚动条收纳(可拖拽,不占视觉空间) */
-.fh-hscroll {
+.pod-hscroll {
   overflow-x: auto;
   scrollbar-width: none; /* firefox */
 }
-.fh-hscroll::-webkit-scrollbar {
+.pod-hscroll::-webkit-scrollbar {
   display: none;
 }
 
 /* 按钮行:宽度不足时自动换行,不挤压不溢出(窄屏 responsive 用) */
-.fh-btnrow {
+.pod-btnrow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.fh-btnrow.justify-end {
+.pod-btnrow.justify-end {
   justify-content: flex-end;
 }
 /* Element Plus 相邻按钮默认 margin-left:12px;flex 按钮行由 gap 取代间距,
    换行后行首按钮不留 12px 空隙 */
-.fh-btnrow > .el-button + .el-button,
-.fh-btnrow > * + .el-button {
+.pod-btnrow > .el-button + .el-button,
+.pod-btnrow > * + .el-button {
   margin-left: 0;
 }
 
