@@ -43,10 +43,17 @@ export function currentLocale(): Locale {
   return i18n.global.locale.value as Locale
 }
 
+/** 浏览器标签页标题也跟着切——否则英文界面的标签页还挂着中文（index.html 里是静态的） */
+function syncDocumentTitle(): void {
+  document.title = i18n.global.t('Pod Cloud — AI Agent 安全舱')
+}
+syncDocumentTitle()
+
 export function setLocale(locale: Locale): void {
   i18n.global.locale.value = locale
   localStorage.setItem(STORAGE_KEY, locale)
   document.documentElement.lang = locale
+  syncDocumentTitle()
 }
 
 /** 供 useI18n() 之外的地方（如 Element Plus 配置）读当前语言 */

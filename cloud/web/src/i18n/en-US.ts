@@ -718,4 +718,5 @@ export const enUS: Record<string, string> = {
   '（无备注）': '(no note)',
   '（以下为中文正式版本；英文译本可向我们索取，正式发布前经法律审核。）':
     '(The Chinese text below is the authoritative version; an English translation is available on request — both will be legally reviewed before the public release.)',
+  'Pod Cloud — AI Agent 安全舱': 'Pod Cloud — AI agent security control plane',
 }
