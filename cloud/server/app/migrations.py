@@ -53,16 +53,29 @@ _COLUMN_MIGRATIONS = {
 }
 
 
+def _column_exists(insp, table: str, col: str) -> bool:
+    return col in {c["name"] for c in insp.get_columns(table)}
+
+
 def migrate(engine) -> None:
     insp = inspect(engine)
     tables = set(insp.get_table_names())
     for table, columns in _COLUMN_MIGRATIONS.items():
         if table not in tables:
             continue
-        existing = {c["name"] for c in insp.get_columns(table)}
         for col, ddl in columns.items():
-            if col in existing:
+            if _column_exists(insp, table, col):
                 continue
             logger.info("迁移: %s.%s 不存在,执行 %s", table, col, ddl)
-            with engine.begin() as conn:
-                conn.execute(text(ddl))
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(ddl))
+            except Exception:
+                # 滚动更新时新旧 Pod 会重叠：两个进程可能同时判定"列不存在"、
+                # 各自执行 ALTER，后到的那个会报 duplicate column。
+                # 重新查一次（用新的 inspector，避开缓存）：列已经在了就说明是
+                # 并发同伴建的，算成功；否则才是真错误，照常抛出。
+                if _column_exists(inspect(engine), table, col):
+                    logger.info("迁移: %s.%s 已由并发实例创建，跳过", table, col)
+                    continue
+                raise

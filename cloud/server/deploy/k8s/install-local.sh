@@ -206,8 +206,18 @@ for d in "${REBUILT[@]:-}"; do
   ok "镜像已重建($d) → 滚动重启"
 done
 if [ "${#RESTART_NEEDED[@]}" -gt 0 ]; then
-  ARGS=(); for d in "${RESTART_NEEDED[@]}"; do ARGS+=("deploy/$d"); done
-  kubectl -n "$NS" rollout restart "${ARGS[@]}" >/dev/null
+  # 顺序不能省：web 的新版本会调用服务端新增的端点（规则包 / 加固报告 / 熔断）。
+  # 两个 Deployment 一起 restart 会出现"新前端 + 旧后端"的窗口，新页面临时 404。
+  # 所以先把 server 滚完并等它就绪，再滚 web。
+  for d in "${RESTART_NEEDED[@]}"; do
+    [ "$d" = "podcloud-server" ] || continue
+    kubectl -n "$NS" rollout restart "deploy/$d" >/dev/null
+    kubectl -n "$NS" rollout status  "deploy/$d" --timeout=300s
+  done
+  for d in "${RESTART_NEEDED[@]}"; do
+    [ "$d" = "podcloud-web" ] || continue
+    kubectl -n "$NS" rollout restart "deploy/$d" >/dev/null
+  done
 fi
 kubectl -n "$NS" rollout status deploy/podcloud-server --timeout=300s
 kubectl -n "$NS" rollout status deploy/podcloud-web    --timeout=300s
