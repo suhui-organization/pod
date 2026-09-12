@@ -287,4 +287,42 @@ export const enUS: Record<string, string> = {
   '⚠️ 以下审计文件哈希链损坏（篡改或中断），已跳过：{list}':
     '⚠️ These audit files have a broken hash chain (tampering or truncation) and were skipped: {list}',
   '（无匹配事件）': '(no matching events)',
+
+  // ── pod digest 周报 ──
+  '本期没有工具调用记录': 'No tool calls recorded in this window',
+  '本期平静：{n} 次调用，无拦截、无泄漏、无注入信号':
+    'A quiet window: {n} calls, nothing blocked, no leaks, no injection signals',
+  '拦截了 {n} 次被策略拒绝的调用': 'Blocked {n} calls that policy denied',
+  '拦下 {n} 次疑似密钥外泄': 'Stopped {n} suspected secret leaks',
+  '标记 {n} 次疑似提示注入': 'Flagged {n} suspected prompt injections',
+  '{n} 次人工审批（批准 {approved}、拒绝 {denied}、超时 {timeout}）':
+    '{n} manual approvals ({approved} approved, {denied} denied, {timeout} timed out)',
+  '⚠️ {n} 个审计文件哈希链异常：{list}': '⚠️ {n} audit files have a broken hash chain: {list}',
+  '⚠️ 发现 {n} 个未受管 MCP server（可绕过网关）：{list}':
+    '⚠️ {n} unmanaged MCP servers found (they can bypass the gateway): {list}',
+  '# pod 本地安全周报': '# pod local security digest',
+  '统计窗口：{from} → {to}': 'Window: {from} → {to}',
+  '## 本期结论': '## Takeaways',
+  '- 暂无数据': '- No data yet',
+  '## 调用总览': '## Call overview',
+  '| 指标 | 数量 |': '| Metric | Count |',
+  '| 总调用 | {n} |': '| Total calls | {n} |',
+  '| record-only（未执法） | {n} |': '| record-only (not enforcing) | {n} |',
+  '## 工具调用 Top': '## Top tools',
+  '| server | tool | 调用 | 拦截 | 敏感 |': '| server | tool | calls | blocked | sensitive |',
+  '## 审批与拦截': '## Approvals and blocks',
+  '- 人工审批：{n} 次（批准 {approved} / 拒绝 {denied} / 超时 {timeout}）':
+    '- Manual approvals: {n} ({approved} approved / {denied} denied / {timeout} timed out)',
+  '- 审批人：{list}': '- Approvers: {list}',
+  '- 拦截/告警事件：{n} 条': '- Blocked / alerted events: {n}',
+  '## 审计完整性': '## Audit integrity',
+  '- {server}.jsonl：{status}（{n} 条）': '- {server}.jsonl: {status} ({n} entries)',
+  '✅ 哈希链完整': '✅ hash chain intact',
+  '❌ 哈希链异常': '❌ hash chain broken',
+  '## 受管覆盖率': '## Managed coverage',
+  '- 已受管 server：{list}': '- Managed servers: {list}',
+  '- 未受管 server：{list}': '- Unmanaged servers: {list}',
+  '无': 'none',
+  'pod digest 只读本地审计，不联网、不上传任何数据。':
+    'pod digest only reads local audit data; it does not use the network and uploads nothing.',
 }

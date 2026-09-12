@@ -5,6 +5,7 @@
  * 输出：调用量 / 拦截 / 审批 / 敏感命中 / 未受管 server / 哈希链健康。
  */
 import type { AuditEntry } from '@podsec/audit';
+import { t } from '@podsec/i18n';
 
 export interface DigestInput {
   server: string;
@@ -137,23 +138,40 @@ export function buildDigest(input: DigestInput[], opts: DigestOptions): Digest {
   const injections = alerts.filter((a) => a.kind === 'injection_suspect').length;
   const denies = alerts.filter((a) => a.kind === 'deny').length;
   if (totals.calls === 0) {
-    highlights.push('本期没有工具调用记录');
+    highlights.push(t('本期没有工具调用记录'));
   } else if (denies === 0 && secretLeaks === 0 && injections === 0) {
-    highlights.push(`本期平静：${totals.calls} 次调用，无拦截、无泄漏、无注入信号`);
+    highlights.push(t('本期平静：{n} 次调用，无拦截、无泄漏、无注入信号', { n: totals.calls }));
   } else {
-    if (denies > 0) highlights.push(`拦截了 ${denies} 次被策略拒绝的调用`);
-    if (secretLeaks > 0) highlights.push(`拦下 ${secretLeaks} 次疑似密钥外泄`);
-    if (injections > 0) highlights.push(`标记 ${injections} 次疑似提示注入`);
+    if (denies > 0) highlights.push(t('拦截了 {n} 次被策略拒绝的调用', { n: denies }));
+    if (secretLeaks > 0) highlights.push(t('拦下 {n} 次疑似密钥外泄', { n: secretLeaks }));
+    if (injections > 0) highlights.push(t('标记 {n} 次疑似提示注入', { n: injections }));
   }
   if (approvals.total > 0) {
     highlights.push(
-      `${approvals.total} 次人工审批（批准 ${approvals.approved}、拒绝 ${approvals.denied}、超时 ${approvals.timeout}）`,
+      t('{n} 次人工审批（批准 {approved}、拒绝 {denied}、超时 {timeout}）', {
+        n: approvals.total,
+        approved: approvals.approved,
+        denied: approvals.denied,
+        timeout: approvals.timeout,
+      }),
     );
   }
   const broken = chain.filter((c) => !c.ok);
-  if (broken.length > 0) highlights.push(`⚠️ ${broken.length} 个审计文件哈希链异常：${broken.map((b) => b.server).join('、')}`);
+  if (broken.length > 0) {
+    highlights.push(
+      t('⚠️ {n} 个审计文件哈希链异常：{list}', {
+        n: broken.length,
+        list: broken.map((b) => b.server).join('、'),
+      }),
+    );
+  }
   if (opts.coverage && opts.coverage.unmanaged.length > 0) {
-    highlights.push(`⚠️ 发现 ${opts.coverage.unmanaged.length} 个未受管 MCP server（可绕过网关）：${opts.coverage.unmanaged.join('、')}`);
+    highlights.push(
+      t('⚠️ 发现 {n} 个未受管 MCP server（可绕过网关）：{list}', {
+        n: opts.coverage.unmanaged.length,
+        list: opts.coverage.unmanaged.join('、'),
+      }),
+    );
   }
 
   return {
@@ -176,31 +194,36 @@ function pct(n: number, total: number): string {
 }
 
 export function renderDigest(d: Digest): string {
-  const lines: string[] = ['# pod 本地安全周报', ''];
-  lines.push(`统计窗口：${d.from.slice(0, 19).replace('T', ' ')} → ${d.to.slice(0, 19).replace('T', ' ')}`);
+  const lines: string[] = [t('# pod 本地安全周报'), ''];
+  lines.push(
+    t('统计窗口：{from} → {to}', {
+      from: d.from.slice(0, 19).replace('T', ' '),
+      to: d.to.slice(0, 19).replace('T', ' '),
+    }),
+  );
   lines.push('');
-  lines.push('## 本期结论');
+  lines.push(t('## 本期结论'));
   lines.push('');
-  if (d.highlights.length === 0) lines.push('- 暂无数据');
+  if (d.highlights.length === 0) lines.push(t('- 暂无数据'));
   else for (const h of d.highlights) lines.push(`- ${h}`);
   lines.push('');
 
-  lines.push('## 调用总览');
+  lines.push(t('## 调用总览'));
   lines.push('');
-  lines.push('| 指标 | 数量 |');
+  lines.push(t('| 指标 | 数量 |'));
   lines.push('|------|-----:|');
-  lines.push(`| 总调用 | ${d.totals.calls} |`);
+  lines.push(t('| 总调用 | {n} |', { n: d.totals.calls }));
   lines.push(`| allow | ${d.totals.allow} (${pct(d.totals.allow, d.totals.calls)}) |`);
   lines.push(`| approve | ${d.totals.approve} (${pct(d.totals.approve, d.totals.calls)}) |`);
   lines.push(`| deny | ${d.totals.deny} (${pct(d.totals.deny, d.totals.calls)}) |`);
   lines.push(`| ok / error / blocked | ${d.totals.ok} / ${d.totals.error} / ${d.totals.blocked} |`);
-  lines.push(`| record-only（未执法） | ${d.totals.recorded} |`);
+  lines.push(t('| record-only（未执法） | {n} |', { n: d.totals.recorded }));
   lines.push('');
 
   if (d.tools.length > 0) {
-    lines.push('## 工具调用 Top');
+    lines.push(t('## 工具调用 Top'));
     lines.push('');
-    lines.push('| server | tool | 调用 | 拦截 | 敏感 |');
+    lines.push(t('| server | tool | 调用 | 拦截 | 敏感 |'));
     lines.push('|--------|------|-----:|-----:|-----:|');
     for (const t of d.tools.slice(0, 10)) {
       lines.push(`| ${t.server} | ${t.tool} | ${t.calls} | ${t.blocked} | ${t.sensitive} |`);
@@ -208,35 +231,58 @@ export function renderDigest(d: Digest): string {
     lines.push('');
   }
 
-  lines.push('## 审批与拦截');
+  lines.push(t('## 审批与拦截'));
   lines.push('');
-  lines.push(`- 人工审批：${d.approvals.total} 次（批准 ${d.approvals.approved} / 拒绝 ${d.approvals.denied} / 超时 ${d.approvals.timeout}）`);
-  lines.push(`- 审批人：${d.approvals.approvers.length > 0 ? d.approvals.approvers.join('、') : '—'}`);
-  lines.push(`- 拦截/告警事件：${d.alerts.length} 条`);
+  lines.push(
+    t('- 人工审批：{n} 次（批准 {approved} / 拒绝 {denied} / 超时 {timeout}）', {
+      n: d.approvals.total,
+      approved: d.approvals.approved,
+      denied: d.approvals.denied,
+      timeout: d.approvals.timeout,
+    }),
+  );
+  lines.push(
+    t('- 审批人：{list}', { list: d.approvals.approvers.length > 0 ? d.approvals.approvers.join('、') : '—' }),
+  );
+  lines.push(t('- 拦截/告警事件：{n} 条', { n: d.alerts.length }));
   for (const a of d.alerts.slice(0, 10)) {
     lines.push(`  - ${a.ts.slice(0, 19).replace('T', ' ')} [${a.kind}] ${a.server}.${a.tool} — ${a.reason.slice(0, 80)}`);
   }
   lines.push('');
 
   if (d.chain.length > 0) {
-    lines.push('## 审计完整性');
+    lines.push(t('## 审计完整性'));
     lines.push('');
     for (const c of d.chain) {
-      lines.push(`- ${c.server}.jsonl：${c.ok ? '✅ 哈希链完整' : '❌ 哈希链异常'}（${c.entries} 条）`);
+      lines.push(
+        t('- {server}.jsonl：{status}（{n} 条）', {
+          server: c.server,
+          status: c.ok ? t('✅ 哈希链完整') : t('❌ 哈希链异常'),
+          n: c.entries,
+        }),
+      );
     }
     lines.push('');
   }
 
   if (d.coverage) {
-    lines.push('## 受管覆盖率');
+    lines.push(t('## 受管覆盖率'));
     lines.push('');
-    lines.push(`- 已受管 server：${d.coverage.managed.length > 0 ? d.coverage.managed.join('、') : '—'}`);
-    lines.push(`- 未受管 server：${d.coverage.unmanaged.length > 0 ? d.coverage.unmanaged.join('、') : '无'}`);
+    lines.push(
+      t('- 已受管 server：{list}', {
+        list: d.coverage.managed.length > 0 ? d.coverage.managed.join('、') : '—',
+      }),
+    );
+    lines.push(
+      t('- 未受管 server：{list}', {
+        list: d.coverage.unmanaged.length > 0 ? d.coverage.unmanaged.join('、') : t('无'),
+      }),
+    );
     lines.push('');
   }
 
   lines.push('---');
-  lines.push('pod digest 只读本地审计，不联网、不上传任何数据。');
+  lines.push(t('pod digest 只读本地审计，不联网、不上传任何数据。'));
   lines.push('');
   return lines.join('\n');
 }
