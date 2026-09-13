@@ -94,6 +94,19 @@ used_keys_of "$TMP/web-used.txt" $(cat "$TMP/web-files.txt")
 cat_keys_of cloud/web/src/i18n/en-US.ts "$TMP/web-cat.txt"
 report "Web" "$TMP/web-used.txt" "$TMP/web-cat.txt"
 
+# ── 额外守卫：Vue 模板会在编译期解码 HTML 实体 ──────────────────────────────
+# 模板里写 tr('a &gt; b')，运行时传给 t() 的键是 'a > b'，而词表里存的是 'a &gt; b'
+# ——永远匹配不上，界面静默回退中文。上面的差集看不出来（两边源码文本是一致的）。
+# 真机踩过：策略页副标题、调用链页说明、接入命令里的 <名字>，英文界面下全是中文。
+ENTITY_KEYS=$(grep -nE "^  '[^']*(&lt;|&gt;)" cloud/web/src/i18n/en-US.ts || true)
+if [ -n "$ENTITY_KEYS" ]; then
+  echo -e "${RED}❌ Web 词表里有 HTML 实体键${NC}：Vue 模板编译时会解码，运行时永远匹配不上"
+  echo "$ENTITY_KEYS" | sed 's/^/    /'
+  echo "    改用原始字符（> / <），模板与词表两边都改。"
+  echo
+  TOTAL_MISSING=$((TOTAL_MISSING + 1))
+fi
+
 if [ "$TOTAL_MISSING" -eq 0 ]; then
   echo -e "${GREEN}✅ 所有 t() 键都有英文词条${NC}"
 elif [ "$STRICT" = "1" ]; then

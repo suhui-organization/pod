@@ -4,7 +4,7 @@
       <div class="head__title">
         <h2>{{ tr('策略中心') }}</h2>
         <p class="head__meta">
-          {{ tr('网关同构 JSON · deny &gt; approve &gt; allow · 未登记的 server 与工具一律拒绝') }}
+          {{ tr('网关同构 JSON · deny > approve > allow · 未登记的 server 与工具一律拒绝') }}
         </p>
       </div>
       <div v-if="canEdit" class="head__actions">

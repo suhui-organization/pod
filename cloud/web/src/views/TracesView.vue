@@ -4,7 +4,7 @@
       <div>
         <h2>{{ tr('调用链追踪') }}</h2>
         <div class="sub">
-          {{ tr('任务 = 单个 Agent 连续活动段(间隔 &gt;') }}{{ gap }} {{ tr('分钟切开);任务为源头,调用为节点,图谱按 server 分泳道') }}
+          {{ tr('任务 = 单个 Agent 连续活动段(间隔 >') }}{{ gap }} {{ tr('分钟切开);任务为源头,调用为节点,图谱按 server 分泳道') }}
         </div>
       </div>
       <div class="filters">

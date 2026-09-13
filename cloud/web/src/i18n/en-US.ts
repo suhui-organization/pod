@@ -457,8 +457,8 @@ export const enUS: Record<string, string> = {
   '高危/中危告警实时推送到群或自建接收端':
     'Push high/medium alerts to a group chat or your own endpoint in real time',
   '高危及以上': 'High and above',
-  'LOCAL_AGENT=&lt;名字&gt;': 'LOCAL_AGENT=&lt;name&gt;',
-  'pod serve --agent &lt;名字&gt;': 'pod serve --agent &lt;name&gt;',
+  'LOCAL_AGENT=<名字>': 'LOCAL_AGENT=<name>',
+  'pod serve --agent <名字>': 'pod serve --agent <name>',
   '条': 'items',
   '序号': 'Seq',
   '用于快速分拣': 'and is meant for triage',
@@ -495,7 +495,7 @@ export const enUS: Record<string, string> = {
   '事件序号 #': 'Event #',
   '从模板开始最省事——模板是一份写好的策略 JSON，应用后可以直接改。':
     'Starting from a template is easiest — it is a ready-made policy JSON you can edit right after applying.',
-  '任务 = 单个 Agent 连续活动段(间隔 &gt;': 'A task is one continuous stretch of activity by an agent (gap &gt;',
+  '任务 = 单个 Agent 连续活动段(间隔 >': 'A task is one continuous stretch of activity by an agent (gap >',
   '你是只读成员：可以查看策略内容、适用范围与修改历史；编辑需要管理员权限。':
     'You are a read-only member: you can view policy content, scope and history; editing requires admin rights.',
   '保存策略': 'Save policy',
@@ -538,8 +538,8 @@ export const enUS: Record<string, string> = {
   '的同步，审计正在上云。': 'sync — audits are flowing to the cloud.',
   '确认': 'Confirm',
   '策略 v': 'Policy v',
-  '网关同构 JSON · deny &gt; approve &gt; allow · 未登记的 server 与工具一律拒绝':
-    'Gateway-compatible JSON · deny &gt; approve &gt; allow · unregistered servers and tools are always denied',
+  '网关同构 JSON · deny > approve > allow · 未登记的 server 与工具一律拒绝':
+    'Gateway-compatible JSON · deny > approve > allow · unregistered servers and tools are always denied',
   '网关对未登记的工具一律拒绝，所以这里为空时，agent 的调用都会被挡下。':
     'The gateway denies unregistered tools, so while this is empty every agent call is blocked.',
   '解决': 'Resolve',

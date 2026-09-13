@@ -74,7 +74,7 @@
             <template #default="{ row }">
               <span class="status" :class="row.is_active ? 'on' : 'off'">
                 <span class="dot" />
-                {{ row.is_active ? '启用' : t('已停用') }}
+                {{ row.is_active ? t('启用') : t('已停用') }}
               </span>
             </template>
           </el-table-column>

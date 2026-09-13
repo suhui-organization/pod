@@ -124,7 +124,7 @@
               :placeholder="t('给它起个名字，如 openclaw-main')" @keyup.enter="register" />
           </el-form-item>
           <p class="hint">
-            {{ t('只需填名称，平台类型自动识别、令牌自动生成。名字建议与本地网关的 agent 名一致 （') }}<code>{{ t('pod serve --agent &lt;名字&gt;') }}</code>{{ t('）——不一致时接入命令会提示并对齐。') }}
+            {{ t('只需填名称，平台类型自动识别、令牌自动生成。名字建议与本地网关的 agent 名一致 （') }}<code>{{ t('pod serve --agent <名字>') }}</code>{{ t('）——不一致时接入命令会提示并对齐。') }}
           </p>
         </el-form>
         <el-alert v-if="formError" type="error" :closable="false" show-icon class="alert">
