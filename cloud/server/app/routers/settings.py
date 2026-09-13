@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.i18n import DEFAULT_LOCALE, resolve_locale
+from app.i18n import DEFAULT_LOCALE, resolve_locale, t_dynamic
 from app.dependencies import require_admin
 from app.models import AuditLog, TenantSettings
 from app.schemas import LlmSettingsIn, LlmTestIn, TenantSettingsIn, TenantSettingsOut
@@ -281,7 +281,8 @@ def _llm_payload(db: Session, row: TenantSettings, locale: str = DEFAULT_LOCALE)
         }
     except llm.LlmConfigError as e:
         configured = False
-        reason = str(e)
+        # 这里的 reason 会直接显示在设置页，跟异常 detail 走同一套词表
+        reason = t_dynamic(str(e), locale)
     return {
         "provider": row.provider or "auto",
         "model": row.model or "",
@@ -292,7 +293,7 @@ def _llm_payload(db: Session, row: TenantSettings, locale: str = DEFAULT_LOCALE)
         "reason": reason,
         "effective": effective,
         "providers": llm.providers_public(locale),
-        "features": llm.AI_FEATURES,
+        "features": llm.ai_features(locale),
     }
 
 

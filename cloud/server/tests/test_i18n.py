@@ -68,3 +68,43 @@ def test_llm_provider_notes_are_translated(client):
 
     zh = client.get("/api/v1/settings/llm", headers={**headers, "Accept-Language": "zh-CN"}).json()
     assert "国内直连" in " ".join(p["note"] for p in zh["providers"])
+
+
+def test_llm_features_list_is_translated(client):
+    """结构化 payload 不走 translate_detail：能力清单的每个字段都得自己过词表。
+
+    这条曾经漏过——`features` 直接透传 AI_FEATURES，英文界面上整块能力说明是中文。
+    """
+    token = register_and_login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    en = client.get("/api/v1/settings/llm", headers={**headers, "Accept-Language": "en-US"}).json()
+    blob = " ".join(f"{f['name']} {f['where']} {f['degraded']}" for f in en["features"])
+    assert not any("\u4e00" <= ch <= "\u9fa5" for ch in blob), f"能力清单里还有中文: {blob}"
+    assert "Policies" in blob and "AI alert summary" in blob
+
+    zh = client.get("/api/v1/settings/llm", headers={**headers, "Accept-Language": "zh-CN"}).json()
+    assert "策略中心" in " ".join(f["where"] for f in zh["features"])
+
+
+def test_llm_unconfigured_reason_is_translated(client):
+    """设置页要回答"为什么不能用 AI"——这句话也必须跟着语言走。"""
+    token = register_and_login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    en = client.get("/api/v1/settings/llm", headers={**headers, "Accept-Language": "en-US"}).json()
+    assert en["configured"] is False
+    assert not any("\u4e00" <= ch <= "\u9fa5" for ch in en["reason"]), en["reason"]
+    assert "API key" in en["reason"]
+
+
+def test_catalog_has_no_duplicate_keys():
+    """Python dict 的重复键**静默覆盖**——TS 那边 tsc 会报 TS1117，这边没人拦。
+
+    真踩过：加词条时把 provider 那几条又写了一遍，值不同就会悄悄改掉已有翻译。
+    """
+    import re as _re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "app" / "i18n.py"
+    keys = _re.findall(r'^    "([^"]+)":', src.read_text(), _re.MULTILINE)
+    dupes = {k for k in keys if keys.count(k) > 1}
+    assert not dupes, f"词表里有重复键（会被静默覆盖）: {sorted(dupes)}"

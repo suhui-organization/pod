@@ -58,6 +58,29 @@ EN: dict[str, str] = {
     "重置链接无效或已过期,请重新申请": "This reset link is invalid or expired — request a new one",
     "缺少登录凭证": "Missing credentials",
     "登录凭证无效或已过期": "Your session is invalid or expired — sign in again",
+
+    # ── AI 模型配置（设置页）──────────────────────────────────────────────
+    # 为什么这几条要单独列：provider 清单与"哪些功能依赖模型"是**结构化 payload**，
+    # 不走 translate_detail（那只处理异常 detail），字段必须自己过词表。
+    "未配置模型 API Key：在「设置 → AI 模型」里填写，或为服务进程设置环境变量 PODCLOUD_LLM_API_KEY":
+        "No model API key configured: fill it in under Settings → AI model, or set PODCLOUD_LLM_API_KEY for the server process",
+    "离线模拟（不联网）": "Offline mock (no network)",
+    "演示与验收用：返回固定样例，不向任何外部服务发出请求":
+        "For demos and acceptance runs: returns fixed samples and never calls any external service",
+    "选择「OpenAI 兼容」时必须填写 Base URL（形如 https://your-gateway/v1）":
+        "Base URL is required when you pick “OpenAI-compatible” (e.g. https://your-gateway/v1)",
+    "AI 生成策略": "Generate policy with AI",
+    "策略中心": "Policies",
+    "按钮保留但提示先配置模型；策略的保存/应用不受影响，仍可手写 JSON":
+        "The button stays but asks you to configure a model first; saving and applying policies is unaffected — you can still hand-write the JSON",
+    "AI 告警摘要": "AI alert summary",
+    "告警页": "Alerts",
+    "摘要不可用；告警列表、状态与处置按钮全部照常":
+        "Summaries are unavailable; the alert list, statuses and action buttons all keep working",
+    "AI 日报": "AI daily digest",
+    "设置 · AI 日报": "Settings · AI digest",
+    "无告警时只推一句「无告警」文本，有告警时跳过本次推送":
+        "With no alerts it sends a single “no alerts” line; with alerts it skips that push",
     # ── 成员 / 租户 ──
     "仅租户管理员可管理成员": "Only tenant admins can manage members",
     "成员不存在": "Member not found",
@@ -163,6 +186,10 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^AI 摘要生成失败: (.+)$"), "AI summary failed: {0}"),
     (re.compile(r"^日报生成失败: (.+)$"), "Digest generation failed: {0}"),
     (re.compile(r"^只有管理员可以执行该操作$"), "Only admins can perform this action"),
+    (
+        re.compile(r"^未知 Provider：(\S+)（可选 (.+)）$"),
+        "Unknown provider: {0} (choose one of {1})",
+    ),
 ]
 
 

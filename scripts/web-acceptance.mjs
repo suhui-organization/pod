@@ -26,7 +26,9 @@ const EMAIL = args.get('email') ?? ''
 const PASSWORD = args.get('password') ?? ''
 const TOKEN = args.get('token') ?? ''
 const LOCALE = args.get('locale') ?? 'en-US'
-const MIN_LINES = Number(args.get('min-lines') ?? 4)
+// 默认 8 行：曾经设成 4，结果 /settings 只渲染出 5 行（模型面板的接口挂了、页面半空）
+// 也算"通过"——空白/半渲染页面本来就没有中文，正是最容易骗过验收的形态。
+const MIN_LINES = Number(args.get('min-lines') ?? 8)
 const CHROME = args.get('chrome') ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 const ROUTES = ['/', '/agents', '/alerts', '/timeline', '/control-plane', '/traces', '/policies', '/rules', '/harden', '/subscription', '/users', '/profile', '/settings']

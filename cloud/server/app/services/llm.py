@@ -109,6 +109,24 @@ AI_FEATURES: list[dict[str, str]] = [
     },
 ]
 
+
+def ai_features(locale: str = DEFAULT_LOCALE) -> list[dict[str, str]]:
+    """AI_FEATURES 的对外版本：name / where / degraded 都过一遍词表。
+
+    结构化 payload 不走 `translate_detail`（那条只处理异常 detail），所以每个
+    往界面送的字段都要在这里显式翻译——漏了就是"英文界面混中文"，而且没人拦得住。
+    """
+    return [
+        {
+            "id": f["id"],
+            "name": t(f["name"], locale),
+            "where": t(f["where"], locale),
+            "degraded": t(f["degraded"], locale),
+        }
+        for f in AI_FEATURES
+    ]
+
+
 # 出网字段白名单：每条记录只允许带这些键
 OUTBOUND_KEYS: dict[str, tuple[str, ...]] = {
     "alert": ("ts", "agent", "severity", "kind", "message"),
