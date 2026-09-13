@@ -30,6 +30,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # 各写一份迟早漂移：拦住的那批和发出去的那批会变成两个集合。
 SECRET_PATTERNS: tuple[str, ...] = (
     "ghp_[A-Za-z0-9]{36}",
+    "gho_[A-Za-z0-9]{36}",
     "github_pat_[A-Za-z0-9_]{22,}",
     # 注意 proj 段：现在的 OpenAI key 是 `sk-proj-…`，只写 `sk-[A-Za-z0-9]{20,}`
     # 会被中间的连字符挡住（本地 CLI 的扫描规则 packages/scan 一直是 `sk-(?:proj-)?`，
@@ -39,6 +40,7 @@ SECRET_PATTERNS: tuple[str, ...] = (
     "AKIA[0-9A-Z]{16}",
     "xox[baprs]-[A-Za-z0-9-]{10,}",
     "AIza[0-9A-Za-z_-]{35}",
+    "glpat-[A-Za-z0-9_-]{20,}",
     "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY",
 )
 SECRET_RE = re.compile("|".join(SECRET_PATTERNS))

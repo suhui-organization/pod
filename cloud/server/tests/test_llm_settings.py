@@ -289,4 +289,7 @@ def test_secret_patterns_cover_modern_key_shapes():
     assert SECRET_RE.search("sk-proj-abcdefghijklmnopqrstuvwxyz012345")
     assert SECRET_RE.search("sk-ant-api03-abcdefghijklmnopqrstuvwxyz")
     assert SECRET_RE.search("ghp_012345678901234567890123456789012345")
+    # 这两个是本地 CLI 早就有、服务端漏了的（同一批规则的另一份在 packages/scan）
+    assert SECRET_RE.search("gho_012345678901234567890123456789012345")
+    assert SECRET_RE.search("glpat-abcdefghijklmnopqrst")
     assert not SECRET_RE.search("sk-short")
