@@ -13,13 +13,27 @@
 | A2 | 跑 `bash scripts/preflight-publish.sh` | 26 项全过（含干净环境安装 + 主路径冒烟） |
 | A3 | 更新 `CHANGELOG.md` | 新增版本条目：做了什么 / 已知边界 |
 | A4 | 三处版本号一起改 | `CHANGELOG.md`、`scripts/install.sh` 的默认 `POD_VERSION`、`README.md` 的 `raw/<tag>` 链接 |
-| A5 | 打 tag 并推双远端 | `git tag -a vX.Y.Z` → `git push github main vX.Y.Z` + `git push gitee main vX.Y.Z` |
+| A5 | 版本号改动走 PR 合并，再打 tag 推双远端 | 分支上改完 → 开 PR → CI 全绿 → 合并；`git tag -a vX.Y.Z` → `git push github vX.Y.Z` + `git push gitee vX.Y.Z` |
 | A6 | 建 Release | GitHub 用 `gh release create`（正文取 CHANGELOG 该节）；Gitee 手动建或给令牌 |
 | A7 | 验证钉版本安装链接 | `bash scripts/preflight-publish.sh` 第 5 项已覆盖；或手动 curl 一次 |
 | A8 | 看一眼仓库页的 Sponsor 按钮 | 右上角出现 **Sponsor**（`.github/FUNDING.yml` 指向的账号已开通 GitHub Sponsors 并有公开档位；文件必须在默认分支 main 上——三条缺一条就是**静默不显示**，不会报错） |
 
 **为什么 A4 必须是三处一起改**：`install.sh` 决定克隆哪份代码，README 决定用哪份
 脚本。只改一处 = "旧脚本 + 新代码" 或 "新链接 + 老代码"，发布版形同虚设。
+
+**为什么 A5 不能直接推 main**：`main` 开了分支保护——必须走 PR、必须 CI 四项
+（`test` / `local-smoke` / `cloud-server` / `cloud-web`）全绿、禁止强推与删除，
+而且对管理员同样生效（`enforce_admins`）。实测被拒的样子：
+
+```
+remote: - Changes must be made through a pull request.
+remote: - 4 of 4 required status checks are expected.
+! [remote rejected] main -> main (protected branch hook declined)
+```
+
+tag 不受分支保护影响，所以"发版"这一步照旧一条命令推上去。维护者偶尔需要直推
+（比如改坏了要紧急修）：Settings → Branches → 临时 Disable，做完**立刻开回来**——
+开着的这段时间等于没有闸门。
 
 ### 阶段 B：发内容（固定顺序 02 → 01 → 03 → 04）
 
