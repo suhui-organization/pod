@@ -119,6 +119,7 @@ import { api } from '../api'
 import { parseApiError } from '../api/client'
 import type { SubscriptionInfo } from '../api/types'
 import { useI18n } from 'vue-i18n'
+import { formatDate } from '../i18n'
 
 const { t } = useI18n()
 
@@ -215,7 +216,7 @@ const renewText = computed(() => {
   if (!i) return ''
   if (i.plan !== 'pro') return t('免费版 · 不自动续费')
   if (!i.renews_at) return t('专业版 · 未设置续费日期')
-  return t('续费日期 {date}', { date: new Date(i.renews_at).toLocaleDateString() })
+  return t('续费日期 {date}', { date: formatDate(i.renews_at) })
 })
 
 /** 支付平台展示名：后端只给 id，文案在这里映射 */

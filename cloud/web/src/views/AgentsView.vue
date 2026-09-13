@@ -9,7 +9,7 @@
       </div>
       <div class="head__actions">
         <span v-if="lastLoadedAt" class="head__stamp">
-          {{ t('更新于') }} {{ lastLoadedAt.toLocaleTimeString('zh-CN') }}
+          {{ t('更新于') }} {{ formatTime(lastLoadedAt) }}
         </span>
         <el-button :loading="loading" @click="load()">{{ t('刷新') }}</el-button>
         <el-button type="primary" @click="openRegister">{{ t('+ 添加 Agent') }}</el-button>
@@ -40,7 +40,7 @@
           {{ t('网关会拒绝它的一切调用。原因：{reason}（{who} · {at}）', {
             reason: a.quarantine_reason || '—',
             who: a.quarantined_by || '—',
-            at: a.quarantined_at ? new Date(a.quarantined_at).toLocaleString('zh-CN') : '—',
+            at: a.quarantined_at ? formatDateTime(a.quarantined_at) : '—',
           }) }}
           <br />
           {{ t('下发是期望状态：机器下次 pod sync 时生效（不是实时推送到机器）。') }}
@@ -58,7 +58,7 @@
           <div class="span2">
             <dt>{{ t('最近同步') }}</dt>
             <dd>
-              {{ a.last_seen_at ? new Date(a.last_seen_at).toLocaleString(locale) : t('从未接入') }}
+              {{ a.last_seen_at ? formatDateTime(a.last_seen_at) : t('从未接入') }}
             </dd>
           </div>
         </dl>
@@ -192,6 +192,7 @@ import { parseApiError } from '../api/client'
 import type { AgentItem } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime, formatTime } from '../i18n'
 
 const { t, locale } = useI18n()
 

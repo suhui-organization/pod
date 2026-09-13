@@ -150,6 +150,8 @@ import { parseApiError } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import type { UserItem } from '../api/types'
 import { useI18n } from 'vue-i18n'
+// 本文件里已有一个同名的本地 formatDate（表格列格式化），这里取别名避免冲突
+import { formatDate as formatDateByLocale } from '../i18n'
 
 const { t } = useI18n()
 
@@ -181,7 +183,7 @@ function initials(row: UserItem) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return formatDateByLocale(value, { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
 async function load() {

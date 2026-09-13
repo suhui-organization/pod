@@ -79,7 +79,7 @@
             <el-tag :type="a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warning' : 'info'" size="small">{{ a.severity }}</el-tag>
             <span class="alert-kind">{{ kindLabel(a.kind) }}</span>
             <span class="alert-msg">{{ a.message }}</span>
-            <span class="alert-time">{{ new Date(a.created_at).toLocaleString() }}</span>
+            <span class="alert-time">{{ formatDateTime(a.created_at) }}</span>
           </div>
         </div>
         <el-empty v-else :description="t('暂无告警')" :image-size="60" />
@@ -93,6 +93,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime, formatTime } from '../i18n'
 import { api } from '../api'
 import type { DashboardSummary } from '../api/types'
 import ChartBox from '../components/ChartBox.vue'
@@ -108,7 +109,7 @@ async function load() {
   loading = true
   try {
     s.value = await api.dashboardSummary()
-    updatedAt.value = new Date().toLocaleTimeString()
+    updatedAt.value = formatTime(new Date())
   } finally {
     loading = false
   }

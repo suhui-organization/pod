@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatDate } from '../i18n'
 
 const { t } = useI18n()
 
@@ -89,7 +90,7 @@ const groups = computed<Group[]>(() => {
       : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
     const weekday = Number.isNaN(d.getTime())
       ? ''
-      : d.toLocaleDateString('zh-CN', { weekday: 'short' })
+      : formatDate(d, { weekday: 'short' })
     const label = weekday ? `${key} · ${weekday}` : key
     const last = out[out.length - 1]
     if (last && last.date === label) last.items.push(e)

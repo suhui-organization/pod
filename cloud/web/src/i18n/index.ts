@@ -56,6 +56,26 @@ export function setLocale(locale: Locale): void {
   syncDocumentTitle()
 }
 
+/**
+ * 按**当前界面语言**格式化日期/时间。
+ *
+ * 为什么不直接 `toLocaleString()`：那跟的是**浏览器**语言；写死 'zh-CN' 同理。
+ * 两种都会在英文界面里冒出 "2026年9月13日"——真机上就是这么发现的。
+ * 凡是给用户看的日期都走这三个函数。
+ */
+function toDate(value: Date | string | number): Date {
+  return value instanceof Date ? value : new Date(value)
+}
+export function formatDateTime(value: Date | string | number, opts?: Intl.DateTimeFormatOptions): string {
+  return toDate(value).toLocaleString(currentLocale(), opts)
+}
+export function formatDate(value: Date | string | number, opts?: Intl.DateTimeFormatOptions): string {
+  return toDate(value).toLocaleDateString(currentLocale(), opts)
+}
+export function formatTime(value: Date | string | number, opts?: Intl.DateTimeFormatOptions): string {
+  return toDate(value).toLocaleTimeString(currentLocale(), opts)
+}
+
 /** 供 useI18n() 之外的地方（如 Element Plus 配置）读当前语言 */
 export function useLocaleRef() {
   return i18n.global.locale

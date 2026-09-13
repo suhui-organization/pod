@@ -93,6 +93,7 @@ import { parseApiError } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import type { MeProfile } from '../api/types'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '../i18n'
 
 const { t } = useI18n()
 
@@ -118,7 +119,7 @@ const lastChangedText = computed(() => {
   if (!iso) return t('从未修改')
   const ts = new Date(iso)
   if (Number.isNaN(ts.getTime())) return iso
-  return ts.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDateTime(ts, { dateStyle: 'medium', timeStyle: 'short' })
 })
 
 const nameDirty = computed(() => fullName.value.trim() !== (me.value?.full_name || ''))

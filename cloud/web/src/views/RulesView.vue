@@ -101,6 +101,7 @@ import { parseApiError } from '../api/client'
 import type { RulePackItem } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '../i18n'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -121,7 +122,7 @@ const detailJson = ref('')
 function fmtTime(ts: string): string {
   if (!ts) return '—'
   const d = new Date(ts)
-  return Number.isNaN(d.getTime()) ? ts : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? ts : formatDateTime(d)
 }
 
 async function load() {

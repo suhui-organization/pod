@@ -88,6 +88,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '../i18n'
 
 const { t } = useI18n()
 
@@ -142,7 +143,7 @@ function severityLabel(s: string): string {
 
 function fmtTime(ts: string): string {
   const d = new Date(ts)
-  return Number.isNaN(d.getTime()) ? ts : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? ts : formatDateTime(d)
 }
 
 function shortHash(h: string): string {
