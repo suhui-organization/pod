@@ -154,6 +154,25 @@ else
   bad "缺 .github/FUNDING.yml（仓库页不会出现 Sponsor 按钮）"
 fi
 
+# ── 9. 双远端镜像一致（Gitee = GitHub 的只读镜像）────────────────────────────
+# 为什么需要这条：GitHub 那边有分支保护兜着（必须 PR + CI），Gitee 这边**免费版
+# 开不了保护分支**（付费功能），所以"不许直接推 Gitee main"只能靠纪律 —— 纪律要
+# 有可验证的落点，就是这条：两端 main 必须指向同一个提交，出现漂移说明有人绕过了流程。
+step "9. 双远端镜像一致（GitHub = Gitee）"
+MIRROR_GH="$(git ls-remote github refs/heads/main 2>/dev/null | cut -f1)"
+MIRROR_GE="$(git ls-remote gitee refs/heads/main 2>/dev/null | cut -f1)"
+GH7="$(printf '%s' "$MIRROR_GH" | cut -c1-7)"
+GE7="$(printf '%s' "$MIRROR_GE" | cut -c1-7)"
+if [ -z "$MIRROR_GH" ] || [ -z "$MIRROR_GE" ]; then
+  # 取不到不等于漂移（网络抖动很常见，GitHub 尤其），但要说出来，别让人以为查过了
+  warn "远端取不到（github=${MIRROR_GH:-不可达} gitee=${MIRROR_GE:-不可达}）——本次跳过镜像比对"
+elif [ "$MIRROR_GH" = "$MIRROR_GE" ]; then
+  ok "两端 main 同源：${GH7}"
+else
+  bad "main 不一致：github=${GH7} gitee=${GE7}——Gitee 是只读镜像，出现漂移说明有人绕过了流程"
+  echo "     对齐：git push gitee github/main:main（或反过来，先确认哪边是对的）"
+fi
+
 # ── 汇总 ────────────────────────────────────────────────────────────────────
 echo
 if [ "$FAIL" = "0" ]; then
