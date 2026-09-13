@@ -31,9 +31,17 @@ remote: - 4 of 4 required status checks are expected.
 ! [remote rejected] main -> main (protected branch hook declined)
 ```
 
-tag 不受分支保护影响，所以"发版"这一步照旧一条命令推上去。维护者偶尔需要直推
-（比如改坏了要紧急修）：Settings → Branches → 临时 Disable，做完**立刻开回来**——
-开着的这段时间等于没有闸门。
+tag 不受分支保护影响，所以"发版"这一步照旧一条命令推上去。
+
+**维护者也不走例外**。这条保护对管理员同样生效（`enforce_admins`），是刻意的：
+门禁对谁软，谁就是绕过门禁的那条路。真要直推（比如线上炸了等不了 CI），按这个
+顺序做，**留痕优先于速度**：
+
+1. 先在 GitHub 开一个 issue 写清"为什么不能等 CI"（哪怕一句话）；
+2. Settings → Branches → 临时 Disable；
+3. 推完**立刻开回来**，并在那个 issue 里补上 commit 链接与恢复时间。
+
+开着的这几分钟等于没有闸门——所以第 3 步不是可选项。
 
 ### 阶段 B：发内容（固定顺序 02 → 01 → 03 → 04）
 
