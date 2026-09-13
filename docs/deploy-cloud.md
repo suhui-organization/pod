@@ -6,7 +6,7 @@
 ## 一键部署（单机 Docker Compose）
 
 ```bash
-git clone --branch v0.2.0 --depth 1 https://gitee.com/suhuisoftwares/pod.git && cd pod
+git clone --branch v0.3.0 --depth 1 https://gitee.com/suhuisoftwares/pod.git && cd pod
 bash deploy/install.sh
 ```
 

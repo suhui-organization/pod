@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.3.0 — 大模型安全服务 + 中英双语
+
+这一版把"大模型"从一句口号做成了**有闸门的功能**，整个产品（CLI / 控制台 / 云端）都能中英切换。
+
+### 本地（agent 机器上）
+
+- **自动化红队 `pod redteam`**：攻击场景由模型**当数据**提出（`--llm`，可选），判定走与网关**同一条纯函数流水线**（`decideCall`）——所以"挡住没有"可复现、可进 CI（高危绕过退出码 1）。出网的只有**权限面**（server/tool 名 + 三态位置），用 `--export-surface` 显式导出。
+- **模型调用只有一处出网**（`apps/cli/src/llm.ts`）：provider/model/base_url 统一解析，配置不静默回落；每次调用（含失败）写一条 `kind='llm-call'` 进本地哈希链——只记 provider/model/字符数/端点，**不记 prompt 正文**。
+- **加固审计交付物 `pod harden`**：一条命令跑完暴露面扫描 + 控制平面姿态 + 最小权限草稿 + 证据自检，产出一份可直接交给客户的报告目录（含逐文件 sha256）。全程本地，零上报。
+- **订阅式规则包 `pod rules`**：pack / verify / apply / pull 四个动作，Ed25519 签名；**放宽已有规则的包默认拒绝应用**（`--allow-relax` 才放行）。
+- **中英切换**：`pod --lang en-US`，或一次 `POD_LANG=en-US`（也读 `LC_ALL`/`LANG`）。覆盖 CLI 全部输出与报告；未翻译的串原样显示中文，不会出现 key 名或空白。
+
+### 云端（可选控制平面）
+
+- **规则包分发**：控制台发布/撤回签名规则包，机器侧 `pod rules pull` 拉取；公钥不与包同路（`rules_public_key`），放宽守卫在机器侧兜底。
+- **熔断下发**：控制台熔断/解除，机器下次 `pod sync` 生效；人工在机器上加的熔断不会被云端误解除。
+- **加固报告归档**：`pod harden --upload` 只上传 `report.md` 与 `findings.json`（已脱敏），原始审计链 `evidence.json` 永不出机器。
+- **模型配置**：provider 清单（DeepSeek / OpenAI / OpenAI 兼容 / 离线 mock）、连通性测试、AI 生成策略、告警摘要、AI 日报；出网面写着改（见下）。结构化 payload（能力清单、provider 说明）随 `Accept-Language` 切换。
+- **中英切换**：登录页与用户菜单里的开关，选择记在浏览器本地；Element Plus 内置文案一并切换。
+
+### 安全
+
+- **告警出网收口**：送进模型的告警只留白名单字段；`message` 里的**文件路径打码成 `<path>`**（保留目录结构、去掉用户名/项目名），**命中密钥模式整条不出网**，剔除条数如实告知模型。密钥规则与服务端策略模板的 `deny_output_matching` 共用同一份（`app/security.py::SECRET_PATTERNS`），顺带补齐了 `sk-proj-…` / `gho_` / `glpat-` 三个漏网格式。
+- **结构化 payload 的翻译出口**：异常 `detail` 有统一翻译出口，结构化返回值没有——设置页的能力清单与"为什么不可用"因此漏翻过，现已收口并有测试兜住。
+
+### 仓库 / 发布
+
+- **发布预检 30 项**（`scripts/preflight-publish.sh`）：含干净环境安装 + 主路径冒烟、钉版本安装链接可达、赞助入口一致性。
+- **i18n 两把尺子**：`scripts/i18n-coverage.sh` 管"词表齐不齐"（CLI/Web 差集 + 僵尸键 + 实体键陷阱）；`scripts/web-acceptance.sh` 管"界面上到底长什么样"（真机无头 Chrome 逐页断言"渲染出内容 + 无非数据中文"）。
+- **GitHub Sponsors**：`.github/FUNDING.yml` + README 入口；预检会校验两处账号一致。
+
+### 已知边界
+
+模型**不参与判定、不执行动作**：它只能产出数据（场景、策略草稿、摘要），改状态的入口都有它过不去的闸门（签名 + 放宽守卫 + 纯函数判定器）。注入检测目前是分级词表 + 工具描述摘除，模型分类器未做。其余边界见 [docs/threat-model.md](docs/threat-model.md) 与 [docs/llm-security-services.md](docs/llm-security-services.md)。
+
 ## v0.2.0 — 首个完整开源版本
 
 本地与云端第一次在同一个仓库里发布：装一条命令拿到本地 CLI/网关，再一条命令起云端控制平面。
