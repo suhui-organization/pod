@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models import AuditLog, PodPolicy, PodPolicyVersion
-from app.security import get_current_tenant_id, get_current_user
+from app.security import SECRET_PATTERNS, get_current_tenant_id, get_current_user
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
@@ -119,12 +119,6 @@ def delete_policy(
 SENSITIVE_PATHS = [
     "~/.ssh", ".env", "credentials", "id_rsa", "id_ed25519", ".aws", ".git-credentials",
     "known_hosts", "id_dsa", "id_ecdsa", "*.pem", "*.key", "secrets", "token",
-]
-
-SECRET_PATTERNS = [
-    "ghp_[A-Za-z0-9]{36}", "github_pat_[A-Za-z0-9_]{22,}", "sk-[A-Za-z0-9]{20,}",
-    "sk-ant-[A-Za-z0-9-]{20,}", "AKIA[0-9A-Z]{16}", "xox[baprs]-[A-Za-z0-9-]{10,}",
-    "AIza[0-9A-Za-z_-]{35}", "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY",
 ]
 
 POLICY_TEMPLATES = {

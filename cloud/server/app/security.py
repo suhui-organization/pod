@@ -24,6 +24,25 @@ PASSWORD_MIN_LENGTH = 8
 RESET_TOKEN_MINUTES = 30
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# 常见第三方密钥格式。**单一来源**，两处都用它：
+#   1. 策略模板的 deny_output_matching —— 拦工具输出里的密钥；
+#   2. 出网前脱敏 —— services/llm.py 的 shape_alert()，命中就整条不出网。
+# 各写一份迟早漂移：拦住的那批和发出去的那批会变成两个集合。
+SECRET_PATTERNS: tuple[str, ...] = (
+    "ghp_[A-Za-z0-9]{36}",
+    "github_pat_[A-Za-z0-9_]{22,}",
+    # 注意 proj 段：现在的 OpenAI key 是 `sk-proj-…`，只写 `sk-[A-Za-z0-9]{20,}`
+    # 会被中间的连字符挡住（本地 CLI 的扫描规则 packages/scan 一直是 `sk-(?:proj-)?`，
+    # 两边对齐后这里才拦得住）。
+    "sk-(?:proj-)?[A-Za-z0-9]{20,}",
+    "sk-ant-[A-Za-z0-9-]{20,}",
+    "AKIA[0-9A-Z]{16}",
+    "xox[baprs]-[A-Za-z0-9-]{10,}",
+    "AIza[0-9A-Za-z_-]{35}",
+    "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY",
+)
+SECRET_RE = re.compile("|".join(SECRET_PATTERNS))
+
 
 def _now_ts() -> float:
     """签发时间(浮点秒)。用浮点而非整秒:改密与换发新 token 在同一秒内完成,

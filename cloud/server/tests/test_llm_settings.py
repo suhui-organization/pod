@@ -213,3 +213,80 @@ def test_shape_alert_whitelists_fields_and_truncates():
     )
     assert set(shaped) == {"ts", "agent", "severity", "kind", "message"}
     assert len(shaped["message"]) == llm.MAX_FREETEXT_CHARS + 1  # 截断标记
+
+
+def test_shape_alert_redacts_paths_but_keeps_structure():
+    """路径脱敏：去掉用户名/项目名/文件名，保留"在哪一层目录"这种排查用得上的信息。"""
+    shaped = llm.shape_alert(
+        {
+            "ts": "2026-09-11T10:00:00",
+            "agent": "claude-code",
+            "severity": "high",
+            "kind": "sensitive_path",
+            "message": "denied read of /Users/walden/.ssh/id_rsa and ~/.aws/credentials",
+        }
+    )
+    assert shaped is not None
+    assert "walden" not in shaped["message"]
+    assert "id_rsa" not in shaped["message"]
+    assert shaped["message"].count("<path>") == 2
+
+
+def test_shape_alert_does_not_mangle_urls():
+    """URL 不是文件路径，别被顺手打码——脱敏规则只针对路径。"""
+    shaped = llm.shape_alert(
+        {
+            "ts": "2026-09-11T10:00:00",
+            "agent": "claude-code",
+            "severity": "medium",
+            "kind": "policy_mismatch",
+            "message": "policy from https://registry.example.com/packs/scan-2026.json was rejected",
+        }
+    )
+    assert shaped is not None
+    assert "https://registry.example.com/packs/scan-2026.json" in shaped["message"]
+
+
+def test_shape_alert_withholds_the_whole_alert_on_secret():
+    """命中密钥 → 整条不出网（不是"改一改再发"）：这条链路本身就不该给模型看。"""
+    assert llm.shape_alert(
+        {
+            "ts": "2026-09-11T10:00:00",
+            "agent": "claude-code",
+            "severity": "high",
+            "kind": "secret_leak",
+            "message": "found sk-proj-abcdefghijklmnopqrstuvwxyz012345 in output",
+        }
+    ) is None
+    # 私钥头同理
+    assert llm.shape_alert({"kind": "secret_leak", "message": "-----BEGIN OPENSSH PRIVATE KEY-----"}) is None
+
+
+def test_build_context_reports_withheld_count():
+    """剔除要如实告诉模型条数：否则它以为自己看的是全量，会得出"一切正常"。"""
+    from app.services.ai_summary import build_context
+
+    ctx = build_context(
+        [
+            {"ts": "2026-09-11T10:00:00", "agent": "a", "severity": "high", "kind": "secret_leak", "message": "sk-ant-abcdefghijklmnopqrstuvwxyz"},
+            {"ts": "2026-09-11T10:01:00", "agent": "a", "severity": "medium", "kind": "deny_burst", "message": "5 denials in 1m"},
+        ]
+    )
+    assert "另有 1 条" in ctx
+    assert "sk-ant-" not in ctx
+
+    only_secret = build_context(
+        # ghp_ + 36 位：正好卡在规则边界上，短一位就不该拦（见 test_secret_patterns_cover_modern_key_shapes）
+        [{"kind": "secret_leak", "message": "ghp_012345678901234567890123456789012345"}]
+    )
+    assert "全部因命中密钥模式被剔除" in only_secret
+
+
+def test_secret_patterns_cover_modern_key_shapes():
+    """规则本身也要跟着现实走：`sk-proj-` 这种带连字符的新格式曾经漏掉过。"""
+    from app.security import SECRET_RE
+
+    assert SECRET_RE.search("sk-proj-abcdefghijklmnopqrstuvwxyz012345")
+    assert SECRET_RE.search("sk-ant-api03-abcdefghijklmnopqrstuvwxyz")
+    assert SECRET_RE.search("ghp_012345678901234567890123456789012345")
+    assert not SECRET_RE.search("sk-short")

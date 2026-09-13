@@ -18,7 +18,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from app.i18n import DEFAULT_LOCALE, t
+from app.security import SECRET_RE
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
@@ -242,20 +244,37 @@ def resolve_config(row: Any = None) -> LlmConfig:
     )
 
 
-def shape_alert(alert: Mapping[str, Any]) -> dict[str, Any]:
-    """把一条告警裁剪成"可以出网"的样子。
+# 文件路径：保留"在哪一层目录"的结构，去掉用户名/项目名/文件名。
+# 前置断言 `(?<![\w:./-])` 是为了不误伤 URL（https://a/b 里的 / 前面是 : 或 /）。
+PATH_RE = re.compile(r"(?<![\w:./-])(?:[A-Za-z]:\\|~?/)(?:[\w.@%+-]+[/\\])*[\w.@%+-]+")
+
+
+def redact_paths(text: str) -> str:
+    """把文件路径替换成 `<path>`。"""
+    return PATH_RE.sub("<path>", text)
+
+
+def shape_alert(alert: Mapping[str, Any]) -> dict[str, Any] | None:
+    """把一条告警裁剪成"可以出网"的样子；不该出网的返回 None（整条丢弃）。
 
     这里是**产品决策点**，不是实现细节：带得少，摘要质量差；带得多，数据出网面大。
-    当前口径是能跑的安全底线 —— 只留白名单字段，自由文本截断。
+    口径（2026-09-13 收口）：
 
-    TODO(walden): 这 5–10 行留给你。下面这版有个已知代价：`message` 原样出网，
-    而 message 往往夹带文件路径、工具参数、甚至密钥片段（恰恰是它最有信息量）。
-    你可以选的几条路：
-      · 路径脱敏：把 /Users/xxx/... 之类替换成 <path>，保留结构信息；
-      · 只留 kind + severity，丢掉 message（最安全，摘要会变空泛）；
-      · 命中密钥模式（参考 policies.SECRET_PATTERNS）的整条丢弃。
-    改完请顺手在 tests/test_llm_settings.py 里留一条断言。
+      1. 只留白名单字段（`OUTBOUND_KEYS`），其余一律不出网；
+      2. `message` 里的**文件路径换成 `<path>`** —— 保留"在哪个目录层"这种对排查有用的
+         结构信息，去掉用户名、项目名、文件名；URL 不误伤；
+      3. `message` **命中密钥模式就整条丢弃**（`app.security.SECRET_PATTERNS`，与策略模板
+         的输出拦截同一个来源）。不做"改一改再发"——密钥所在的那条告警本身就说明
+         这条链路不该被模型看见；
+      4. 自由文本截断到 `MAX_FREETEXT_CHARS`。
+
+    丢弃的条数由调用方（`ai_summary.build_context`）汇总后写进上下文，免得模型
+    以为拿到的是全量、得出"一切正常"的结论。
     """
+    message = alert.get("message")
+    if message is not None and SECRET_RE.search(str(message)):
+        return None
+
     allowed = OUTBOUND_KEYS.get("alert", ())
     shaped: dict[str, Any] = {}
     for key in allowed:
@@ -266,7 +285,9 @@ def shape_alert(alert: Mapping[str, Any]) -> dict[str, Any]:
             text = str(value)
             if len(text) > MAX_FREETEXT_CHARS:
                 text = text[:MAX_FREETEXT_CHARS] + "…"
-            shaped[key] = text
+            shaped[key] = redact_paths(text)
+        elif key == "agent":
+            shaped[key] = redact_paths(str(value))
         else:
             shaped[key] = value
     return shaped

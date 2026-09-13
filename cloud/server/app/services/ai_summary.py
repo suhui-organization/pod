@@ -32,16 +32,27 @@ def build_context(alerts: list[dict]) -> str:
     """把告警列表压成紧凑文本（近 24h，最多 50 条）。
 
     字段裁剪在 `llm.shape_alert`——那是决定"什么数据可以出网"的地方。
+    返回 None 的告警是**命中密钥被整条剔除**的：条数要如实写出来，否则模型会以为
+    自己看到的是全量，得出"一切正常"的结论。
     """
     lines = []
+    withheld = 0
     for a in alerts[:50]:
         item = llm.shape_alert(a)
+        if item is None:
+            withheld += 1
+            continue
         ts = str(item.get("ts") or "")[:16]
         lines.append(
             f"- [{ts}] agent={item.get('agent')} {item.get('severity')} "
             f"{item.get('kind')}: {item.get('message')}"
         )
-    return "近 24h 告警记录：\n" + "\n".join(lines) if lines else "近 24h 无告警记录。"
+    if not lines:
+        return "近 24h 无告警记录。" if not withheld else f"近 24h 的告警全部因命中密钥模式被剔除（{withheld} 条），没有可分析内容。"
+    body = "近 24h 告警记录：\n" + "\n".join(lines)
+    if withheld:
+        body += f"\n\n（另有 {withheld} 条告警因命中密钥模式被剔除，未包含在上面的数据里。）"
+    return body
 
 
 def summarize(
