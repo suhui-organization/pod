@@ -74,7 +74,9 @@ The installer clones `v0.2.0` to `~/.pod/src`, builds, and puts `pod` in `~/.loc
 **中文 / English**：CLI 输出支持中英切换——`pod --lang en-US <cmd>`，或设一次
 `POD_LANG=en-US`（也会读 `LC_ALL` / `LANG`）。默认中文；未翻译的句子原样显示，
 不会出现空白或 key 名。覆盖进度自查：`bash scripts/i18n-coverage.sh`
-（列出还没英文词条的串和词表里的僵尸键，`--strict` 有缺口时退出 1）。
+（列出还没英文词条的串和词表里的僵尸键，`--strict` 有缺口时退出 1）；控制台另有
+真机逐页验收 `bash scripts/web-acceptance.sh`（指到 k8s 后端、无头 Chrome 点一遍，
+断言"每页都渲染了内容且没有非数据中文"）。
 
 Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 

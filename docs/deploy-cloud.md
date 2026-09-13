@@ -71,6 +71,33 @@ WEB_PORT=18089 bash deploy/install.sh
 键多/少了空格（曾经因此让一整句英文不生效）。注意它只能看 `t()` 调用——
 **完全没包 `t()` 的硬编码中文它看不见**，那类只能靠界面走查。
 
+## 真机逐页验收（控制台）
+
+```bash
+PODCLOUD_WEB_EMAIL=you@example.com PODCLOUD_WEB_PASSWORD='...' \
+  bash scripts/web-acceptance.sh
+```
+
+它会：起 `kubectl port-forward`（默认 `podcloud/podcloud-server` → 127.0.0.1:8000）→
+起 vite dev → 开一个**无头 Chrome**（零依赖，走 CDP，用系统装的 Chrome）→ 登录 →
+逐页断言 → 收尾清理（转发和 dev server 都停掉）。
+
+断言两条，缺一不可：
+
+1. **页面真的渲染出内容**（行数 ≥ `MIN_LINES`，默认 4）——否则空白页也会被算作"没有中文"；
+2. **没有非数据的中文**。"数据"指：登录账号与同租户成员的名字（头像只取首字）、
+   以及机器同步上云的审计原文（`posture:` / `quarantine:` 等，按设计不翻）。
+
+为什么非要真机跑：i18n 的三类问题里，有两类静态检查**永远看不见**——根本没包
+`t()` 的硬编码文案，以及包了 `t()` 但键对不上（真例：Vue 模板在编译期把 `&gt;`
+解码成 `>`，而词表里存的是实体，于是英文界面静默回退中文）。再加一类"页面压根
+没渲染出来"，也会伪装成"没有中文"。覆盖率脚本 `i18n-coverage.sh` 管"词表齐不齐"，
+这个脚本管"界面上到底长什么样"，两个都要跑。
+
+常用环境变量：`PODCLOUD_WEB_TOKEN`（跳过登录界面，CI 用）、`PODCLOUD_LOCALE`
+（默认 `en-US`，可设 `zh-CN` 反测：应当全页报错）、`WEB_PORT` / `API_PORT` /
+`K8S_NS` / `K8S_SVC`、`SKIP_FORWARD=1` / `SKIP_DEV=1`（复用已有进程）。
+
 **服务端也会跟着切**。前端每个请求带 `Accept-Language`（也可用 `?lang=en-US`），
 服务端在统一出口按语言输出：
 
