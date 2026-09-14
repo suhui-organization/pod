@@ -121,7 +121,7 @@
         <el-form @submit.prevent="register">
           <el-form-item>
             <el-input v-model="form.name" size="large" autofocus
-              :placeholder="t('给它起个名字，如 openclaw-main')" @keyup.enter="register" />
+              :placeholder="t('给它起个名字，如 openclaw-main')" />
           </el-form-item>
           <p class="hint">
             {{ t('只需填名称，平台类型自动识别、令牌自动生成。名字建议与本地网关的 agent 名一致 （') }}<code>{{ t('pod serve --agent <名字>') }}</code>{{ t('）——不一致时接入命令会提示并对齐。') }}
@@ -174,8 +174,11 @@
       </template>
 
       <template #footer>
-        <el-button v-if="phase === 'form'" @click="dialogOpen = false">{{ t('取消') }}</el-button>
-        <el-button type="primary" @click="dialogOpen = false">
+        <template v-if="phase === 'form'">
+          <el-button @click="dialogOpen = false">{{ t('取消') }}</el-button>
+          <el-button type="primary" :loading="creating" @click="register">{{ t('创建') }}</el-button>
+        </template>
+        <el-button v-else type="primary" @click="dialogOpen = false">
           {{ connected ? t('完成') : t('我知道了') }}
         </el-button>
       </template>
@@ -212,6 +215,7 @@ const createdAgent = ref<AgentItem | null>(null)
 const syncToken = ref('')
 const showRawToken = ref(false)
 const connected = ref(false)
+const creating = ref(false)
 
 const setupCommand = computed(() =>
   createdAgent.value
@@ -256,12 +260,15 @@ function openRegister() {
 }
 
 async function register() {
+  // 回车/点击可能同时触发（表单 submit + keyup），这里兜住重复提交，避免建出两个 agent
+  if (creating.value) return
   const name = form.value.name.trim()
   if (!name) {
     formError.value = { message: t('请填写名称'), hint: t('名称只是给你自己看的标识，如 openclaw-main。') }
     return
   }
   formError.value = null
+  creating.value = true
   try {
     const res = await api.registerAgent({ name })
     createdAgent.value = res.agent
@@ -277,6 +284,8 @@ async function register() {
       hint: hintFor(e),
       action: status === 402 ? { label: t('去看看套餐'), to: '/subscription' } : undefined,
     }
+  } finally {
+    creating.value = false
   }
 }
 
