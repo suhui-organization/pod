@@ -10,7 +10,7 @@ AI Agent 出事的两种结局：
 pod 是第二种。[项目主页](https://gitee.com/suhuisoftwares/pod)
 
 ```bash
-curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.1/scripts/install.sh | sh
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.2/scripts/install.sh | sh
 ```
 
 ## 剧本：凌晨 1:40，agent 试图删除文件
@@ -106,7 +106,7 @@ bash deploy/install.sh
 5 分钟上手：
 
 ```bash
-curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.1/scripts/install.sh | sh
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.2/scripts/install.sh | sh
 pod init --template baseline
 pod serve --agent <name> --server <name> --policy ~/.pod/policies/baseline.json --command <cmd>
 ```

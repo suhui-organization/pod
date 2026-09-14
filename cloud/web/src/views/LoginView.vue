@@ -173,6 +173,17 @@ async function submit() {
   padding: 32px;
   position: relative;
 }
+/* 品牌头：logo 取 SVG 原始尺寸(256)的 60%，整块沿卡片中轴居中 */
+.login-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.login-logo img {
+  width: 153.6px; /* 256 × 60% */
+  max-width: 100%;
+  height: auto;
+}
 /* 语言开关放在登录卡右上角：登录前就能切——英文用户第一眼就能读 */
 .login-lang { position: absolute; top: 14px; right: 14px; }
 .title {
@@ -181,11 +192,13 @@ async function submit() {
   font-size: 24px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  text-align: center;
 }
 .subtitle {
   margin: 0 0 20px;
   color: var(--pod-text-faint);
   font-size: 13px;
+  text-align: center;
 }
 .submit {
   width: 100%;
@@ -225,13 +238,3 @@ async function submit() {
   margin-top: 12px;
 }
 </style>
-
-.login-logo {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 6px;
-}
-.login-logo img {
-  width: 56px;
-  height: 56px;
-}
