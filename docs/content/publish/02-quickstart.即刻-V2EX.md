@@ -11,7 +11,7 @@
 不是吓人，是我刚扫的。扫描器开源，只读、不联网：
 
 ```bash
-curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.0/scripts/install.sh | sh
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.1/scripts/install.sh | sh
 pod scan
 ```
 

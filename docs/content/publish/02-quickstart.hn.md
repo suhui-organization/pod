@@ -42,7 +42,7 @@ in the same audit chain.
 Install (macOS/Linux, builds from source, no npm account needed):
 
 ```bash
-curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.0/scripts/install.sh | sh
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.3.1/scripts/install.sh | sh
 pod scan        # read-only, no network
 ```
 
