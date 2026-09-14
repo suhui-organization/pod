@@ -25,7 +25,7 @@ web → 机器（下行，机器主动拉）：策略 / 规则包 / 熔断
 ## 1. 起 SaaS（服务器上，一次性）
 
 ```bash
-git clone --branch v0.3.0 --depth 1 https://gitee.com/suhuisoftwares/pod.git && cd pod
+git clone --branch v0.3.1 --depth 1 https://gitee.com/suhuisoftwares/pod.git && cd pod
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='强密码' bash deploy/install.sh
 ```
 
