@@ -436,8 +436,41 @@ def _check_mail(locale: str) -> dict:
 
 
 def _check_billing(locale: str) -> dict:
+    """计费这项要回答两件事：开关状态，以及"真收钱时这条链路通不通"。
+
+    只报 provider 不够用 —— 线上真踩过：provider / API key / 价格 id 都配好了，
+    唯独漏了回调验签密钥，于是 `/subscription/webhook` 一律 400。用户在收银台
+    付了钱，订阅永远停在 free，而自检是绿的（这条就是这么漏过去的）。
+
+    同一个"缺密钥"，开关打开时是 fail（当下就收不到钱），开关关着时是 warn：
+    自托管默认形态不该报红，但"一开开关就坏"值得提前说一声。
+    """
     title = t("计费开关", locale)
+    # provider 默认值就是 paddle，"没配任何凭据"是自托管的正常长相：
+    # 所以先收集缺哪些，再按"开关开没开"决定这些缺失是 fail 还是 warn。
+    provider = (cfg.billing_provider or "").strip()
+    missing = [
+        name
+        for name, present in (
+            ("PADDLE_API_KEY", bool(cfg.paddle_api_key)),
+            ("PADDLE_PRICE_PRO", bool(cfg.paddle_price_pro)),
+            ("PADDLE_WEBHOOK_SECRET", bool(cfg.paddle_webhook_secret)),
+        )
+        if not present
+    ]
     if not billing_service.billing_enabled():
+        if provider == "paddle" and missing and len(missing) < 3:
+            # 三样缺一两样 = 明显在往"开通"走，只差临门一脚，值得提醒
+            return _check(
+                "billing",
+                title,
+                WARN,
+                t("计费未启用；Paddle 凭据还缺 {items}", locale, items="、".join(missing)),
+                t(
+                    "现在是自托管形态（用户看不到订阅入口）。打开开关前先补上：回调验签密钥缺了，付款成功也不会自动升级",
+                    locale,
+                ),
+            )
         return _check("billing", title, PASS, t("未启用计费（自托管默认），Agent 数量不受套餐限制", locale))
     if not cfg.billing_provider:
         return _check(
@@ -447,7 +480,15 @@ def _check_billing(locale: str) -> dict:
             t("启用了计费但没写 PODCLOUD_BILLING_PROVIDER", locale),
             t("补上支付平台凭据，或把 PODCLOUD_BILLING_ENABLED 设成 off", locale),
         )
-    return _check("billing", title, PASS, t("已启用计费，provider={p}", locale, p=cfg.billing_provider))
+    if provider == "paddle" and missing:
+        return _check(
+            "billing",
+            title,
+            FAIL,
+            t("启用了计费，但 Paddle 凭据缺 {items}", locale, items="、".join(missing)),
+            t("回调缺验签密钥时接口一律 400：用户付了钱也不会自动升到 pro", locale),
+        )
+    return _check("billing", title, PASS, t("已启用计费，provider={p}", locale, p=provider))
 
 
 def run_checks(

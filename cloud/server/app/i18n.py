@@ -217,6 +217,17 @@ EN: dict[str, str] = {
         "Billing is enabled but PODCLOUD_BILLING_PROVIDER is empty",
     "补上支付平台凭据，或把 PODCLOUD_BILLING_ENABLED 设成 off":
         "Add the payment provider credentials, or set PODCLOUD_BILLING_ENABLED=off",
+    "计费未启用；Paddle 凭据还缺 {items}":
+        "Billing is off; the Paddle credentials are still missing {items}",
+    "现在是自托管形态（用户看不到订阅入口）。打开开关前先补上：回调验签密钥缺了，付款成功也不会自动升级":
+        "This deployment is in self-hosted mode (users see no subscription entry). "
+        "Fill the gaps before flipping the switch: without the webhook signing secret "
+        "a successful payment will not upgrade anyone",
+    "启用了计费，但 Paddle 凭据缺 {items}":
+        "Billing is enabled but the Paddle credentials are missing {items}",
+    "回调缺验签密钥时接口一律 400：用户付了钱也不会自动升到 pro":
+        "With no webhook signing secret every callback returns 400 — paying customers "
+        "never get upgraded to pro",
     "已启用计费，provider={p}": "Billing is enabled, provider={p}",
     "租户设置行缺失，已补默认行": "Tenant settings row was missing — created the default row",
     "订阅行缺失，已补免费计划行": "Subscription row was missing — created the free plan row",
