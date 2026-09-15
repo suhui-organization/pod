@@ -243,3 +243,70 @@ def test_self_repair_needs_no_model_at_all(client, db, monkeypatch):
     assert db.query(Subscription).filter(Subscription.tenant_id == 1).first() is not None
     # 模型那一项如实标"未配置"，不影响上面这些修复
     assert next(c for c in body["checks"] if c["id"] == "llm")["status"] == "info"
+
+
+def _billing_check(client, token, locale=None):
+    body = _run(client, token, locale=locale).json()
+    return next(c for c in body["checks"] if c["id"] == "billing")
+
+
+def _paddle(monkeypatch, *, enabled: str, api_key: str, price: str, secret: str) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "billing_enabled_setting", enabled)
+    monkeypatch.setattr(settings, "billing_provider", "paddle")
+    monkeypatch.setattr(settings, "paddle_api_key", api_key)
+    monkeypatch.setattr(settings, "paddle_price_pro", price)
+    monkeypatch.setattr(settings, "paddle_webhook_secret", secret)
+
+
+def test_billing_check_fails_when_webhook_secret_missing(client, monkeypatch):
+    """线上真踩过：开关开着、API key 和价格 id 都配好了，唯独漏了验签密钥。
+
+    现象是 `/subscription/webhook` 一律 400 —— 用户在收银台付了钱，订阅永远
+    停在 free；而当时的自检只报 provider，照样全绿。这条给那个盲区上锁。
+    """
+    token = register_and_login(client)
+    _paddle(monkeypatch, enabled="on", api_key="pdl_live_key", price="pri_x", secret="")
+
+    billing = _billing_check(client, token)
+    assert billing["status"] == "fail", billing
+    assert "PADDLE_WEBHOOK_SECRET" in billing["detail"]
+
+
+def test_billing_check_warns_while_the_switch_is_still_off(client, monkeypatch):
+    """开关没打开时不该报红（自托管默认就长这样），但"一开就坏"要提前说。"""
+    token = register_and_login(client)
+    _paddle(monkeypatch, enabled="off", api_key="pdl_live_key", price="pri_x", secret="")
+
+    billing = _billing_check(client, token)
+    assert billing["status"] == "warn", billing
+    assert "PADDLE_WEBHOOK_SECRET" in billing["detail"]
+    # 订阅入口这时候对用户是不可见的，提示里得说清楚，别让人以为已经能卖
+    assert "自托管" in billing["hint"]
+
+
+def test_billing_check_passes_when_fully_configured(client, monkeypatch):
+    token = register_and_login(client)
+    _paddle(monkeypatch, enabled="on", api_key="pdl_live_key", price="pri_x", secret="pdl_ntfset_x_y")
+
+    assert _billing_check(client, token)["status"] == "pass"
+
+
+def test_billing_check_stays_pass_on_untouched_selfhost(client, monkeypatch):
+    """一个凭据都没配的自托管实例：这条必须是 pass，不能吓人。"""
+    token = register_and_login(client)
+    _paddle(monkeypatch, enabled="auto", api_key="", price="", secret="")
+
+    assert _billing_check(client, token)["status"] == "pass"
+
+
+def test_billing_check_speaks_english(client, monkeypatch):
+    """这条检查的文案也要跟语言走：英文界面下不能整段中文。"""
+    token = register_and_login(client)
+    _paddle(monkeypatch, enabled="on", api_key="pdl_live_key", price="pri_x", secret="")
+
+    billing = _billing_check(client, token, locale="en-US")
+    blob = billing["detail"] + " " + billing["hint"]
+    assert not any("\u4e00" <= ch <= "\u9fa5" for ch in blob), blob
+    assert "PADDLE_WEBHOOK_SECRET" in blob
