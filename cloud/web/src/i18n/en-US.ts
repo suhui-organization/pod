@@ -781,5 +781,15 @@ export const enUS: Record<string, string> = {
   '（无备注）': '(no note)',
   '（以下中英两份并列；如两者有出入，以中文版为准。正式发布前经法律审核。）':
     '(Chinese and English versions are shown side by side below; if they differ, the Chinese version governs. Both are subject to legal review before the public release.)',
+  // 公开定价页（/pricing）：Paddle 站点验证要求站点有一个能打开、看得清卖什么的定价页
+  '定价': 'Pricing',
+  '按 Agent 席位订阅，随时可取消。': 'Billed per agent seat — cancel any time.',
+  '推荐': 'Recommended',
+  '免费开始': 'Start for free',
+  '登录后订阅': 'Sign in to subscribe',
+  '价格以下单时收银台显示为准，币种为美元。订阅通过 Paddle 收款——Paddle 是这笔交易的记录商家，负责开票、代缴税费（VAT/GST）与退款。可随时在控制台取消，取消后当前已付周期继续可用。':
+    'The price shown at checkout applies, in USD. Payment is collected by Paddle — Paddle is the merchant of record for this transaction and handles invoicing, taxes (VAT/GST) and refunds. You can cancel any time from the console and keep access until the end of the period you have already paid for.',
+  '所有计划都包含本地开源网关（pod CLI）、审计哈希链、策略闸门与告警；付费计划增加跨 Agent 证据链、合规报告和更多 Agent 席位。':
+    'Every plan includes the local open-source gateway (pod CLI), the audit hash chain, the policy gate and alerts; paid plans add the cross-agent evidence chain, compliance reports and more agent seats.',
   'Pod Cloud — AI Agent 安全舱': 'Pod Cloud — AI agent security control plane',
 }
