@@ -1,0 +1,40 @@
+# pod MCP gateway — 自包含镜像
+# 用途：作为独立 MCP server 发布/收录（Glama 检查项：能启动 + 能响应 introspection）
+#
+# 构建：docker build -f Dockerfile.mcp -t pod-mcp .        （在仓库根目录执行）
+# 运行：docker run -i --rm pod-mcp                          （stdio MCP server）
+FROM node:22-alpine
+
+# npm registry 可注入：默认官方源（Glama/CI 环境），本地/国内构建可传
+#   --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+ARG NPM_REGISTRY=https://registry.npmjs.org
+
+WORKDIR /app
+
+# pod CLI 是 pnpm workspace：先拷清单再拷源码，最后构建
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+RUN npm config set registry "$NPM_REGISTRY" \
+ && corepack enable \
+ && pnpm config set registry "$NPM_REGISTRY" \
+ && pnpm install --frozen-lockfile --fetch-retries 5 --fetch-retry-maxtimeout 120000 \
+ && pnpm build
+
+# 预装上游 MCP server：运行期不再依赖 npx 拉包，冷启动也不用等网络
+RUN npm install -g @modelcontextprotocol/server-filesystem
+
+# 默认策略：baseline 模板（只放行只读类工具，写操作走审批）
+RUN node /app/apps/cli/dist/index.js init --template baseline
+
+# 网关对外暴露的文件系统根目录
+RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# stdout 留给 MCP 的 JSON-RPC；pod 的日志本来就写 stderr
+ENTRYPOINT ["node", "/app/apps/cli/dist/index.js", "serve", \
+            "--agent", "glama", \
+            "--server", "filesystem", \
+            "--policy", "/root/.pod/policies/baseline.json", \
+            "--command", "mcp-server-filesystem", \
+            "--arg", "/workspace"]
