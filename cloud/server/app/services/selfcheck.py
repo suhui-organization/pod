@@ -56,8 +56,10 @@ REQUIRED_TABLES = (
     "audit_logs",
 )
 
-PASS, WARN, FAIL = "pass", "warn", "fail"
-_RANK = {PASS: 0, WARN: 1, FAIL: 2}
+# info = 这项不适用/没启用（例如自托管压根不打算用 AI）。它不是故障：
+# 不计入 warn/fail、不进告警列表、不推通知，只在页面上如实说明。
+PASS, WARN, FAIL, INFO = "pass", "warn", "fail", "info"
+_RANK = {INFO: 0, PASS: 0, WARN: 1, FAIL: 2}
 
 
 def _worst(statuses) -> str:
@@ -364,18 +366,34 @@ def _check_llm(db: Session, tenant_id: int, locale: str) -> dict:
     try:
         model_cfg = llm.resolve_config(row)
     except llm.LlmConfigError as e:
+        # 「没配」不是故障：自托管可以不启用任何 AI 功能（摘要/日报/策略草稿都是可选）。
+        # 标成 info —— 不当警告、不进告警列表、不推通知，只告诉他要用来哪里配。
+        # 「配了但调不通」才是 fail（见下），那是"说好要用却用不了"。
         return _check(
             "llm",
             title,
-            WARN,
-            t("模型还没配好：{err}", locale, err=str(e)[:160]),
-            t("到「设置 · 模型」填好 provider / 模型 / API Key，先点连通性测试", locale),
+            INFO,
+            t("未配置模型（可选的 AI 功能）：{err}", locale, err=str(e)[:160]),
+            t(
+                "要用 AI 摘要 / 日报 / 策略草稿，到「设置 · 模型」填 provider、模型与 API Key 并点连通性测试；"
+                "不配也不影响自检、审计、策略、告警等其它功能",
+                locale,
+            ),
         )
     # 下面这一步要出网，最长 20 秒。**必须先收掉这一段读事务**：
     # SQLite 里"开着读事务再去写"的两个请求会互相锁死，而同步心跳是高频写。
     # 之前就是这里攥着读锁打电话，导致收尾 INSERT 直接 database is locked（线上 500）。
     db.commit()
-    res = llm.test_connection(model_cfg)
+    try:
+        res = llm.test_connection(model_cfg)
+    except Exception as e:  # noqa: BLE001 探测自己炸了也不能拖垮整轮自检
+        return _check(
+            "llm",
+            title,
+            FAIL,
+            t("连通性探测异常：{err}", locale, err=str(e)[:200]),
+            t("检查 API Key、base_url 与出网白名单", locale),
+        )
     if not res.get("ok"):
         return _check(
             "llm",
@@ -443,21 +461,40 @@ def run_checks(
     """跑一遍全部检查。`repair_first=True` 时先做安全自修复，再检查。
 
     user_id=0 表示"没有登录用户"（定时巡检）：跳过"当前账号是否属于该租户"这条。
+
+    每一项独立跑：**任何一项自己炸了（代码 bug、驱动异常）都只让那一项变红，
+    其余照常检查完**。自检的全部价值就在"出了问题还能拿到其余结论"——
+    如果因为某一项抛异常整轮 500，用户就什么都看不到（这条是线上踩过的坑）。
     """
     started = datetime.utcnow()
     repairs = repair(db, tenant_id, locale) if repair_first else []
-    checks = [
-        _check_database(db, locale),
-        _check_write(db, locale),
-        _check_secret(locale),
-        _check_tenant(db, tenant_id, user_id, locale),
-        _check_agents(db, tenant_id, locale),
-        _check_chain(db, tenant_id, locale),
-        _check_policies(db, tenant_id, locale),
-        _check_llm(db, tenant_id, locale),
-        _check_mail(locale),
-        _check_billing(locale),
+    runners = [
+        ("database", "数据库连接与表结构", lambda: _check_database(db, locale)),
+        ("write", "数据库写入能力", lambda: _check_write(db, locale)),
+        ("secret", "签名密钥强度", lambda: _check_secret(locale)),
+        ("tenant", "租户与管理员", lambda: _check_tenant(db, tenant_id, user_id, locale)),
+        ("agents", "Agent 网关与心跳", lambda: _check_agents(db, tenant_id, locale)),
+        ("chain", "审计链完整性", lambda: _check_chain(db, tenant_id, locale)),
+        ("policies", "策略就绪", lambda: _check_policies(db, tenant_id, locale)),
+        ("llm", "大模型可用性", lambda: _check_llm(db, tenant_id, locale)),
+        ("mail", "找回密码投递", lambda: _check_mail(locale)),
+        ("billing", "计费开关", lambda: _check_billing(locale)),
     ]
+    checks = []
+    for cid, title, runner in runners:
+        try:
+            checks.append(runner())
+        except Exception as e:  # noqa: BLE001 单项失败只影响单项
+            db.rollback()  # 失败的查询可能把事务挂在坏状态上，先归位再继续
+            checks.append(
+                _check(
+                    cid,
+                    t(title, locale),
+                    FAIL,
+                    t("这一项检查自身出错：{err}", locale, err=str(e)[:200]),
+                    t("这是自检自己的问题，请把这条报给维护者", locale),
+                )
+            )
     # 让"这次修了什么"落到对应条目上，而不是只给一句总结
     for c in checks:
         if c["id"] == "tenant":
@@ -469,6 +506,7 @@ def run_checks(
         "pass": sum(1 for c in checks if c["status"] == PASS),
         "warn": sum(1 for c in checks if c["status"] == WARN),
         "fail": sum(1 for c in checks if c["status"] == FAIL),
+        "info": sum(1 for c in checks if c["status"] == INFO),
         "repaired": len(repairs),
     }
     return {

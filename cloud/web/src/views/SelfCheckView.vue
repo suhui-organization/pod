@@ -21,6 +21,7 @@
       <div class="summary">
         <el-tag type="success" effect="dark">{{ t('通过') }} {{ result.summary.pass }}</el-tag>
         <el-tag type="warning" effect="plain">{{ t('警告') }} {{ result.summary.warn }}</el-tag>
+        <el-tag v-if="result.summary.info" type="info" effect="plain">{{ t('未配置') }} {{ result.summary.info }}</el-tag>
         <el-tag :type="result.summary.fail ? 'danger' : 'info'" :effect="result.summary.fail ? 'dark' : 'plain'">
           {{ t('失败') }} {{ result.summary.fail }}
         </el-tag>
@@ -100,6 +101,7 @@
           </el-tag>
           <el-tag size="small" :type="r.summary.fail ? 'danger' : r.summary.warn ? 'warning' : 'success'" effect="plain">
             {{ t('{p} 通过 · {w} 警告 · {f} 失败', { p: r.summary.pass, w: r.summary.warn, f: r.summary.fail }) }}
+            <template v-if="r.summary.info">· {{ t('{n} 未配置', { n: r.summary.info }) }}</template>
           </el-tag>
           <el-tag v-if="i === 0" size="small" type="info" effect="plain">{{ t('最近一次') }}</el-tag>
           <span v-if="r.summary.repaired" class="history__rp">{{ t('已修复 {n} 项', { n: r.summary.repaired }) }}</span>
@@ -170,8 +172,11 @@ async function loadHistory() {
 
 onMounted(loadHistory)
 
-const statusLabel = (s: string) => (s === 'pass' ? t('通过') : s === 'warn' ? t('警告') : t('失败'))
-const tagType = (s: string): 'success' | 'warning' | 'danger' => (s === 'pass' ? 'success' : s === 'warn' ? 'warning' : 'danger')
+/** info = 这项不适用（例如自托管没配模型）—— 不是故障，用灰标如实说明 */
+const statusLabel = (s: string) =>
+  s === 'pass' ? t('通过') : s === 'warn' ? t('警告') : s === 'info' ? t('未配置') : t('失败')
+const tagType = (s: string): 'success' | 'warning' | 'danger' | 'info' =>
+  s === 'pass' ? 'success' : s === 'warn' ? 'warning' : s === 'info' ? 'info' : 'danger'
 
 /** 这次自检对告警列表做了什么（开了几条 / 自动关了几条）——没有就不提示 */
 const alertNote = computed(() => {
