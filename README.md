@@ -78,6 +78,20 @@ The installer clones `v0.3.2` to `~/.pod/src`, builds, and puts `pod` in `~/.loc
 真机逐页验收 `bash scripts/web-acceptance.sh`（指到 k8s 后端、无头 Chrome 点一遍，
 断言"每页都渲染了内容且没有非数据中文"）。
 
+### Run the MCP gateway as a container
+
+同一个网关也能以自包含镜像运行：镜像里已经构建好 CLI、预装了上游 filesystem server，
+默认用 `baseline` 策略（只读工具放行，写操作进审批），从 stdio 暴露 MCP。
+
+```bash
+docker build -f deploy/Dockerfile.mcp -t pod-mcp .
+docker run -i --rm pod-mcp        # 接到任意 MCP 客户端即可（stdio）
+```
+
+要换成别的上游 server 或策略，覆盖 entrypoint 参数即可；默认等价于
+`pod serve --agent glama --server filesystem --command mcp-server-filesystem --arg /workspace`。
+（公开目录收录时要求的检查也是这两步：进程能启动、能响应 `initialize` / `tools/list`。）
+
 Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 
 ## What's in this repo
