@@ -148,7 +148,7 @@ export const api = {
   },
   checkout(plan: 'free' | 'pro'): Promise<{
     checkout_url: string
-    /** Stripe：会话 id；Paddle：交易 id（开 overlay 要用它） */
+    /** Paddle：交易 id（开 overlay 要用它） */
     session_id?: string
     transaction_id?: string
     /** Paddle 专用：支付成功后跳回的地址，由前端在 Paddle.js 里指定 */
@@ -206,9 +206,66 @@ export const api = {
     const q = minutes > 0 ? `?minutes=${minutes}` : ''
     return http.get(`/api/v1/control-events/summary${q}`).then((r) => r.data)
   },
+  /** 巡检历史（新→旧）+ 自动巡检策略；不传 withChecks 时只回摘要 */
+  selfcheckHistory(limit = 10, withChecks = false): Promise<{
+    runs: Array<{
+      id: number
+      trigger: 'manual' | 'daily'
+      started_at: string
+      finished_at: string
+      summary: {
+        pass: number
+        warn: number
+        fail: number
+        repaired: number
+        /** 这次巡检对告警列表做了什么（历史里附带的计数） */
+        alerts_created?: number
+        alerts_resolved?: number
+      }
+      repairs: string[]
+      checks?: Array<{
+        id: string
+        title: string
+        status: 'pass' | 'warn' | 'fail'
+        detail: string
+        hint: string
+        repairable: boolean
+        repaired: boolean
+      }>
+    }>
+    schedule: { enabled: boolean; hour: number; repair: boolean; notify: string }
+  }> {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (withChecks) q.set('with_checks', 'true')
+    return http.get(`/api/v1/selfcheck/history?${q}`).then((r) => r.data)
+  },
+  // ---- 系统自检 / 自修复 ----
+  selfcheck(repair = false): Promise<{
+    started_at: string
+    finished_at: string
+    locale: string
+    summary: { pass: number; warn: number; fail: number; repaired: number }
+    /** 这次自检对告警列表做了什么：新开的 / 自动关闭的告警 id */
+    alerts: { created: number[]; resolved: number[] }
+    repairs: string[]
+    checks: Array<{
+      id: string
+      title: string
+      status: 'pass' | 'warn' | 'fail'
+      detail: string
+      hint: string
+      repairable: boolean
+      repaired: boolean
+    }>
+  }> {
+    return http.post('/api/v1/selfcheck/run', { repair }).then((r) => r.data)
+  },
   traces(params: { minutes?: number; user_id?: number; agent_id?: number } = {}): Promise<{
     gap_minutes: number
     users: Array<{ id: number; email: string; full_name: string; role: string }>
+    // 窗口外的最新一条审计（空态提示用）：last_event_at=调用真实发生时间，last_synced_at=同步上云时间
+    last_event_at: string | null
+    last_synced_at: string | null
     tasks: Array<{
       id: string
       agent_id: number
@@ -246,7 +303,8 @@ export const api = {
     if (params.agent_id) q.set('agent_id', String(params.agent_id))
     return http.get(`/api/v1/traces?${q}`).then((r) => r.data)
   },
-  alerts(limit = 50, kind?: string, severity?: string, state?: string): Promise<{ alerts: Array<{ id: number; agent: string; agent_id: number; kind: string; severity: string; message: string; event_seq: number; state: string; created_at: string }> }> {
+  // agent_id 为 null = 平台级告警（系统自检），agent 字段会显示成 Pod Cloud
+  alerts(limit = 50, kind?: string, severity?: string, state?: string): Promise<{ alerts: Array<{ id: number; agent: string; agent_id: number | null; kind: string; severity: string; message: string; event_seq: number; state: string; created_at: string }> }> {
     const params = new URLSearchParams({ limit: String(limit) })
     if (kind) params.set('kind', kind)
     if (severity) params.set('severity', severity)

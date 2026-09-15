@@ -1,8 +1,8 @@
 """Pod Cloud：订阅路由（薄层）。
 
 这里只做三件事：鉴权、把请求转给 `services/billing.py` 的 provider、
-把异常翻成 HTTP 状态码。**不在这里碰 Stripe 或任何支付平台的细节** ——
-换平台只改 `services/billing.py`，不改路由。
+把异常翻成 HTTP 状态码。**不在这里碰任何支付平台的细节** ——
+换平台只改 `services/billing.py`（当前通道：Paddle），不改路由。
 
 - GET  /subscription            当前套餐与用量
 - POST /subscription/checkout   建结账会话，返回 checkout_url
@@ -65,8 +65,6 @@ def get_subscription(db: Session = Depends(get_db), tenant_id: int = Depends(get
         "renews_at": sub.renews_at.isoformat() if sub.renews_at else None,
         # 本部署是否启用计费：false = 自托管，没有付费入口也不限 agent 数
         "billing_enabled": billing.billing_enabled(),
-        # 保留旧字段名（前端在用）；语义 = "支付通道可用"
-        "stripe_configured": configured,
         "billing_provider": provider_name,
         "billing_configured": configured,
         # Paddle Checkout 跑在**我们自己页面**上（Paddle.js overlay），不是托管页，
@@ -100,7 +98,7 @@ def create_checkout(
             detail="支付通道未开通：请联系我们开通后升级（当前套餐能力不受影响）",
         )
     base = settings.public_base_url
-    # Paddle 需要客户邮箱来建/复用 customer（Stripe 不需要，但签名统一）
+    # Paddle 需要客户邮箱来建/复用 customer（同一个邮箱不重复建客户）
     row = db.query(User).filter(User.id == user["id"]).first()
     try:
         return provider.create_checkout(

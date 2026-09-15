@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import type { MessageResolver } from 'vue-i18n'
 import elementEn from 'element-plus/es/locale/lang/en'
 import elementZh from 'element-plus/es/locale/lang/zh-cn'
 import { enUS } from './en-US'
@@ -23,6 +24,24 @@ export type Locale = (typeof SUPPORTED_LOCALES)[number]
 
 const STORAGE_KEY = 'podcloud_locale'
 
+/** 形如 `已用 {n} 个` 的中文原文 key（带命名参数） */
+const PARAM_KEY = /[{][A-Za-z_][A-Za-z0-9_]*[}]/
+
+/**
+ * 「中文原文即 key」的兜底有个坑：词表里没有的句子由 i18n 直接返回 key 原文，
+ * **不会经过消息编译**，于是带参数的句子在中文界面里会原样显示 `{t}`、`{n}`
+ * 这种占位符（英文界面有词条，所以只有中文界面会踩）。
+ *
+ * 这里只对"看起来带参数"的 key 补一次编译——把 key 自身当作中文消息，
+ * 普通未翻译文案仍旧原样返回，行为不变。
+ */
+const messageResolver = ((obj: unknown, path: string) => {
+  const store = (obj ?? {}) as Record<string, unknown>
+  const hit = store[path]
+  if (hit != null) return hit
+  return PARAM_KEY.test(path) ? path : null
+}) as MessageResolver
+
 function initialLocale(): Locale {
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved === 'zh-CN' || saved === 'en-US') return saved
@@ -36,6 +55,7 @@ export const i18n = createI18n({
   // zh-CN 词表刻意为空：中文原文即 key，走 fallback 直接显示原文
   locale: initialLocale(),
   fallbackLocale: 'zh-CN',
+  messageResolver,
   messages: { 'zh-CN': {}, 'en-US': enUS },
 })
 

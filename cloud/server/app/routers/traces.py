@@ -16,6 +16,7 @@ import os
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -167,4 +168,18 @@ def list_traces(
         tasks = [t for t in tasks if t["owner_id"] == user_id]
     tasks = tasks[:task_limit]
 
-    return {"gap_minutes": SESSION_GAP_MIN, "users": users, "tasks": tasks}
+    # ── 窗口外的最新一条(空态提示用) ──────────────────────────────────
+    # 口径: 事件时间看 ts(与链路过滤一致), 另附同步时间, 便于区分
+    # "机器刚同步过" 与 "最近一次调用其实是几天前"。
+    last_ts, last_synced = (
+        db.query(func.max(SyncEvent.ts), func.max(SyncEvent.synced_at))
+        .filter(SyncEvent.tenant_id == tenant_id)
+        .one()
+    )
+    return {
+        "gap_minutes": SESSION_GAP_MIN,
+        "users": users,
+        "tasks": tasks,
+        "last_event_at": last_ts or None,
+        "last_synced_at": last_synced.isoformat() if last_synced else None,
+    }

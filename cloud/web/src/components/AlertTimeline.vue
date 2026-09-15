@@ -45,7 +45,8 @@ const { t } = useI18n()
 export interface AlertItem {
   id: number
   agent: string
-  agent_id: number
+  /** null = 平台级告警（系统自检），agent 字段是 Pod Cloud */
+  agent_id: number | null
   kind: string
   severity: string
   message: string

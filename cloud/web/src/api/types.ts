@@ -126,14 +126,12 @@ export interface SubscriptionInfo {
   billing_enabled: boolean
   /** 支付通道是否已开通（后端按当前计费平台判定） */
   billing_configured?: boolean
-  /** 当前计费平台 id：stripe / paddle / creem / waffo */
+  /** 当前计费平台 id：paddle（MoR；再接平台时后端会多出别的 id） */
   billing_provider?: string
   /** Paddle.js 用的公开 token（仅 provider=paddle 时返回） */
   paddle_client_token?: string
   /** sandbox | live */
   paddle_environment?: string
-  /** @deprecated 旧字段，等价于 billing_configured */
-  stripe_configured?: boolean
 }
 
 /** 一个可选的模型来源（后端 PROVIDERS，界面不自己维护候选列表） */

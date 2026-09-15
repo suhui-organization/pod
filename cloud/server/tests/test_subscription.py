@@ -1,10 +1,8 @@
-"""Pod Cloud 订阅与计费层测试（monkeypatch stripe，不依赖真实账号）。
+"""Pod Cloud 订阅与计费层测试（monkeypatch Paddle，不依赖真实账号）。
 
 分层后：路由只做鉴权与状态码，平台细节在 services/billing.py。
 所以这里除了路由行为，还直接测事件归一与 apply_event。
 """
-
-from types import SimpleNamespace
 
 import pytest
 
@@ -14,39 +12,10 @@ from app.services import billing
 from tests.conftest import register_and_login  # noqa: F401
 
 
-class FakeSession:
-    url = "https://checkout.stripe.com/c/pay/cs_test_123"
-    id = "cs_test_123"
-
-
-class FakeCheckoutSessions:
-    def __init__(self):
-        self.last_kwargs = None
-
-    def create(self, **kwargs):
-        self.last_kwargs = kwargs
-        return FakeSession()
-
-
-class FakeClient:
-    def __init__(self):
-        self.checkout = SimpleNamespace(sessions=FakeCheckoutSessions())
-
-
-@pytest.fixture()
-def fake_stripe(monkeypatch):
-    """配置 Stripe key + 注入 fake 客户端，返回 fake client 供断言。"""
-    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_fake")
-    monkeypatch.setattr(settings, "stripe_price_pro", "price_pro_123")
-    monkeypatch.setattr(settings, "stripe_price_free", "")
-    fake = FakeClient()
-    monkeypatch.setattr(billing.StripeProvider, "_client", lambda self: fake)
-    return fake
-
-
-def test_checkout_without_stripe_returns_503(client):
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(settings, "stripe_secret_key", "")
+def test_checkout_without_paddle_returns_503(client, monkeypatch):
+    """启用了计费但支付通道没配好 → 503 说清缺什么，而不是静默降级。"""
+    monkeypatch.setattr(settings, "paddle_api_key", "")
+    monkeypatch.setattr(settings, "paddle_price_pro", "")
     # 计费开关显式打开：这里测的是"启用了但没配好"（503），不是"没启用计费"（400）
     monkeypatch.setattr(settings, "billing_enabled_setting", "on")
     token = register_and_login(client)
@@ -56,7 +25,8 @@ def test_checkout_without_stripe_returns_503(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 503
-    monkeypatch.undo()
+    # 给用户的是通用文案（不把"缺哪个 key"这种运维细节抛到界面上）
+    assert "支付通道未开通" in r.json()["error"]["message"]
 
 
 def test_checkout_when_billing_disabled_returns_400(client, monkeypatch):
@@ -108,7 +78,7 @@ def test_plan_switch_disabled_outside_dev(client, monkeypatch):
 
 
 def test_unknown_billing_provider_is_loud(client, monkeypatch):
-    """配错平台名要明确报错，不能静默当成 Stripe。"""
+    """配错平台名要明确报错，不能静默当成 Paddle。"""
     monkeypatch.setattr(settings, "billing_provider", "paypal")
     token = register_and_login(client)
     headers = {"Authorization": f"Bearer {token}"}
@@ -122,163 +92,43 @@ def test_unknown_billing_provider_is_loud(client, monkeypatch):
     assert "未知的计费平台" in r.json()["error"]["message"]
 
 
-def test_parse_webhook_ignores_unknown_events(monkeypatch):
+def test_parse_webhook_ignores_unknown_events(paddle):
     """不关心的事件返回 None（路由回 ignored 200），否则平台会一直重试。"""
-    import stripe
+    import json
 
-    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
-    monkeypatch.setattr(
-        stripe.Webhook,
-        "construct_event",
-        lambda payload, sig, secret: {"type": "invoice.paid", "data": {"object": {}}},
+    payload = json.dumps({"event_type": "transaction.completed", "data": {}}).encode()
+    assert (
+        paddle.parse_webhook(payload, {"paddle-signature": _sign("ntfset_test_secret", payload)})
+        is None
     )
-    assert billing.StripeProvider().parse_webhook(b"{}", {"stripe-signature": "x"}) is None
-
-
-def test_billing_event_normalized_to_internal_types(monkeypatch):
-    """平台字段 → 内部事件：换平台时上层不用改。"""
-    import stripe
-
-    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
-    monkeypatch.setattr(
-        stripe.Webhook,
-        "construct_event",
-        lambda payload, sig, secret: {
-            "type": "checkout.session.completed",
-            "data": {
-                "object": {
-                    "client_reference_id": "7",
-                    "metadata": {"plan": "pro"},
-                    "customer": "cus_1",
-                }
-            },
-        },
-    )
-    ev = billing.StripeProvider().parse_webhook(b"{}", {"stripe-signature": "x"})
-    assert ev.type == billing.EVENT_ACTIVATED
-    assert ev.tenant_id == 7 and ev.plan == "pro" and ev.provider == "stripe"
 
 
 def test_apply_event_writes_subscription_once(client, db):
     """状态自持：apply_event 是唯一改订阅的地方。"""
     register_and_login(client)  # 造出 tenant 1 + 管理员
     ev = billing.BillingEvent(
-        type=billing.EVENT_ACTIVATED, tenant_id=1, plan="pro", provider="stripe"
+        type=billing.EVENT_ACTIVATED, tenant_id=1, plan="pro", provider="paddle"
     )
     sub = billing.apply_event(db, ev)
     assert (sub.plan, sub.agent_limit) == ("pro", 100)
 
-    ev2 = billing.BillingEvent(type=billing.EVENT_CANCELED, tenant_id=1, provider="stripe")
+    ev2 = billing.BillingEvent(type=billing.EVENT_CANCELED, tenant_id=1, provider="paddle")
     sub2 = billing.apply_event(db, ev2)
     assert (sub2.plan, sub2.agent_limit) == ("free", 3)
 
 
-def test_checkout_creates_session_with_correct_params(client, fake_stripe):
-    token = register_and_login(client)
-    r = client.post(
-        "/api/v1/subscription/checkout",
-        json={"plan": "pro"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["checkout_url"].startswith("https://checkout.stripe.com")
-    kwargs = fake_stripe.checkout.sessions.last_kwargs
-    assert kwargs["mode"] == "subscription"
-    assert kwargs["line_items"] == [{"price": "price_pro_123", "quantity": 1}]
-    assert kwargs["metadata"]["plan"] == "pro"
-    assert kwargs["client_reference_id"]  # tenant id
-
-
-def test_webhook_without_secret_rejected(client):
+def test_webhook_without_secret_rejected(client, monkeypatch):
+    """没配 webhook secret 时一律 400：宁可不处理，也不能收来历不明的"已付款"。"""
+    monkeypatch.setattr(settings, "paddle_webhook_secret", "")
+    monkeypatch.setattr(settings, "billing_enabled_setting", "on")
     token = register_and_login(client)
     r = client.post(
         "/api/v1/subscription/webhook",
-        json={"type": "checkout.session.completed", "data": {"object": {}}},
-        headers={"Authorization": f"Bearer {token}", "stripe-signature": "sig"},
+        json={"event_type": "subscription.activated", "data": {}},
+        headers={"Authorization": f"Bearer {token}", "paddle-signature": "ts=1;h1=x"},
     )
     assert r.status_code == 400
-
-
-def test_webhook_checkout_completed_upgrades_subscription(client, monkeypatch):
-    token = register_and_login(client)
-    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
-    # 这两个用例验证的是"计费启用时"的订阅状态机，显式打开开关
-    monkeypatch.setattr(settings, "billing_enabled_setting", "on")
-
-    def fake_construct(payload, sig, secret):
-        assert secret == "whsec_test"
-        return {
-            "type": "checkout.session.completed",
-            "data": {
-                "object": {
-                    "client_reference_id": "1",
-                    "metadata": {"tenant_id": "1", "plan": "pro"},
-                    "customer": "cus_test_abc",
-                }
-            },
-        }
-
-    import stripe
-
-    monkeypatch.setattr(stripe.Webhook, "construct_event", fake_construct)
-    r = client.post(
-        "/api/v1/subscription/webhook",
-        json={},  # payload 由 fake_construct 忽略
-        headers={"stripe-signature": "t=1,v1=fake"},
-    )
-    assert r.status_code == 200
-    # 订阅已升级
-    r2 = client.get("/api/v1/subscription", headers={"Authorization": f"Bearer {token}"})
-    assert r2.json()["plan"] == "pro"
-    assert r2.json()["agent_limit"] == 100
-
-
-def test_webhook_subscription_deleted_downgrades(client, monkeypatch):
-    token = register_and_login(client)
-    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
-    monkeypatch.setattr(settings, "billing_enabled_setting", "on")
-
-    # 先升级
-    client.post("/api/v1/subscription/plan", json={"plan": "pro"}, headers={"Authorization": f"Bearer {token}"})
-
-    def fake_construct(payload, sig, secret):
-        return {
-            "type": "customer.subscription.deleted",
-            "data": {"object": {"metadata": {"tenant_id": "1"}}},
-        }
-
-    import stripe
-
-    monkeypatch.setattr(stripe.Webhook, "construct_event", fake_construct)
-    r = client.post(
-        "/api/v1/subscription/webhook",
-        json={},
-        headers={"stripe-signature": "t=1,v1=fake"},
-    )
-    assert r.status_code == 200
-    r2 = client.get("/api/v1/subscription", headers={"Authorization": f"Bearer {token}"})
-    assert r2.json()["plan"] == "free"
-    assert r2.json()["agent_limit"] == 3
-
-
-def test_invalid_webhook_signature_rejected(client, monkeypatch):
-    token = register_and_login(client)
-    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
-
-    import stripe
-
-    def bad_construct(payload, sig, secret):
-        raise ValueError("bad signature")
-
-    monkeypatch.setattr(stripe.Webhook, "construct_event", bad_construct)
-    r = client.post(
-        "/api/v1/subscription/webhook",
-        json={},
-        headers={"stripe-signature": "t=1,v1=forged"},
-    )
-    assert r.status_code == 400
-    assert "签名无效" in r.json()["error"]["message"]
+    assert "webhook secret 未配置" in r.json()["error"]["message"]
 
 
 # ── Paddle（MoR）────────────────────────────────────────────────────────────
@@ -468,4 +318,22 @@ def test_paddle_bad_signature_via_router_is_400(client, paddle):
         headers={"paddle-signature": "ts=1;h1=deadbeef"},
     )
     assert r.status_code == 400
-    assert "签名" in r.json()["error"]["message"] or "时间戳" in r.json()["error"]["message"]
+
+
+def test_paddle_cancel_via_router_downgrades(client, paddle):
+    """退订走同一条链路：canceled → 订阅回到 free 套餐。"""
+    import json
+
+    token = register_and_login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.post("/api/v1/subscription/plan", json={"plan": "pro"}, headers=headers).status_code == 200
+
+    payload = json.dumps(_paddle_event("subscription.canceled", status="canceled")).encode()
+    r = client.post(
+        "/api/v1/subscription/webhook",
+        content=payload,
+        headers={"paddle-signature": _sign("ntfset_test_secret", payload)},
+    )
+    assert r.status_code == 200
+    info = client.get("/api/v1/subscription", headers=headers).json()
+    assert info["plan"] == "free" and info["agent_limit"] == 3

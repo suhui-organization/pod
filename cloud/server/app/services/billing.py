@@ -1,9 +1,9 @@
 """Pod Cloud：订阅计费层（支付平台适配器）。
 
 为什么要有这一层：**订阅状态属于我们，支付平台只是"收钱 + 通知"的适配器**。
-重构前 Stripe 的分支直接长在路由里（建 Session、验签、改 Subscription 表），
+早期 PSP 平台的分支直接长在路由里（建 Session、验签、改 Subscription 表），
 换平台等于改路由和线上行为；而国内个人做海外收款的实际路径是 MoR
-（Paddle / Creem / Waffo 这类），跟 Stripe 的 payload 形状完全不同。
+（Paddle / Creem / Waffo 这类），payload 形状与 PSP 完全不同。
 
 三条约定：
 
@@ -14,8 +14,8 @@
 3. **未配置就报错，不静默降级**：少配一个 key 必须让人当场看见，
    不能让用户点"升级"之后以为成功了。
 
-当前实现：Stripe（PSP）。MoR 的插槽在这里 —— 实现 `BillingProvider`
-协议即可，路由与订阅表都不用动。
+当前实现：**Paddle（MoR）**，唯一的计费通道。再接新平台只需实现
+`BillingProvider` 协议并注册一行，路由与订阅表都不用动。
 """
 
 from __future__ import annotations
@@ -120,86 +120,12 @@ class BillingProvider(Protocol):
     ) -> BillingEvent | None: ...
 
 
-class StripeProvider:
-    """Stripe（PSP）。需要海外主体，中国大陆个人开不了 —— 但代码留着，
-    等以后有了香港/新加坡主体可以切回来。"""
-
-    name = "stripe"
-
-    def _client(self):
-        """懒加载 stripe 客户端；未配置密钥返回 None。"""
-        if not settings.stripe_secret_key:
-            return None
-        import stripe
-
-        return stripe.StripeClient(settings.stripe_secret_key)
-
-    def is_configured(self) -> bool:
-        return bool(settings.stripe_secret_key and settings.stripe_price_pro)
-
-    def create_checkout(
-        self, *, tenant_id: int, plan: str, email: str = "", success_url: str = "", cancel_url: str = ""
-    ) -> dict[str, Any]:
-        client = self._client()
-        if client is None:
-            raise BillingConfigError("支付通道未配置：缺少 STRIPE_SECRET_KEY")
-        price_id = settings.stripe_price_pro if plan == "pro" else settings.stripe_price_free
-        if not price_id:
-            raise BillingConfigError(f"支付通道未配置：缺少 plan={plan} 的 Stripe price id")
-        session = client.checkout.sessions.create(
-            mode="subscription",
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            client_reference_id=str(tenant_id),
-            metadata={"tenant_id": str(tenant_id), "plan": plan},
-        )
-        return {"checkout_url": session.url, "session_id": session.id, "provider": self.name}
-
-    def parse_webhook(self, payload: bytes, headers: Mapping[str, str]) -> BillingEvent | None:
-        secret = settings.stripe_webhook_secret
-        if not secret:
-            raise BillingSignatureError("Stripe webhook secret 未配置（STRIPE_WEBHOOK_SECRET）")
-        sig_header = headers.get("stripe-signature", "")
-        import stripe
-
-        try:
-            event = stripe.Webhook.construct_event(payload, sig_header, secret)
-        except Exception as e:  # noqa: BLE001 验签失败一律拒绝，不区分原因给外部
-            raise BillingSignatureError("webhook 签名无效") from e
-
-        event_type = event["type"]
-        data = event["data"]["object"]
-        if event_type == "checkout.session.completed":
-            tenant_id = int(
-                data.get("client_reference_id") or data.get("metadata", {}).get("tenant_id", "0")
-            )
-            plan = data.get("metadata", {}).get("plan", "pro")
-            if plan not in PLAN_LIMITS:
-                plan = "pro"
-            return BillingEvent(
-                type=EVENT_ACTIVATED,
-                tenant_id=tenant_id,
-                plan=plan,
-                provider_customer_id=data.get("customer", "") or "",
-                provider=self.name,
-            )
-        if event_type == "customer.subscription.deleted":
-            tenant_id = int(data.get("metadata", {}).get("tenant_id", "0"))
-            if not tenant_id:
-                return None
-            return BillingEvent(
-                type=EVENT_CANCELED, tenant_id=tenant_id, plan="free", provider=self.name
-            )
-        return None  # 不关心的事件：明确返回 None，由调用方记录"收到但忽略"
-
-
 class PaddleProvider:
     """Paddle（MoR）。没有海外主体时的正常路径：Paddle 是法律上的卖家，
     代收全球卡、代算代缴 VAT/GST、开发票、处理拒付，打款走 Wise/Payoneer。
 
-    流程：建/复用 customer → 建 transaction → 把 checkout.url 交给前端跳转。
-    与 Stripe 的差别只在实现里，路由和订阅表都不感知。
+    流程：建/复用 customer → 建 transaction → 把 checkout.url 交给前端跳转
+    （Paddle.js overlay）。平台细节全在实现里，路由和订阅表都不感知。
     """
 
     name = "paddle"
@@ -367,16 +293,15 @@ class PaddleProvider:
         return self._to_event(event)
 
 
-# 平台注册表：接 MoR 时在这里加一行（已接：stripe / paddle）
+# 平台注册表：再接平台时在这里加一行（当前：paddle —— 唯一计费通道）
 PROVIDERS: dict[str, type] = {
-    "stripe": StripeProvider,
     "paddle": PaddleProvider,
 }
 
 
 def get_provider() -> BillingProvider | None:
     """按 `PODCLOUD_BILLING_PROVIDER` 取当前计费平台；名字不认识则明确报错。"""
-    name = (settings.billing_provider or "").strip() or "stripe"
+    name = (settings.billing_provider or "").strip() or "paddle"
     cls = PROVIDERS.get(name)
     if cls is None:
         raise BillingConfigError(

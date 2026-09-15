@@ -149,6 +149,8 @@ class SyncEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    # NULL = 平台级告警（系统自检发现的云端问题，不挂在某个 agent 上）。
+    # 老库该列是 NOT NULL，启动时的迁移会把它改掉（见 migrations.py）。
     agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
     seq: Mapped[int] = mapped_column(Integer)
     ts: Mapped[str] = mapped_column(String(64))
@@ -288,6 +290,25 @@ class PodHardenReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class SelfCheckRun(Base):
+    """一次系统自检的结果（手动或每日巡检）。
+
+    为什么要落库：页面上的「最近巡检」与巡检历史都读它；每日巡检也靠它做
+    "今天已经跑过了"的幂等判断（重启不会重复推告警）。
+    """
+
+    __tablename__ = "pod_selfcheck_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    trigger: Mapped[str] = mapped_column(String(16), default="manual")  # manual | daily
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    summary_json: Mapped[str] = mapped_column(Text, default="{}")   # {pass,warn,fail,repaired}
+    checks_json: Mapped[str] = mapped_column(Text, default="[]")    # 逐项结果（含详情/建议）
+    repairs_json: Mapped[str] = mapped_column(Text, default="[]")   # 这次修了什么
+
+
 class Subscription(Base):
     """Pod Cloud：订阅（按 Agent 数量分层计费：free 1-3 / pro 3+）。"""
     """Pod Cloud：订阅（按 Agent 数量分层计费：free 1-3 / pro 3+）。"""
@@ -298,10 +319,12 @@ class Subscription(Base):
     plan: Mapped[str] = mapped_column(String(16), default="free")  # free|pro
     agent_limit: Mapped[int] = mapped_column(Integer, default=3)
     renews_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    stripe_customer_id: Mapped[str] = mapped_column(String(64), default="")  # 遗留列，新代码写下面的通用列
+    # 遗留列：早年 PSP 通道留下的，已无人写入。保留只为不动线上表结构
+    # （SQLite 删列要重建表）；客户/订阅 id 一律看下面的通用列。
+    legacy_psp_customer_id: Mapped[str] = mapped_column("stripe_customer_id", String(64), default="")
     provider_customer_id: Mapped[str] = mapped_column(String(64), default="")        # ctm_… / cus_…
     provider_subscription_id: Mapped[str] = mapped_column(String(64), default="")    # sub_… / 平台订阅 id
-    billing_provider: Mapped[str] = mapped_column(String(16), default="")            # stripe|paddle
+    billing_provider: Mapped[str] = mapped_column(String(16), default="")            # paddle
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -312,8 +335,10 @@ class PodAlert(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
-    agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(32))  # secret_leak|injection_suspect|approval_timeout|deny_burst
+    # NULL = 平台级告警（系统自检发现的云端问题，不挂在某个 agent 上）。
+    # 老库这列是 NOT NULL，启动时的迁移会改掉（见 migrations.py）。
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("pod_agents.id"), index=True, nullable=True)
+    kind: Mapped[str] = mapped_column(String(32))  # secret_leak|injection_suspect|approval_timeout|deny_burst|selfcheck|agent_silence
     severity: Mapped[str] = mapped_column(String(8), default="medium")  # high|medium|low
     message: Mapped[str] = mapped_column(Text, default="")
     event_seq: Mapped[int] = mapped_column(Integer, default=0)

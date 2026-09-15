@@ -146,19 +146,110 @@ EN: dict[str, str] = {
         "❌ Not connected: cannot reach ${API}",
     "❌ 未接入：服务端返回 HTTP ${CODE}（配置已写好，稍后可重跑 pod sync）":
         "❌ Not connected: the server returned HTTP ${CODE} (config is written; re-run pod sync later)",
+
+    # ── 一键自检 / 自修复（/api/v1/selfcheck）──
+    "数据库连接与表结构": "Database connection and schema",
+    "数据库写入能力": "Database write access",
+    "签名密钥强度": "Signing secret strength",
+    "租户与管理员": "Tenant and admins",
+    "Agent 网关与心跳": "Agent gateways and heartbeats",
+    "审计链完整性": "Audit chain integrity",
+    "策略就绪": "Policy readiness",
+    "大模型可用性": "Model availability",
+    "找回密码投递": "Password reset delivery",
+    "计费开关": "Billing switch",
+    "数据库不可用：{err}": "Database unavailable: {err}",
+    "连接正常，但缺表：{tables}": "Connected, but missing tables: {tables}",
+    "重启服务会按迁移补齐缺失的表": "Restarting the service applies migrations and creates the missing tables",
+    "连接正常，{n} 张表就绪": "Connected — {n} tables ready",
+    "写不进去：{err}": "Write failed: {err}",
+    "检查磁盘是否写满、数据库账号是否有写权限":
+        "Check whether the disk is full and whether the database account can write",
+    "临时表建 / 写 / 读 / 删全部正常": "Temporary table create/write/read/drop all succeeded",
+    "密钥长度 {n}，是默认值或过短": "Secret length is {n} — default or too short",
+    "生成 32 位以上随机串写进 PODCLOUD_JWT_SECRET 后重启（所有人需重新登录）":
+        "Generate a random string of 32+ characters, set PODCLOUD_JWT_SECRET and restart (everyone must sign in again)",
+    "密钥长度 {n}，非默认值": "Secret length {n}, not the default value",
+    "当前账号不属于这个租户（成员 {n} 人）":
+        "This account does not belong to the tenant ({n} members)",
+    "在成员管理里把自己加回来": "Add yourself back from Member management",
+    "{n} 条成员记录指向已删除的用户": "{n} membership rows point at deleted users",
+    "点「自检并修复」会清理这些悬空记录": "“Check and repair” removes these dangling rows",
+    "成员 {n} 人，但没有人是管理员": "{n} members, but none of them is an admin",
+    "需要人工把一名成员改成管理员（自动提权风险太大）":
+        "Promote one member to admin manually (auto-promotion is too risky)",
+    "成员 {n} 人、管理员 {m} 人，当前角色 {role}":
+        "{n} members, {m} admins, your role is {role}",
+    "还没有注册任何 Agent": "No agents registered yet",
+    "在「Agent 资产」里添加，然后在机器上跑一键接入命令":
+        "Add one under Agent assets, then run the one-line onboarding command on the machine",
+    "{name}：{ago}同步过（{events} 条事件，令牌{tok}）":
+        "{name}: synced {ago} ({events} events, token {tok})",
+    "已配": "set",
+    "缺失": "missing",
+    "在机器上跑一次 `pod sync` 看输出；网关没在跑时重跑接入脚本会把它拉起来":
+        "Run `pod sync` on that machine and read the output; if the gateway is down, re-running the onboarding script brings it back",
+    "还没有同步上来任何审计事件": "No audit events have been synced yet",
+    "机器上先产生一次调用，再 `pod sync`": "Produce one tool call on the machine, then `pod sync`",
+    "链断了：agent #{aid} / {server} 第 {seq} 条的 prev_hash 与上一条对不上":
+        "Chain broken: agent #{aid} / {server} entry {seq} has a prev_hash that does not match the previous entry",
+    "在本机跑 `pod verify-audit` 看原始链；不要删本地审计文件":
+        "Run `pod verify-audit` on that machine to inspect the raw chain; do not delete local audit files",
+    "序号不连续：agent #{aid} / {server} 从 {prev} 跳到 {seq}":
+        "Sequence gap: agent #{aid} / {server} jumps from {prev} to {seq}",
+    "{chains} 条链、{n} 条事件哈希连续": "{chains} chain(s), {n} events — hashes are continuous",
+    "有 {n} 个 Agent，但还没有一条策略": "{n} agents, but no policy yet",
+    "到「策略中心」建一条基线策略并下发": "Create a baseline policy under Policy center and roll it out",
+    "策略 {p} 条、版本 {v} 个": "{p} policies, {v} versions",
+    "模型还没配好：{err}": "Model is not configured yet: {err}",
+    "到「设置 · 模型」填好 provider / 模型 / API Key，先点连通性测试":
+        "Fill in provider / model / API key under Settings · Model and run the connectivity test first",
+    "{provider}/{model} 调用失败：{err}": "{provider}/{model} call failed: {err}",
+    "检查 API Key、base_url 与出网白名单": "Check the API key, base_url and outbound allowlist",
+    "{provider}/{model} 可用（{ms} ms）": "{provider}/{model} is available ({ms} ms)",
+    "已配置 SMTP，重置链接会发邮件": "SMTP is configured — reset links are emailed",
+    "未配置 SMTP：重置链接只写服务端日志": "SMTP is not configured — reset links only go to the server log",
+    "自托管可以接受；要给用户发邮件就配 PODCLOUD_SMTP_*":
+        "Acceptable for self-hosting; set PODCLOUD_SMTP_* to actually email users",
+    "未启用计费（自托管默认），Agent 数量不受套餐限制":
+        "Billing is off (self-hosted default) — the agent count is not plan-limited",
+    "启用了计费但没写 PODCLOUD_BILLING_PROVIDER":
+        "Billing is enabled but PODCLOUD_BILLING_PROVIDER is empty",
+    "补上支付平台凭据，或把 PODCLOUD_BILLING_ENABLED 设成 off":
+        "Add the payment provider credentials, or set PODCLOUD_BILLING_ENABLED=off",
+    "已启用计费，provider={p}": "Billing is enabled, provider={p}",
+    "租户设置行缺失，已补默认行": "Tenant settings row was missing — created the default row",
+    "订阅行缺失，已补免费计划行": "Subscription row was missing — created the free plan row",
+    "Agent「{name}」在线状态与心跳不一致，已纠正为「{status}」":
+        "Agent “{name}” status disagreed with its heartbeat — set to “{status}”",
+    "在线": "online",
+    "离线": "offline",
+    "清理了一条指向不存在用户的成员记录（user_id={uid}）":
+        "Removed a membership row pointing at a deleted user (user_id={uid})",
+    "从未同步": "never",
+    "{n} 天前": "{n} days ago",
+    "{n} 小时前": "{n} hours ago",
+    "{n} 分钟前": "{n} minutes ago",
 }
 
 
 def t(message: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
     """翻译一条服务端文案。
 
-    - locale 不是 en-US 时直接返回原文（中文原文即结果）
+    - locale 不是 en-US 时返回原文（中文原文即结果），**带 kwargs 时补一次格式化**：
+      否则调用方拿到的会是 `模型还没配好：{err}` 这种带占位符的半成品
+      （英文词表那条会走 format，中文这条不会——很隐蔽的不对称）
     - 词表里没有时返回原文（未翻译不等于错误）
     - 占位符用 kwargs 填充；原文有占位符但调用方没给时，退回原文而不是抛错
       （错误文案本身不该因为格式化失败再制造一个错误）
     """
     if locale != "en-US":
-        return message
+        if not kwargs:
+            return message
+        try:
+            return message.format(**kwargs)
+        except (KeyError, IndexError):
+            return message
     template = EN.get(message)
     if template is None:
         return message

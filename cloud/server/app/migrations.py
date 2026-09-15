@@ -45,7 +45,7 @@ _COLUMN_MIGRATIONS = {
         "quarantined_by": "ALTER TABLE pod_agents ADD COLUMN quarantined_by VARCHAR(128) DEFAULT ''",
     },
     "pod_subscriptions": {
-        # 计费平台无关化：不再只存 stripe customer id
+        # 计费平台无关化：不再只存单一平台的 customer id
         "provider_customer_id": "ALTER TABLE pod_subscriptions ADD COLUMN provider_customer_id VARCHAR(64) DEFAULT ''",
         "provider_subscription_id": "ALTER TABLE pod_subscriptions ADD COLUMN provider_subscription_id VARCHAR(64) DEFAULT ''",
         "billing_provider": "ALTER TABLE pod_subscriptions ADD COLUMN billing_provider VARCHAR(16) DEFAULT ''",
@@ -55,6 +55,111 @@ _COLUMN_MIGRATIONS = {
 
 def _column_exists(insp, table: str, col: str) -> bool:
     return col in {c["name"] for c in insp.get_columns(table)}
+
+
+# 平台级告警（系统自检发现的云端问题）不挂在任何 agent 上，所以 pod_alerts.agent_id
+# 必须允许为空。新库由 create_all 直接建对；老库这一列是 NOT NULL，得改。
+_ALERT_COLUMNS = (
+    "id",
+    "tenant_id",
+    "agent_id",
+    "kind",
+    "severity",
+    "message",
+    "event_seq",
+    "state",
+    "created_at",
+)
+
+
+def _needs_nullable_agent_id(insp, table: str) -> bool:
+    if table not in set(insp.get_table_names()):
+        return False
+    col = next((c for c in insp.get_columns(table) if c["name"] == "agent_id"), None)
+    return bool(col and not col.get("nullable", True))
+
+
+def _make_agent_id_nullable(engine, table: str = "pod_alerts") -> None:
+    """把 pod_alerts.agent_id 从 NOT NULL 改成可空。
+
+    - Postgres：一条 ALTER 就够。
+    - SQLite：改不了列的可空性，只能重建表（SQLite 官方的 12 步做法）。这里只做
+      告警这一张小表，且显式列名复制、重建后把索引照原样补回来——不能丢索引，
+      也不能因为列顺序变化把数据串位。
+
+    重建前先按原样拷一份数据库文件（SQLite 才有），重建后**核对行数**；
+    对不上就整笔回滚。这是唯一一处"动已有数据"的迁移，宁可多留一个备份文件。
+    备份开关：PODCLOUD_MIGRATE_BACKUP=off 可关（默认开）。
+    """
+    dialect = engine.dialect.name
+    if dialect != "sqlite":
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN agent_id DROP NOT NULL"))
+        return
+
+    backup = _backup_sqlite_file(engine)
+    with engine.begin() as conn:
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:t"), {"t": table}
+        ).scalar()
+        if not ddl or "agent_id INTEGER NOT NULL" not in ddl:
+            return
+        indexes = [
+            r[0]
+            for r in conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=:t AND sql IS NOT NULL"),
+                {"t": table},
+            ).all()
+        ]
+        new_ddl = ddl.replace(f"TABLE {table}", f"TABLE {table}_new", 1).replace(
+            "agent_id INTEGER NOT NULL", "agent_id INTEGER", 1
+        )
+        cols = ", ".join(_ALERT_COLUMNS)
+        before = _row_count(conn, table)
+        conn.execute(text(new_ddl))
+        conn.execute(text(f"INSERT INTO {table}_new ({cols}) SELECT {cols} FROM {table}"))
+        after = _row_count(conn, f"{table}_new")
+        if before != after:
+            # 抛出去 → 整笔回滚（SQLite 的 DDL 也在事务里），旧表原样还在
+            raise RuntimeError(
+                f"迁移 {table} 行数对不上（{before} → {after}），已回滚"
+                + (f"；迁移前备份：{backup}" if backup else "")
+            )
+        conn.execute(text(f"DROP TABLE {table}"))
+        conn.execute(text(f"ALTER TABLE {table}_new RENAME TO {table}"))
+        for idx in indexes:
+            conn.execute(text(idx.replace(f"ON {table}", f"ON {table}", 1)))
+    if backup:
+        logger.warning("迁移: %s 已重建；迁移前备份留在 %s（确认无误后可删）", table, backup)
+
+
+def _backup_sqlite_file(engine) -> str | None:
+    """按原样拷一份 SQLite 库文件，返回备份路径（非 SQLite / 关掉开关 → None）。"""
+    import os
+    import shutil
+    import time
+
+    from app.config import settings
+
+    if (getattr(settings, "migrate_backup", "on") or "").strip().lower() in ("off", "false", "0", "no"):
+        return None
+    url = engine.url
+    if url.database in (None, "", ":memory:"):
+        return None
+    path = str(url.database)
+    if not os.path.exists(path):
+        return None
+    dest = f"{path}.bak-{time.strftime('%Y%m%d-%H%M%S')}-pre-structural-migration"
+    try:
+        shutil.copy2(path, dest)
+    except OSError as e:  # 备份失败就别动数据，让人先看日志
+        raise RuntimeError(f"结构性迁移前备份失败，已中止：{e}") from e
+    return dest
+
+
+def _row_count(conn, table: str) -> int:
+    """迁移前后对账用；单独抽出来是为了能被测试替换成"故意算错"的那种。"""
+    return int(conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0)
 
 
 def migrate(engine) -> None:
@@ -79,3 +184,8 @@ def migrate(engine) -> None:
                     logger.info("迁移: %s.%s 已由并发实例创建，跳过", table, col)
                     continue
                 raise
+
+    # 结构性变更（可空性）单独走：SQLite 需要重建表，失败就抛，不静默半成品
+    if _needs_nullable_agent_id(inspect(engine), "pod_alerts"):
+        logger.info("迁移: pod_alerts.agent_id 改为可空（平台级告警不挂 agent）")
+        _make_agent_id_nullable(engine)
