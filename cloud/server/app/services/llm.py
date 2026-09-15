@@ -192,6 +192,9 @@ class ChatOutcome:
     prompt_chars: int
     response_chars: int
     usage: dict[str, Any] = field(default_factory=dict)
+    # 推理模型把预算花在 reasoning 通道上时 content 会是空串（见 call_chat 的说明）。
+    # 只有连通性自检会把这当成"通"，业务功能要文本，空内容照样是失败。
+    reasoning_only: bool = False
 
 
 def _join_endpoint(base_url: str) -> str:
@@ -346,6 +349,7 @@ def call_chat(
     max_tokens: int = 1000,
     timeout: float = DEFAULT_TIMEOUT,
     json_mode: bool = False,
+    allow_reasoning_only: bool = False,
 ) -> ChatOutcome:
     """发起一次对话补全。失败抛 LlmError（文案已归一，调用方直接展示）。"""
     prompt_chars = sum(len(m.get("content", "")) for m in messages)
@@ -406,10 +410,27 @@ def call_chat(
 
     try:
         data = resp.json()
-        content = data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        content = message["content"]
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise LlmError(f"模型响应解析失败：{resp.text[:200]}") from e
+    reasoning = message.get("reasoning_content") if isinstance(message, dict) else ""
     if not isinstance(content, str) or not content.strip():
+        # 推理模型（deepseek-reasoner / 各家 flash 系）会先把预算花在 reasoning 通道：
+        # 预算不够时 content 为空、finish_reason=length，但**接口本身是通的**。
+        # 连通性自检（allow_reasoning_only=True）据此判"通"；业务功能要的是文本，
+        # 空内容一律照旧失败——不能让空的摘要悄悄入库。
+        if allow_reasoning_only and isinstance(reasoning, str) and reasoning.strip():
+            return ChatOutcome(
+                content="",
+                model=str(data.get("model") or cfg.model),
+                provider=cfg.provider,
+                duration_ms=duration_ms,
+                prompt_chars=prompt_chars,
+                response_chars=0,
+                usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
+                reasoning_only=True,
+            )
         raise LlmError("模型返回了空内容")
 
     return ChatOutcome(
@@ -474,6 +495,12 @@ def test_connection(cfg: LlmConfig) -> dict[str, Any]:
     """连通性自检：发一个最小请求，回模型 / 耗时 / 真实错误原文。
 
     没有这个按钮，API Key 输入框就是个不可信的黑盒 —— 用户只能"存下来再看功能好不好使"。
+
+    两个坑（都踩过）：
+    - 预算给太小：推理模型会把 16 个 token 全花在 reasoning 通道上，content 为空、
+      finish_reason=length。接口明明是通的，却报"模型返回了空内容"（线上真实误报）。
+      所以这里给 256，并且 reasoning 有内容也算通。
+    - 服务端要文本：业务功能仍按"空内容=失败"处理，只有这里放宽。
     """
     started = time.monotonic()
     try:
@@ -485,8 +512,9 @@ def test_connection(cfg: LlmConfig) -> dict[str, Any]:
             ],
             feature="settings.llm_test",
             temperature=0.0,
-            max_tokens=16,
+            max_tokens=256,
             timeout=20.0,
+            allow_reasoning_only=True,
         )
     except (LlmError, LlmConfigError) as e:
         return {
@@ -505,5 +533,5 @@ def test_connection(cfg: LlmConfig) -> dict[str, Any]:
         "endpoint": cfg.endpoint,
         "latency_ms": outcome.duration_ms,
         "error": "",
-        "sample": outcome.content.strip()[:120],
+        "sample": outcome.content.strip()[:120] or "（推理模型：只回了 reasoning 通道）",
     }
