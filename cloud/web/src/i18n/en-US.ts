@@ -58,6 +58,7 @@ export const enUS: Record<string, string> = {
   '服务条款': 'Terms of Service',
   '与': 'and',
   '隐私政策': 'Privacy Policy',
+  '退款政策': 'Refund policy',
   '隐藏服务地址': 'Hide server URL',
   '配置私有化实例地址': 'Configure self-hosted URL',
   '注册并进入': 'Sign up and continue',

@@ -33,7 +33,15 @@
         <div v-if="mode === 'register'" class="legal-links">
           {{ t('注册即表示同意') }}
           <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> {{ t('与') }}
-          <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link>
+          <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link> {{ t('与') }}
+          <router-link to="/legal/refund">{{ t('退款政策') }}</router-link>
+        </div>
+        <!-- 登录态下也要能点到达三份文档：Paddle 审核收银台域名时要求站点可链到
+             「服务条款 + 隐私政策 + 退款政策」，所以这里给一条常驻页脚。 -->
+        <div class="legal-footer">
+          <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> ·
+          <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link> ·
+          <router-link to="/legal/refund">{{ t('退款政策') }}</router-link>
         </div>
         <div class="server-toggle">
           <el-link type="info" @click="showServer = !showServer">{{ showServer ? t('隐藏服务地址') : t('配置私有化实例地址') }}</el-link>
@@ -155,8 +163,6 @@ async function submit() {
 }
 </script>
 
-.legal-links { font-size: 12px; color: var(--pod-text-dim, #9aa3af); text-align: center; margin-top: 8px; }
-.legal-links a { color: #4f7cff; text-decoration: none; }
 <style scoped>
 .login-page {
   min-height: 100vh;
@@ -237,4 +243,17 @@ async function submit() {
 .error {
   margin-top: 12px;
 }
+/* 法务链接：注册态的组合 + 常驻页脚（三份文档都要点得到，Paddle 审核会看这个） */
+.legal-links { font-size: 12px; color: var(--pod-text-dim, #9aa3af); text-align: center; margin-top: 8px; }
+.legal-links a { color: #4f7cff; text-decoration: none; }
+.legal-footer {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pod-border, #2a2f37);
+  font-size: 12px;
+  color: var(--pod-text-dim, #9aa3af);
+  text-align: center;
+}
+.legal-footer a { color: var(--pod-text-dim, #9aa3af); text-decoration: none; }
+.legal-footer a:hover { color: #4f7cff; text-decoration: underline; }
 </style>

@@ -9,6 +9,8 @@ const router = createRouter({
     { path: '/reset-password', name: 'reset-password', component: () => import('../views/ResetPasswordView.vue'), meta: { public: true, title: '设置新密码' } },
     { path: '/legal/privacy', name: 'privacy', component: () => import('../views/LegalView.vue'), meta: { public: true, title: '隐私政策' } },
     { path: '/legal/terms', name: 'terms', component: () => import('../views/LegalView.vue'), meta: { public: true, title: '服务条款' } },
+    // Paddle 审核收银台域名要求站点链到「服务条款 + 隐私政策 + 退款政策」三份文档
+    { path: '/legal/refund', name: 'refund', component: () => import('../views/LegalView.vue'), meta: { public: true, title: '退款政策' } },
     { path: '/', name: 'dashboard', component: () => import('../views/DashboardView.vue'), meta: { title: '总览' } },
     { path: '/agents', name: 'agents', component: () => import('../views/AgentsView.vue'), meta: { title: 'Agent 资产' } },
     { path: '/alerts', name: 'alerts', component: () => import('../views/AlertsView.vue'), meta: { title: '告警' } },
