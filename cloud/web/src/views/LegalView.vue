@@ -39,7 +39,44 @@ const PRIVACY = `Pod Cloud 隐私政策（初稿）
 6. 安全
    - TLS 传输加密；审计哈希链防篡改；令牌只存哈希；最小权限访问控制
 
-（完整版见仓库 docs/legal/privacy-policy.md；正式发布前经法律审核）`
+（正式发布前经法律审核）
+
+────────────────────────────────────────
+
+Pod Cloud Privacy Policy (draft)
+
+1. What we collect
+   - Account data: email address, password hash, tenant name
+   - Agent metadata: name, platform, sync-token hash (the token itself is never stored)
+   - Audit event metadata: tool name, server name, timestamp, decision, approver and the
+     SHA-256 hash of arguments/output — never the arguments or output themselves
+   - Alerts: generated automatically from audit events
+   - Payment data: processed by Paddle (the legal seller for the transaction);
+     we never store card numbers
+
+2. What we do not collect
+   - Raw tool arguments, raw tool output, file contents, source code, conversation text,
+     or plaintext secrets
+
+3. How we use and share it
+   - Only to provide the service (dashboards, policies, compliance reports, alerts)
+     and to keep it secure
+   - We do not sell personal data, and we do not share it except where legally required,
+     with essential sub-processors (hosting / Paddle), or with your consent
+
+4. Retention
+   - Account deletion requests are handled within 30 days; audit-event retention is stated
+     in the release notes
+
+5. Your rights (GDPR/CCPA)
+   - Access, correction, deletion, portability, withdrawal of consent; contact details are
+     stated in the release notes
+
+6. Security
+   - TLS in transit; tamper-evident audit hash chain; tokens stored only as hashes;
+     least-privilege access control
+
+（正式发布前经法律审核 — subject to legal review before public release）`
 
 const TERMS = `Pod Cloud 服务条款（初稿）
 
@@ -64,7 +101,38 @@ const TERMS = `Pod Cloud 服务条款（初稿）
 
 8. 变更：重大变更提前 30 天通知。
 
-（完整版见仓库 docs/legal/terms-of-service.md；正式发布前经法律审核）`
+（正式发布前经法律审核）
+
+────────────────────────────────────────
+
+Pod Cloud Terms of Service (draft)
+
+1. Service: an AI-agent security SaaS (audit aggregation, policies, alerts, compliance
+   reports). The local gateway (pod CLI) is separate open-source software; these terms
+   cover the hosted service only.
+
+2. Account: registration requires a valid email address; you are responsible for all
+   activity under your account. Paid plans are billed through Paddle and can be cancelled
+   at any time.
+
+3. Acceptable use: no unlawful activity, no attacks on third parties, no malicious uploads.
+
+4. Data: you own your data. The service depends on you configuring the local gateway
+   correctly; security incidents caused by misconfiguration are your responsibility.
+
+5. Availability: 99.5% monthly target; maintenance windows are announced in advance.
+
+6. Disclaimer and limitation of liability: the service is provided “as is” and does not
+   guarantee that every security incident will be prevented. Aggregate liability is capped
+   at the amount you paid in the previous 12 months. The service is not legal or compliance
+   advice; compliance reports are informational only.
+
+7. Termination: you may delete your account at any time; we may suspend or terminate
+   accounts that violate these terms.
+
+8. Changes: material changes are announced at least 30 days in advance.
+
+（正式发布前经法律审核 — subject to legal review before public release）`
 
 // 退款政策写双语：Paddle 审核收银台域名时会逐条看这三份文档，
 // 中文版对审核方不够用；中英并排放在一页里，谁都不用"另行索取"。
@@ -145,13 +213,11 @@ const title = computed(() =>
   route.name === 'privacy' ? t('隐私政策') : route.name === 'refund' ? t('退款政策') : t('服务条款'),
 )
 // 法律文本暂以中文为准：不机翻（中英不一致时以哪版为准是法律问题，不是文案问题）。
-// 英文界面加一行说明，免得读者以为这是英文正式版。
+// 三份文档现在都自带英文版，英文界面下直接给全文；仍保留"以中文为准"的提示。
 const body = computed(() => {
   const text = route.name === 'privacy' ? PRIVACY : route.name === 'refund' ? REFUND : TERMS
   if (!locale.value.startsWith('en')) return text
-  // 退款政策本身就带英文版，不用再加"可向我们索取"那句
-  if (route.name === 'refund') return text
-  return `${t('（以下为中文正式版本；英文译本可向我们索取，正式发布前经法律审核。）')}\n\n${text}`
+  return `${t('（以下中英两份并列；如两者有出入，以中文版为准。正式发布前经法律审核。）')}\n\n${text}`
 })
 </script>
 

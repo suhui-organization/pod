@@ -779,7 +779,7 @@ export const enUS: Record<string, string> = {
     'No audit data yet — register an agent and run pod sync',
   '还没有成员': 'No members yet',
   '（无备注）': '(no note)',
-  '（以下为中文正式版本；英文译本可向我们索取，正式发布前经法律审核。）':
-    '(The Chinese text below is the authoritative version; an English translation is available on request — both will be legally reviewed before the public release.)',
+  '（以下中英两份并列；如两者有出入，以中文版为准。正式发布前经法律审核。）':
+    '(Chinese and English versions are shown side by side below; if they differ, the Chinese version governs. Both are subject to legal review before the public release.)',
   'Pod Cloud — AI Agent 安全舱': 'Pod Cloud — AI agent security control plane',
 }
