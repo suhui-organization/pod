@@ -20,7 +20,7 @@ PUBLIC_BASE_URL=https://pod.yourdomain.com      # 对外地址（支付成功跳
 PODCLOUD_BILLING_PROVIDER=paddle                # 计费平台（见 §4）
 # PODCLOUD_ALLOW_PLAN_SWITCH=0                  # 别开：开了任何人可白拿 pro（见 §4）
 PADDLE_API_KEY=pdl_live_apikey_...              # 配置后（见下）
-PADDLE_WEBHOOK_SECRET=ntfset_...
+PADDLE_WEBHOOK_SECRET=pdl_ntfset_...             # 通知端点的签名密钥（整串照抄，别去掉 pdl_ 前缀）
 PADDLE_PRICE_PRO=pri_...                        # Paddle 价格 id
 PADDLE_CLIENT_TOKEN=live_...                    # 公开值：前端加载 Paddle.js 用
 PADDLE_ENV=live                                 # sandbox | live（默认 sandbox，配错也只打测试环境）
@@ -117,7 +117,8 @@ PODCLOUD_SELFCHECK_NOTIFY=fail    # fail（默认）| all（连警告一起推�
 3. Paddle → Developer Tools → Notifications → 添加端点
    `https://pod.yourdomain.com/api/v1/subscription/webhook`
    - 订阅事件至少勾 `subscription.created` / `subscription.updated` / `subscription.canceled`
-   - 复制通知密钥到 `PADDLE_WEBHOOK_SECRET`（验签用；缺了接口一律 400，不会漏放）
+   - 复制 **endpoint secret key** 到 `PADDLE_WEBHOOK_SECRET`（验签用；缺了接口一律 400，不会漏放）
+     值是整串 `pdl_ntfset_...` —— 别只抄 `_` 后面那段，前缀也是密钥的一部分
 4. 客户端：把 default payment link 配好（收银台地址由它决定），
    Client-side token 填 `PADDLE_CLIENT_TOKEN`（公开值，前端加载 Paddle.js 用）
 5. `PADDLE_ENV` 先 `sandbox` 跑通，再切 `live`
