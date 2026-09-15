@@ -31,7 +31,7 @@ const LOCALE = args.get('locale') ?? 'en-US'
 const MIN_LINES = Number(args.get('min-lines') ?? 8)
 const CHROME = args.get('chrome') ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
-const ROUTES = ['/', '/agents', '/alerts', '/timeline', '/control-plane', '/traces', '/policies', '/rules', '/harden', '/subscription', '/users', '/profile', '/settings']
+const ROUTES = ['/', '/agents', '/alerts', '/timeline', '/control-plane', '/traces', '/policies', '/rules', '/harden', '/selfcheck', '/subscription', '/users', '/profile', '/settings']
 
 // 允许保留中文的"数据"：账号自己的名字 + 机器同步上云的审计原文（进过哈希链，按设计不翻）
 const DATA_PATTERNS = [

@@ -32,7 +32,9 @@ def _recent_alerts(db: Session, tenant_id: int, limit: int = 50) -> list[dict]:
     since = datetime.utcnow() - timedelta(hours=24)
     rows = (
         db.query(PodAlert, Agent.name)
-        .join(Agent, PodAlert.agent_id == Agent.id)
+        # 平台级告警（系统自检，agent_id 为空）也要进摘要：漏掉它，
+        # 用户就会以为"昨天一切正常"，而其实是密钥/模型那类问题没被测到。
+        .outerjoin(Agent, PodAlert.agent_id == Agent.id)
         .filter(PodAlert.tenant_id == tenant_id, PodAlert.created_at >= since)
         .order_by(PodAlert.id.desc())
         .limit(limit)
@@ -40,7 +42,7 @@ def _recent_alerts(db: Session, tenant_id: int, limit: int = 50) -> list[dict]:
     )
     return [
         {
-            "agent": name,
+            "agent": name or "Pod Cloud",
             "severity": a.severity,
             "kind": a.kind,
             "message": a.message,

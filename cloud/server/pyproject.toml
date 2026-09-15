@@ -15,7 +15,6 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "reportlab>=4.0",
     "python-multipart>=0.0.9",
-    "stripe>=9.0",
 ]
 
 [dependency-groups]

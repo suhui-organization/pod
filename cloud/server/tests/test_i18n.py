@@ -20,6 +20,11 @@ def test_translate_falls_back_to_source():
     assert t("这条还没翻译", "en-US") == "这条还没翻译"
     assert t("邮箱已注册", "zh-CN") == "邮箱已注册"
     assert t("邮箱已注册", "en-US") == "This email is already registered"
+    # 带占位符时中文也要填充：曾经中文直接返回原文，界面上就出现 "{err}" 这种半成品
+    assert t("模型还没配好：{err}", "zh-CN", err="缺 API Key") == "模型还没配好：缺 API Key"
+    assert t("模型还没配好：{err}", "en-US", err="missing API key") == "Model is not configured yet: missing API key"
+    # 占位符没给全时退回原文，不抛错（错误文案不该再制造一个错误）
+    assert t("模型还没配好：{err}", "zh-CN") == "模型还没配好：{err}"
     # 带数值的文案按模式认领
     assert (
         t_dynamic("当前计划最多 3 个 agent（已用 5）；升级计划后再注册", "en-US")

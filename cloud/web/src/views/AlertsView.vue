@@ -78,6 +78,7 @@ const kinds = [
   'agent_silence',
   'manual_approval',
   'tool_first_use',
+  'selfcheck',
 ]
 const severityLabel = (s: string) => ({ high: t('高危'), medium: t('中危'), low: t('低危') })[s] ?? s
 const kindLabel = (k: string) =>
@@ -93,6 +94,7 @@ const kindLabel = (k: string) =>
     agent_silence: t('Agent 失联'),
     manual_approval: t('人工批准'),
     tool_first_use: t('新工具首次使用'),
+    selfcheck: t('系统自检'),
   })[k] ?? k
 const alerts = ref<Awaited<ReturnType<typeof api.alerts>>['alerts']>([])
 const aiSummary = ref<string | null>(null)

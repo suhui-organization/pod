@@ -125,8 +125,7 @@ const { t } = useI18n()
 
 /**
  * Paddle.js 的全局对象。Paddle Billing 的收银台是**跑在我们自己页面上**的
- * overlay（不是 Stripe 那种托管页），所以必须加载它的脚本并 Initialize。
- * 只有在 provider=paddle 时才需要。
+ * overlay（不是托管收银台页面），所以必须加载它的脚本并 Initialize。
  */
 declare global {
   interface Window {
@@ -181,9 +180,9 @@ const plans = [
 const info = ref<SubscriptionInfo | null>(null)
 /** 本部署是否启用计费（自托管默认关闭：不限量、无入口） */
 const billingEnabled = ref(true) // 加载完成前按"启用"渲染，避免闪一下自托管提示
-/** 支付通道是否已开通（后端 billing_configured；旧字段名 stripe_configured 兼容保留） */
+/** 支付通道是否已开通（后端 billing_configured） */
 const billingConfigured = ref(false)
-/** 当前计费平台 id（stripe / paddle / creem / waffo） */
+/** 当前计费平台 id（paddle；再接平台时后端会多出别的 id） */
 const billingProvider = ref('')
 /** 升级被挡下时留在页面上的提示（比一闪而过的 toast 更容易照着做） */
 const upgradeNotice = ref('')
@@ -221,7 +220,6 @@ const renewText = computed(() => {
 
 /** 支付平台展示名：后端只给 id，文案在这里映射 */
 const PROVIDER_LABELS: Record<string, string> = {
-  stripe: 'Stripe',
   paddle: 'Paddle',
   creem: 'Creem',
   waffo: 'Waffo',
@@ -273,7 +271,8 @@ async function upgrade() {
         settings: { successUrl: `${window.location.origin}/subscription?status=success` },
       })
     } else {
-      // Stripe：托管收银台，跳过去即可
+      // 没有 Paddle.js（或还没 Initialize 完）时兜底：直接跳收银台地址。
+      // 这条路径不会带上 successUrl，但不会把用户卡在原地。
       window.location.href = r.checkout_url
     }
   } catch (e) {
@@ -292,12 +291,11 @@ async function load() {
     billingEnabled.value = info.value.billing_enabled !== false
     const raw = info.value as unknown as {
       billing_configured?: boolean
-      stripe_configured?: boolean
       billing_provider?: string
       paddle_client_token?: string
       paddle_environment?: string
     }
-    billingConfigured.value = Boolean(raw.billing_configured ?? raw.stripe_configured)
+    billingConfigured.value = Boolean(raw.billing_configured)
     billingProvider.value = raw.billing_provider ?? ''
     if (billingProvider.value === 'paddle') {
       await setupPaddle(raw.paddle_client_token ?? '', raw.paddle_environment ?? 'sandbox')

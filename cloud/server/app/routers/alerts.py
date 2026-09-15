@@ -26,8 +26,16 @@ def list_alerts(
     db: Session = Depends(get_db),
     tenant_id: int = Depends(get_current_tenant_id),
 ):
-    """租户告警列表（新→旧），含 agent 名；可按 kind/severity/state 筛选。"""
-    q = db.query(PodAlert, Agent.name).join(Agent, PodAlert.agent_id == Agent.id).filter(PodAlert.tenant_id == tenant_id)
+    """租户告警列表（新→旧），含 agent 名；可按 kind/severity/state 筛选。
+
+    平台级告警（系统自检发现的云端问题，agent_id 为空）也在这一条列表里 ——
+    用户要的是一个入口能看全，而不是"还有个地方也得去翻"。它们显示为 Pod Cloud。
+    """
+    q = (
+        db.query(PodAlert, Agent.name)
+        .outerjoin(Agent, PodAlert.agent_id == Agent.id)
+        .filter(PodAlert.tenant_id == tenant_id)
+    )
     if kind:
         q = q.filter(PodAlert.kind == kind)
     if severity:
@@ -39,7 +47,7 @@ def list_alerts(
         "alerts": [
             {
                 "id": a.id,
-                "agent": name,
+                "agent": name or "Pod Cloud",
                 "agent_id": a.agent_id,
                 "kind": a.kind,
                 "severity": a.severity,

@@ -18,6 +18,7 @@
           <el-option :label="tr('最近 1 小时')" :value="60" />
           <el-option :label="tr('最近 24 小时')" :value="1440" />
           <el-option :label="tr('最近 7 天')" :value="10080" />
+          <el-option :label="tr('最近 30 天')" :value="43200" />
         </el-select>
         <el-button :loading="loading" @click="load">{{ tr('刷新') }}</el-button>
       </div>
@@ -130,7 +131,20 @@
       </aside>
     </div>
 
-    <el-empty v-else-if="!loading" :description="tr('窗口内暂无任务数据(Agent 先跑出审计并 pod sync)')" :image-size="80" />
+    <div v-else-if="!loading" class="empty">
+      <el-empty :image-size="80">
+        <template #description>
+          <div class="e-title">{{ tr('窗口内暂无任务数据') }}</div>
+          <div v-if="lastEventAt" class="e-sub">
+            {{ tr('最近一条审计事件：{t}（{ago}）', { t: fmtDT(lastEventAt), ago: agoText(lastEventAt) }) }}
+          </div>
+          <div v-else class="e-sub">{{ tr('Agent 先跑出审计并 pod sync，这里就会出现任务链') }}</div>
+        </template>
+        <el-button v-if="lastEventAt && minutes < 43200" type="primary" plain @click="showWider">
+          {{ tr('按最近 30 天查看') }}
+        </el-button>
+      </el-empty>
+    </div>
   </div>
 </template>
 
@@ -157,6 +171,8 @@ const loading = ref(false)
 const activeId = ref('')
 const compareIds = ref<string[]>([])
 const chartEl = ref<HTMLDivElement>()
+// 窗口外的最新一条审计：空态里告诉用户"数据其实是几号的"，别让人误以为没采到
+const lastEventAt = ref<string | null>(null)
 const detail = ref<{ kind: 'root' | 'call'; task?: Task; call?: Call } | null>(null)
 const rootDetail = computed(() => (detail.value?.kind === 'root' ? (detail.value.task ?? null) : null))
 const callDetail = computed(() => (detail.value?.kind === 'call' ? (detail.value.call ?? null) : null))
@@ -223,6 +239,22 @@ function fmtDT(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${fmtTime(iso)}`
+}
+/** 相对时间（空态提示"12 天前"这种）：精度到天/小时/分钟就够 */
+function agoText(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (mins < 1) return tr('刚刚')
+  if (mins < 60) return tr('{n} 分钟前', { n: mins })
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return tr('{n} 小时前', { n: hours })
+  return tr('{n} 天前', { n: Math.floor(hours / 24) })
+}
+/** 空态里"看不到数据但在别处有"时的一键放大窗口 */
+function showWider() {
+  minutes.value = 43200
+  load()
 }
 const decisionLabel = (d: string) => ({ allow: tr('放行'), approve: tr('审批'), deny: tr('拒绝') })[d] ?? d
 const outcomeLabel = (o: string) => ({ ok: tr('成功'), blocked: tr('被拦'), error: tr('异常') })[o] ?? o
@@ -377,7 +409,13 @@ function renderChart() {
   if (!el) return
   const lanesData = computeLanes(laneTasks.value)
   chartHeight.value = lanesData.height
-  if (!chart) chart = echarts.init(el)
+  // 空态会把图谱容器整体卸掉(v-if)，回来时是一个**新的** div。
+  // 只判 `!chart` 会拿旧实例往新 div 上画——canvas 不会重建，图直接空白
+  // 且 echarts 内部抛错。所以实例必须与当前 DOM 绑定。
+  if (!chart || chart.getDom() !== el) {
+    chart?.dispose()
+    chart = echarts.init(el)
+  }
   chart.setOption(graphOption(lanesData), true)
   chart.resize()
   // 节点点击 → 右侧详情(每个点处理了什么)
@@ -403,6 +441,7 @@ async function load() {
     users.value = r.users
     tasks.value = r.tasks
     gap.value = r.gap_minutes
+    lastEventAt.value = r.last_event_at ?? null
     pickFirst()
   } finally {
     loading.value = false
@@ -456,6 +495,11 @@ onBeforeUnmount(() => {
 .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .stat { display: flex; align-items: baseline; gap: 6px; background: var(--pod-panel-bg, #161a1f); border: 1px solid var(--pod-border, #2a2f37); border-radius: 10px; padding: 6px 12px; font-size: 12px; color: var(--pod-text-dim, #9aa3af); cursor: default; }
 .stat b { font-size: 16px; color: var(--pod-text, #e6edf3); }
+
+/* 空态: 说清"是窗口里没有, 不是没采到"——带上最近一条审计的时间与一键放大窗口 */
+.empty { border: 1px dashed var(--pod-border, #2a2f37); border-radius: 12px; padding: 24px 16px; }
+.empty .e-title { font-size: 14px; color: var(--pod-text, #e6edf3); }
+.empty .e-sub { font-size: 12px; color: var(--pod-text-dim, #9aa3af); margin-top: 6px; font-family: ui-monospace, monospace; }
 
 .cmp-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--pod-text-dim, #9aa3af); flex-wrap: wrap; }
 

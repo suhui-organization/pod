@@ -19,6 +19,8 @@ const router = createRouter({
     { path: '/policies', name: 'policies', component: () => import('../views/PoliciesView.vue'), meta: { title: '策略中心' } },
     { path: '/rules', name: 'rules', component: () => import('../views/RulesView.vue'), meta: { title: '规则包' } },
     { path: '/harden', name: 'harden', component: () => import('../views/HardenView.vue'), meta: { title: '加固报告' } },
+    // 自检会真实调用模型、写审计，且能改状态：只给管理员
+    { path: '/selfcheck', name: 'selfcheck', component: () => import('../views/SelfCheckView.vue'), meta: { admin: true, title: '系统自检' } },
     { path: '/subscription', name: 'subscription', component: () => import('../views/SubscriptionView.vue'), meta: { title: '订阅' } },
     { path: '/users', name: 'users', component: () => import('../views/UsersView.vue'), meta: { admin: true, title: '成员管理' } },
     { path: '/profile', name: 'profile', component: () => import('../views/ProfileView.vue'), meta: { title: '个人资料' } },

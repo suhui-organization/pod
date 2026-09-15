@@ -16,6 +16,7 @@ from app.database import Base, engine
 from app.i18n import resolve_locale, translate_detail
 from app.migrations import migrate
 from app.routers import admin, agents, alerts, auth, control_events, dashboard, harden, policies, reports, rules, settings, subscription, sync, tenants, timeline, traces, users
+from app.routers import selfcheck
 
 Base.metadata.create_all(bind=engine)
 migrate(engine)  # 轻量列迁移(幂等,为已有库补新列)
@@ -75,6 +76,16 @@ try:
 except Exception as e:  # noqa: BLE001 日报调度启动失败不影响服务
     print(f"[podcloud] digest scheduler failed to start: {e}", flush=True)
 
+try:
+    from app.services.selfcheck_scheduler import enabled, start_selfcheck_scheduler
+
+    if enabled():
+        start_selfcheck_scheduler(get_db)
+    else:
+        print("[podcloud] selfcheck scheduler disabled (PODCLOUD_SELFCHECK_ENABLED=off)", flush=True)
+except Exception as e:  # noqa: BLE001 巡检调度启动失败不影响服务
+    print(f"[podcloud] selfcheck scheduler failed to start: {e}", flush=True)
+
 
 API = "/api/v1"
 app.include_router(auth.router, prefix=API)
@@ -95,3 +106,4 @@ app.include_router(alerts.router, prefix=API)
 app.include_router(timeline.router, prefix=API)
 app.include_router(control_events.router, prefix=API)  # /api/v1/control-events: 控制平面事件（钩子/身份/委托/熔断）
 app.include_router(traces.router, prefix=API)  # /api/v1/traces: 调用链追踪(任务→调用图谱)
+app.include_router(selfcheck.router, prefix=API)  # /api/v1/selfcheck: 一键自检 + 自修复

@@ -134,3 +134,9 @@ class LlmTestIn(BaseModel):
     model: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+
+
+class SelfCheckIn(BaseModel):
+    """一键自检：repair=true 时先自修复再检查。"""
+
+    repair: bool = False

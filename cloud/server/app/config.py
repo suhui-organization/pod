@@ -31,19 +31,21 @@ class Settings:
     allow_plan_switch: bool = _env_flag(
         "PODCLOUD_ALLOW_PLAN_SWITCH", default=(_ENV == "dev")
     )
-    # 计费平台：stripe 已实现；paddle / creem / waffo 等 MoR 走同一套接口
-    billing_provider: str = os.environ.get("PODCLOUD_BILLING_PROVIDER", "stripe")
+    # 计费平台：paddle（MoR，唯一通道）；Creem / Waffo 等走同一套接口
+    billing_provider: str = os.environ.get("PODCLOUD_BILLING_PROVIDER", "paddle")
     # 计费开关：auto（默认，有支付通道配置才启用）| on | off
     #   自托管/本地部署不需要收费能力——关掉之后：前端不显示订阅入口、
     #   结账与回调接口明确拒绝、agent 数量不再受套餐限制。
     #   auto 是为了兼容两种现实：配了 Paddle 的实例自动启用，没配的自然关闭。
     billing_enabled_setting: str = os.environ.get("PODCLOUD_BILLING_ENABLED", "auto").strip().lower()
-    # Stripe 计费（provider=stripe 时使用）
-    stripe_secret_key: str = os.environ.get("STRIPE_SECRET_KEY", "")
-    stripe_webhook_secret: str = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-    stripe_price_pro: str = os.environ.get("STRIPE_PRICE_PRO", "")  # 专业版订阅 price id
-    stripe_price_free: str = os.environ.get("STRIPE_PRICE_FREE", "")
-    # Paddle（provider=paddle 时使用；MoR，无海外主体也能收）
+    # ── 每日自检巡检 ──（详见 app/services/selfcheck_scheduler.py）
+    selfcheck_enabled: str = os.environ.get("PODCLOUD_SELFCHECK_ENABLED", "on")
+    selfcheck_hour: int = int(os.environ.get("PODCLOUD_SELFCHECK_HOUR", "8"))  # 北京时间整点
+    selfcheck_repair: str = os.environ.get("PODCLOUD_SELFCHECK_REPAIR", "0")  # 1 = 先自修复
+    selfcheck_notify: str = os.environ.get("PODCLOUD_SELFCHECK_NOTIFY", "fail")  # fail|all|off
+    # 结构性迁移（要重建表的那种）前先按原样拷一份 SQLite 库文件；off 可关
+    migrate_backup: str = os.environ.get("PODCLOUD_MIGRATE_BACKUP", "on")
+    # Paddle（唯一计费通道：MoR，代收全球卡 / 代算代缴 VAT-GST，无海外主体也能收）
     paddle_api_key: str = os.environ.get("PADDLE_API_KEY", "")
     paddle_webhook_secret: str = os.environ.get("PADDLE_WEBHOOK_SECRET", "")
     paddle_price_pro: str = os.environ.get("PADDLE_PRICE_PRO", "")  # 专业版订阅价格 id（pri_…）

@@ -38,7 +38,9 @@ WEB_PORT=18089 bash deploy/install.sh
 | SMTP（`PODCLOUD_SMTP_*`） | 否 | 留空则重置链接写服务端日志（`docker compose logs` 可见），自托管下是既定行为 |
 | `PODCLOUD_DB_URL` | 否 | 默认 SQLite（存在卷 `podcloud-data`）。要 PostgreSQL 时填连接串 |
 | `PODCLOUD_BILLING_ENABLED` | 否 | `auto`（默认，配了支付通道才启用）/ `off`（强制关闭）/ `on`（强制启用） |
-| `PADDLE_*` / `STRIPE_*` | 否 | 计费凭据。**不填即完全关闭**，不影响其它功能 |
+| `PADDLE_*` | 否 | 计费凭据（Paddle 是当前唯一支付通道，MoR）。**不填即完全关闭**，不影响其它功能 |
+| `PODCLOUD_SELFCHECK_*` | 否 | 每日巡检：`ENABLED`（默认 `on`）/ `HOUR`（北京时间整点，默认 8）/ `REPAIR`（`1`=巡检时先自修复）/ `NOTIFY`（`fail` 默认 / `all` / `off`）。失败走「设置 · 告警通知」里配的 webhook 或邮件 |
+| `PODCLOUD_MIGRATE_BACKUP` | 否 | 结构性迁移（要重建表的那种）前自动拷一份 SQLite 库文件，默认 `on`；`off` 关掉 |
 | `PODCLOUD_LLM_*` | 否 | AI 摘要类接口。不填则该功能提示未配置，其余正常 |
 
 ### 计费开关（自托管请保持关闭）

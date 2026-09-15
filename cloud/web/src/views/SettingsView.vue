@@ -68,6 +68,9 @@
         <el-form-item>
           <el-button type="primary" :loading="llmSaving" @click="saveLlm">{{ t('保存') }}</el-button>
           <el-button :loading="llmTesting" @click="testLlm">{{ t('测试连接') }}</el-button>
+          <el-button link type="primary" @click="router.push('/selfcheck')">
+            {{ t('模型连通后，去跑一次系统自检 →') }}
+          </el-button>
           <span class="hint">{{ t('测试用上面的表单（未保存也能测），会真实发一次请求并进审计') }}</span>
         </el-form-item>
       </el-form>
@@ -234,6 +237,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { api } from '../api'
 import type { LlmSettings, LlmTestResult } from '../api/types'
 import AiNotice from '../components/AiNotice.vue'
@@ -242,6 +246,7 @@ import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const auth = useAuthStore()
 const ai = useAiStore()
