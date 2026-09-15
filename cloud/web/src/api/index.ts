@@ -218,6 +218,8 @@ export const api = {
         warn: number
         fail: number
         repaired: number
+        /** 这项不适用（例如自托管没配模型），不是故障 */
+        info?: number
         /** 这次巡检对告警列表做了什么（历史里附带的计数） */
         alerts_created?: number
         alerts_resolved?: number
@@ -226,7 +228,7 @@ export const api = {
       checks?: Array<{
         id: string
         title: string
-        status: 'pass' | 'warn' | 'fail'
+        status: 'pass' | 'warn' | 'fail' | 'info'
         detail: string
         hint: string
         repairable: boolean
@@ -244,14 +246,14 @@ export const api = {
     started_at: string
     finished_at: string
     locale: string
-    summary: { pass: number; warn: number; fail: number; repaired: number }
+    summary: { pass: number; warn: number; fail: number; info?: number; repaired: number }
     /** 这次自检对告警列表做了什么：新开的 / 自动关闭的告警 id */
     alerts: { created: number[]; resolved: number[] }
     repairs: string[]
     checks: Array<{
       id: string
       title: string
-      status: 'pass' | 'warn' | 'fail'
+      status: 'pass' | 'warn' | 'fail' | 'info'
       detail: string
       hint: string
       repairable: boolean

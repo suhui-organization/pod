@@ -487,6 +487,7 @@ export const enUS: Record<string, string> = {
   '这次检查通过的项已自动关闭 {n} 条告警': 'Auto-resolved {n} alert(s) whose checks now pass',
   '告警 +{n}': '{n} new alert(s)',
   '自动关闭 {n} 条告警': 'auto-resolved {n} alert(s)',
+  '{n} 未配置': '{n} not configured',
   '立即推送一份': 'Push one now',
   '等待接入…': 'Waiting for connection…',
   '策略 JSON': 'Policy JSON',
