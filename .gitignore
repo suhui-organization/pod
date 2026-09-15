@@ -13,6 +13,9 @@ venv/
 *.pyc
 .pytest_cache/
 *.db
+# WAL 模式的副产品（跑测试会生成 podcloud.db-wal/-shm）
+*.db-wal
+*.db-shm
 *.sqlite3
 deploy/.env
 cloud/web/tsconfig.tsbuildinfo

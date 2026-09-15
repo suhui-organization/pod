@@ -371,6 +371,10 @@ def _check_llm(db: Session, tenant_id: int, locale: str) -> dict:
             t("模型还没配好：{err}", locale, err=str(e)[:160]),
             t("到「设置 · 模型」填好 provider / 模型 / API Key，先点连通性测试", locale),
         )
+    # 下面这一步要出网，最长 20 秒。**必须先收掉这一段读事务**：
+    # SQLite 里"开着读事务再去写"的两个请求会互相锁死，而同步心跳是高频写。
+    # 之前就是这里攥着读锁打电话，导致收尾 INSERT 直接 database is locked（线上 500）。
+    db.commit()
     res = llm.test_connection(model_cfg)
     if not res.get("ok"):
         return _check(
