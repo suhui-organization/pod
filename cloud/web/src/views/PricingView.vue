@@ -45,6 +45,9 @@
       <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> ·
       <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link> ·
       <router-link to="/legal/refund">{{ t('退款政策') }}</router-link>
+      <div class="contact">
+        {{ t('联系我们：') }}<a href="mailto:iverson.wuwei@gmail.com">iverson.wuwei@gmail.com</a>
+      </div>
     </footer>
   </div>
 </template>
@@ -166,4 +169,5 @@ const plans = [
 }
 .pricing-foot a { color: var(--pod-text-dim); text-decoration: none; }
 .pricing-foot a:hover { color: #4f7cff; text-decoration: underline; }
+.contact { margin-top: 6px; }
 </style>

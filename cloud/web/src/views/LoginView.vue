@@ -43,6 +43,11 @@
           <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> ·
           <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link> ·
           <router-link to="/legal/refund">{{ t('退款政策') }}</router-link>
+          <!-- 支付平台在审核收银台域名时明确要求「首页能到达的联系邮箱或表单」。
+               这条以前只在登录后的订阅页里，访客和审核方都看不到。 -->
+          <div class="contact">
+            {{ t('联系我们：') }}<a href="mailto:iverson.wuwei@gmail.com">iverson.wuwei@gmail.com</a>
+          </div>
         </div>
         <div class="server-toggle">
           <el-link type="info" @click="showServer = !showServer">{{ showServer ? t('隐藏服务地址') : t('配置私有化实例地址') }}</el-link>
@@ -257,4 +262,6 @@ async function submit() {
 }
 .legal-footer a { color: var(--pod-text-dim, #9aa3af); text-decoration: none; }
 .legal-footer a:hover { color: #4f7cff; text-decoration: underline; }
+/* 联系方式单独一行：审核方要在首页就能看到，不能藏在文档里 */
+.contact { margin-top: 6px; }
 </style>
