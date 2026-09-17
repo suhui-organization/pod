@@ -42,6 +42,7 @@
     </p>
 
     <footer class="pricing-foot">
+      <router-link to="/product">{{ t('产品介绍') }}</router-link> ·
       <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> ·
       <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link> ·
       <router-link to="/legal/refund">{{ t('退款政策') }}</router-link>

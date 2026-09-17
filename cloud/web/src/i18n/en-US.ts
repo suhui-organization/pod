@@ -789,6 +789,33 @@ export const enUS: Record<string, string> = {
   '登录后订阅': 'Sign in to subscribe',
   // 首页/定价页页脚的联系方式：支付平台审核收银台域名时要求「首页能到达的联系邮箱或表单」
   '联系我们：': 'Contact us: ',
+  // 公开产品介绍页（/product）：支付平台审核会索要「Product page」直链
+  '产品介绍': 'Product',
+  '核心能力': 'Capabilities',
+  '交付方式': 'How it is delivered',
+  '适用对象': 'Who it is for',
+  '价格与交付': 'Pricing and delivery',
+  '查看定价': 'See pricing',
+  'Pod Cloud 是给「跑 AI Agent 的团队」用的安全控制平面：把本地 Agent 的工具调用统一收口，留下不可篡改的审计记录，并用策略与审批拦下危险操作。':
+    'Pod Cloud is a security control plane for teams running AI agents: it funnels the tool calls made by local agents into one place, keeps a tamper-evident audit trail, and blocks risky operations behind policies and approvals.',
+  'SHA-256 哈希链审计：每次工具调用都留证，改一个字节就能验出来':
+    'SHA-256 hash-chain audit: every tool call is recorded as evidence — change a single byte and verification fails',
+  '策略闸门与审批：按工具、路径、参数决定放行 / 审批 / 拒绝':
+    'Policy gate and approvals: allow, require approval, or deny by tool, path and arguments',
+  '跨 Agent 证据链：完整时间线，支持事后追溯':
+    'Cross-agent evidence chain: one complete timeline for after-the-fact investigation',
+  '合规报告：GDPR Art.30 处理活动记录':
+    'Compliance reports: GDPR Article 30 records of processing activities',
+  '云端告警：密钥读取、注入信号、拒绝突增':
+    'Cloud alerts: secret access, injection signals, spikes in denials',
+  '云端 SaaS：浏览器打开控制台即可使用，无需安装':
+    'Cloud SaaS: open the console in a browser — nothing to install',
+  '本地网关：开源 CLI（pod），跑在用户自己的机器上；同一套代码也支持私有化部署':
+    'Local gateway: an open-source CLI (pod) that runs on the customer’s own machine; the same code can be self-hosted',
+  '使用 AI 编码与自动化 Agent 的工程团队和安全团队。':
+    'Engineering and security teams that use AI coding and automation agents.',
+  '基础版免费；专业版 $19/月，按月订阅、随时可取消。':
+    'The basic plan is free; Pro is US$19/month, billed monthly and cancellable at any time.',
   '价格以下单时收银台显示为准，币种为美元。订阅通过 Paddle 收款——Paddle 是这笔交易的记录商家，负责开票、代缴税费（VAT/GST）与退款。可随时在控制台取消，取消后当前已付周期继续可用。':
     'The price shown at checkout applies, in USD. Payment is collected by Paddle — Paddle is the merchant of record for this transaction and handles invoicing, taxes (VAT/GST) and refunds. You can cancel any time from the console and keep access until the end of the period you have already paid for.',
   '所有计划都包含本地开源网关（pod CLI）、审计哈希链、策略闸门与告警；付费计划增加跨 Agent 证据链、合规报告和更多 Agent 席位。':

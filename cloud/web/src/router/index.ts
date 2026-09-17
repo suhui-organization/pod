@@ -13,6 +13,8 @@ const router = createRouter({
     { path: '/legal/refund', name: 'refund', component: () => import('../views/LegalView.vue'), meta: { public: true, title: '退款政策' } },
     // Paddle 站点验证还要一个公开定价页：`/subscription` 在登录态里，审核方看不到
     { path: '/pricing', name: 'pricing', component: () => import('../views/PricingView.vue'), meta: { public: true, title: '定价' } },
+    // 支付平台审核会索要「Product page」直链：只有定价页时审核方看不到在卖什么
+    { path: '/product', name: 'product', component: () => import('../views/ProductView.vue'), meta: { public: true, title: '产品介绍' } },
     { path: '/', name: 'dashboard', component: () => import('../views/DashboardView.vue'), meta: { title: '总览' } },
     { path: '/agents', name: 'agents', component: () => import('../views/AgentsView.vue'), meta: { title: 'Agent 资产' } },
     { path: '/alerts', name: 'alerts', component: () => import('../views/AlertsView.vue'), meta: { title: '告警' } },

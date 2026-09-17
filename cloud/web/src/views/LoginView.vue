@@ -39,6 +39,7 @@
         <!-- 登录态下也要能点到达三份文档：Paddle 审核收银台域名时要求站点可链到
              「服务条款 + 隐私政策 + 退款政策」，所以这里给一条常驻页脚。 -->
         <div class="legal-footer">
+          <router-link to="/product">{{ t('产品介绍') }}</router-link> ·
           <router-link to="/pricing">{{ t('定价') }}</router-link> ·
           <router-link to="/legal/terms">{{ t('服务条款') }}</router-link> ·
           <router-link to="/legal/privacy">{{ t('隐私政策') }}</router-link> ·
