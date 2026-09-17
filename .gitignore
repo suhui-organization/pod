@@ -16,6 +16,9 @@ venv/
 # WAL 模式的副产品（跑测试会生成 podcloud.db-wal/-shm）
 *.db-wal
 *.db-shm
+# 结构迁移前的自动备份（app/migrations.py 生成 <db>.bak-<时间戳>-pre-structural-migration）
+# 它和 .db 一样是本地状态——里面是真实数据，绝不能进仓库
+*.db.bak-*
 *.sqlite3
 deploy/.env
 cloud/web/tsconfig.tsbuildinfo
