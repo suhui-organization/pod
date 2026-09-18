@@ -26,6 +26,9 @@ class Settings:
     # 本次构建的标识（镜像 tag / commit）。由 deploy/Dockerfile 的 BUILD_TAG 注入。
     # 存在的意义：回答"这个实例跑的是哪次构建"——界面与运维都不用再靠猜。
     build_tag: str = os.environ.get("PODCLOUD_BUILD_TAG", "dev")
+    # 本次构建来自哪个 commit。tag 现在是**每镜像独立的内容指纹**（server/web 各自算，
+    # 本来就不同），所以"前后端是不是同一次发布"只能按 commit 判断，不能再按 tag。
+    build_commit: str = os.environ.get("PODCLOUD_BUILD_COMMIT", "")
     provider: str = os.environ.get("PODCLOUD_PROVIDER", "auto")
     mcp_commands: str = os.environ.get("PODCLOUD_MCP_COMMANDS", "")
     # 免支付切换套餐：只在 dev 默认开启。

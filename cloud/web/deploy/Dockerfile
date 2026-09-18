@@ -7,6 +7,11 @@ FROM node:20-alpine AS build
 ARG BUILD_TAG=dev
 ENV VITE_BUILD_TAG=$BUILD_TAG
 
+# 本次构建来自哪个 commit（与后端 /auth/config 的 build_commit 对照）。
+# tag 是每镜像独立的内容指纹，不能用来判断"前后端是不是同一次发布"。
+ARG BUILD_COMMIT=
+ENV VITE_BUILD_COMMIT=$BUILD_COMMIT
+
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

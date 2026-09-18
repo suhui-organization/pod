@@ -121,7 +121,10 @@ build_image() { # $1=repo $2=镜像名 $3=server|web $4=tag $5=content_fp
   fi
   # BUILD_TAG 打进镜像（后端 /auth/config 会返回它，前端侧栏显示它）：
   # 界面与 curl 都能直接回答"这次滚的是哪个 tag"。
-  ( cd "$repo" && docker build --build-arg "BUILD_TAG=$tag" -f deploy/Dockerfile -t "$name:$tag" . ) \
+  # BUILD_COMMIT：tag 是每镜像独立的内容指纹，前后端"是不是同一次发布"只能按 commit 判断
+  ( cd "$repo" && docker build --build-arg "BUILD_TAG=$tag" \
+      --build-arg "BUILD_COMMIT=$(git rev-parse HEAD 2>/dev/null || true)" \
+      -f deploy/Dockerfile -t "$name:$tag" . ) \
     || fail "构建 $name 失败"
   printf '%s' "$fp" > "$stamp"
   REBUILT+=("$name")

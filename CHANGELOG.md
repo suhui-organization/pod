@@ -1,5 +1,33 @@
 # Changelog
 
+## 未发布 — 构建一致性改按 commit 判断；发布脚本支持强制重发
+
+上一版把镜像 tag 改成每镜像独立的内容指纹（`fp-<hash>`）之后，带出两个尾巴，这一版收掉。
+
+### 1. "只滚了一半"的检测从 tag 改成 commit
+
+旧口径靠"两个镜像共用一个 `main-<commit>` tag"来判断前后端是否同一次发布。tag 改成
+每镜像独立的内容指纹后，server 与 web 天生不同，拿 tag 比只会变成**假告警**——
+而假告警会让人开始忽略那一行，等于把检测废掉。
+
+所以现在：
+
+- 两个镜像都打进 `BUILD_COMMIT`（`--build-arg`，来自本次发布的 commit）；
+- 后端 `/api/v1/auth/config` 返回 `build_commit`；
+- 前端拿自己的 `BUILD_COMMIT` 与它对照，**不一致才标红**；
+- 没有 commit 的旧镜像 / 本地 dev 退回旧的 tag 规则（只在 `main-<sha>` 形态下比对）。
+
+一句话：tag 回答"是不是这份内容"，commit 回答"是不是同一次发布"。
+
+### 2. `REPUBLISH=1`：强制重发一次
+
+内容未变时脚本幂等空跑——这通常是想要的，但偶尔需要真的重发一次（验证发布路径、
+替换可疑镜像、节点镜像被清理）。`REPUBLISH=1 bash install-server.sh` 会强制重建并滚动。
+
+这里有个容易踩的坑，一并修掉了：同 tag 重建时镜像引用没变，`set image` 是空操作，
+必须走 `rollout restart` 才会真正拉到新镜像。现在脚本按"镜像引用是否变化"自动二选一
+（引用变了 → `set image`；没变 → `rollout restart`）。
+
 ## 未发布 — 服务器发布按内容指纹打 tag：只改 CLI / 文档不再重启线上
 
 `install-server.sh` 的镜像 tag 原来是 `main-<commit>`，于是**只要 main 往前走一次**

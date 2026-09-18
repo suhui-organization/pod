@@ -34,6 +34,7 @@
 #   SKIP_VERIFY=1 跳过发布后的健康验证
 #   DRY_RUN=1     只打印计划
 #   LOCAL_BUILD=1 从**本机 HEAD** 构建（默认从节点的 origin/<GIT_REF> 构建）
+#   REPUBLISH=1   即使内容指纹一致也重建并滚动一次（验证发布路径 / 替换可疑镜像）
 #
 # 为什么 tag 不再用 commit:
 #   服务器上重启一次是 Recreate（SQLite 不能被两个 Pod 同时写），会有几十秒 API 不可用。
@@ -181,6 +182,19 @@ if [ "$WEB_OK" = "1" ] && ! image_in_ctr "${RUN_WEB_IMG##*/}"; then
   WEB_OK=0
 fi
 echo "     判定     : server=$([ "$SERVER_OK" = "1" ] && echo '内容未变（跳过）' || echo '内容已变（发布）')  web=$([ "$WEB_OK" = "1" ] && echo '内容未变（跳过）' || echo '内容已变（发布）')"
+
+# 该用 `set image` 还是 `rollout restart`：看**镜像引用**变没变。
+#   引用变了（含旧 main-<sha> → fp-<指纹>）→ set image 就会触发滚动；
+#   引用没变（REPUBLISH 同 tag 重建）→ set image 是空操作，必须显式 restart，
+#   否则 kubelet 按 tag 命中旧层缓存，重启也拉不到新内容。
+SERVER_SWITCH=0; WEB_SWITCH=0
+[ "$RUN_SERVER_IMG" = "podcloud-server:$SERVER_TAG" ] || SERVER_SWITCH=1
+[ "$RUN_WEB_IMG" = "podcloud-web:$WEB_TAG" ] || WEB_SWITCH=1
+
+if [ "${REPUBLISH:-0}" = "1" ]; then
+  warn "REPUBLISH=1 → 即使内容一致也重建并滚动一次（验证发布路径 / 替换可疑镜像）"
+  SERVER_OK=0; WEB_OK=0
+fi
 if [ "$SERVER_OK" = "1" ] && [ "$WEB_OK" = "1" ]; then
   ok "两个镜像的内容都没变——无需发布（幂等空跑）"
   exit 0
@@ -226,9 +240,9 @@ else
   build_image() { # $1=server|web  $2=tag
     local kind="$1" tag="$2"
     if [ "$LOCAL_BUILD" = "1" ]; then
-      run_or_print bash -c "cd '$REPO_ROOT' && docker build --build-arg BUILD_TAG=$tag -f cloud/$kind/deploy/Dockerfile -t podcloud-$kind:$tag cloud/$kind"
+      run_or_print bash -c "cd '$REPO_ROOT' && docker build --build-arg BUILD_TAG=$tag --build-arg BUILD_COMMIT=$TARGET_SHA -f cloud/$kind/deploy/Dockerfile -t podcloud-$kind:$tag cloud/$kind"
     else
-      run_or_print ssh_node "cd '$BUILD_DIR' && docker build --build-arg BUILD_TAG=$tag -f cloud/$kind/deploy/Dockerfile -t podcloud-$kind:$tag cloud/$kind"
+      run_or_print ssh_node "cd '$BUILD_DIR' && docker build --build-arg BUILD_TAG=$tag --build-arg BUILD_COMMIT=$TARGET_SHA -f cloud/$kind/deploy/Dockerfile -t podcloud-$kind:$tag cloud/$kind"
     fi
     ok "镜像构建完成: podcloud-$kind:$tag"
   }
@@ -281,22 +295,42 @@ step "5/6 滚动发布（顺序：server → web）"
 # 顺序是硬约束：新前端会调服务端新增端点，两个一起重启会出现
 # 「新前端 + 旧后端」的窗口，用户刷新就 404（见 docs/rolling-update.md §4.2）。
 if [ "${DRY_RUN:-0}" = "1" ]; then
-  [ "$SERVER_OK" = "1" ] || echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-server server=podcloud-server:$SERVER_TAG && rollout status（会中断几十秒）"
-  [ "$WEB_OK" = "1" ]    || echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-web web=podcloud-web:$WEB_TAG"
-else
   if [ "$SERVER_OK" != "1" ]; then
-    kubectl -n "$NS" set image deploy/podcloud-server "server=podcloud-server:$SERVER_TAG" >/dev/null
-    kubectl -n "$NS" rollout status deploy/podcloud-server --timeout=300s
-    kubectl -n "$NS" annotate deploy/podcloud-server "podsec/build-commit=$TARGET_SHA" --overwrite >/dev/null
-    ok "server 已就绪: $SERVER_TAG（commit $TARGET_SHORT）"
+    if [ "$SERVER_SWITCH" = "1" ]; then
+      echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-server server=podcloud-server:$SERVER_TAG && rollout status（会中断几十秒）"
+    else
+      echo "   [dry-run] kubectl -n $NS rollout restart deploy/podcloud-server && rollout status（同 tag 重建：会中断几十秒）"
+    fi
+  fi
+  if [ "$WEB_OK" != "1" ]; then
+    if [ "$WEB_SWITCH" = "1" ]; then
+      echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-web web=podcloud-web:$WEB_TAG"
+    else
+      echo "   [dry-run] kubectl -n $NS rollout restart deploy/podcloud-web（同 tag 重建）"
+    fi
+  fi
+else
+  roll_out() { # $1=server|web  $2=tag
+    local kind="$1" tag="$2" deploy="podcloud-$1"
+    local switch="$([ "$kind" = "server" ] && echo "$SERVER_SWITCH" || echo "$WEB_SWITCH")"
+    if [ "$switch" = "1" ]; then
+      kubectl -n "$NS" set image "deploy/$deploy" "$kind=$deploy:$tag" >/dev/null
+    else
+      # 同 tag 重建：镜像引用没变，kubelet 会命中旧层缓存 → 必须显式重启才会用新镜像
+      kubectl -n "$NS" rollout restart "deploy/$deploy" >/dev/null
+    fi
+    kubectl -n "$NS" rollout status "deploy/$deploy" --timeout=300s
+    kubectl -n "$NS" annotate "deploy/$deploy" "podsec/build-commit=$TARGET_SHA" --overwrite >/dev/null
+    ok "$kind 已就绪: $tag（commit $TARGET_SHORT）"
+  }
+  # 顺序是硬约束：server 先滚完并就绪，再滚 web
+  if [ "$SERVER_OK" != "1" ]; then
+    roll_out server "$SERVER_TAG"
   else
     ok "server 内容未变，跳过（仍为 ${RUN_SERVER_IMG##*:}）"
   fi
   if [ "$WEB_OK" != "1" ]; then
-    kubectl -n "$NS" set image deploy/podcloud-web "web=podcloud-web:$WEB_TAG" >/dev/null
-    kubectl -n "$NS" rollout status deploy/podcloud-web --timeout=300s
-    kubectl -n "$NS" annotate deploy/podcloud-web "podsec/build-commit=$TARGET_SHA" --overwrite >/dev/null
-    ok "web 已就绪: $WEB_TAG（commit $TARGET_SHORT）"
+    roll_out web "$WEB_TAG"
   else
     ok "web 内容未变，跳过（仍为 ${RUN_WEB_IMG##*:}）"
   fi

@@ -30,11 +30,11 @@
              那正是滚动发布最容易漏掉的一种破法（新前端撞旧后端，见 rolling-update §4.2）。 -->
         <div
           class="nav-build"
-          :class="{ 'nav-build--mismatch': !sameBuild(deployment.buildTag || null) }"
+          :class="{ 'nav-build--mismatch': !sameBuild(deployment.buildTag || null, deployment.buildCommit || null) }"
           :title="buildTitle"
         >
           <span>{{ t('构建') }} {{ deployment.buildTag || '…' }}</span>
-          <span v-if="!sameBuild(deployment.buildTag || null)" class="nav-build__web">
+          <span v-if="!sameBuild(deployment.buildTag || null, deployment.buildCommit || null)" class="nav-build__web">
             {{ t('前端 {tag}（与后端不是同一次构建）', { tag: WEB_BUILD_TAG }) }}
           </span>
         </div>
@@ -91,7 +91,7 @@ const deployment = useDeploymentStore()
 /** 悬停时把两个标识都给全：侧栏一行放不下，但排障时要看得到 */
 const buildTitle = computed(() => {
   const server = deployment.buildTag || '（未知）'
-  const same = sameBuild(deployment.buildTag || null)
+  const same = sameBuild(deployment.buildTag || null, deployment.buildCommit || null)
   return same
     ? `后端镜像 ${server} · 前端 ${WEB_BUILD_TAG}`
     : `后端镜像 ${server} · 前端 ${WEB_BUILD_TAG} —— 不是同一次构建，可能只滚了一半`

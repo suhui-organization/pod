@@ -63,6 +63,20 @@ def test_auth_config_exposes_billing_switch(client, monkeypatch):
     assert body["billing_provider"] == ""
 
 
+def test_auth_config_exposes_build_identity(client, monkeypatch):
+    """构建标识要同时给 tag 与 commit。
+
+    镜像 tag 现在是**每镜像独立的内容指纹**（server / web 各自算，天生不同），
+    所以"前后端是不是同一次发布"只能按 commit 判断——前端拿自己的 BUILD_COMMIT
+    与这里的 build_commit 对照，不一致才是"只滚了一半"。
+    """
+    monkeypatch.setattr(settings, "build_tag", "fp-77edcdf5a8a4")
+    monkeypatch.setattr(settings, "build_commit", "672289fe0f02be181faa9be588a73a35139de100")
+    body = client.get("/api/v1/auth/config").json()
+    assert body["build"] == "fp-77edcdf5a8a4"
+    assert body["build_commit"] == "672289fe0f02be181faa9be588a73a35139de100"
+
+
 def test_plan_switch_disabled_outside_dev(client, monkeypatch):
     """非 dev 环境：升级必须走结账，降级仍然自助。"""
     monkeypatch.setattr(settings, "allow_plan_switch", False)
