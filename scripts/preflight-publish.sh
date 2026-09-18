@@ -59,9 +59,15 @@ step "3. 内容稿引用的 pod 子命令都在 CLI 里"
 if [ -f apps/cli/dist/index.js ]; then
   HELP="$(node apps/cli/dist/index.js --help 2>&1)"
   UNKNOWN=0
-  # 只从**代码块**里取命令：否则英文正文里的 "pod writes the rules…" 会被当成子命令
-  for cmd in $(awk '/^```/{f=!f; next} f' docs/content/*.md docs/content/publish/*.md 2>/dev/null \
-      | grep -oE '(^|[[:space:]])(\$ )?pod [a-z][a-z-]+' | awk '{print $NF}' | sort -u); do
+  # 只从**代码块**里取命令，且必须是**行首的**命令：
+  #   - 逐文件跑 awk：某个文件少一个围栏会让状态泄漏到下一个文件，把正文当成代码；
+  #   - 要求行首（可缩进、可有 `$ ` 提示符）：英文正文里的 "a pod hash-chained audit"
+  #     这类定语、以及 markdown 表格里的 "| pod hash-chained audit |" 都不是命令。
+  #     （真机踩过：英文稿里的表格把 "pod hash-chained" 报成未知子命令，卡住发版门禁。）
+  for cmd in $(for f in docs/content/*.md docs/content/publish/*.md; do
+      [ -f "$f" ] || continue
+      awk '/^```/{fence=!fence; next} fence' "$f"
+    done | grep -oE '^[[:space:]]*(\$ )?pod [a-z][a-z-]+' | awk '{print $NF}' | sort -u); do
     if echo "$HELP" | grep -qE "(^| )$cmd(\$| )" || echo "$HELP" | grep -q "pod $cmd"; then :; else
       bad "内容里出现未知子命令: pod ${cmd}"; UNKNOWN=1
     fi
