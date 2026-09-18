@@ -1,6 +1,14 @@
 # Changelog
 
-## 未发布 — 构建一致性改按 commit 判断；发布脚本支持强制重发
+## v0.4.0 — 多 agent 漏洞扫描 + 纳管/接管/切执法；审计交付物可被对方独立校验
+
+这一版把"多 harness 的安全"从概念做成闭环：**扫描**（`pod guard`）→ **纳管/接管/切执法**
+（`pod agents` + 本地控制台）→ **可交付的审计物**（`pod harden`，对方能用 `--verify` 独立校验）。
+同时补上英文正文、`pod --version` 自查、以及按内容指纹打 tag 的服务器发布。
+
+下面每一节都是这一版的一部分——它们原先散在"未发布"里，发版时归拢到版本号下。
+
+### 构建一致性改按 commit 判断；发布脚本支持强制重发
 
 上一版把镜像 tag 改成每镜像独立的内容指纹（`fp-<hash>`）之后，带出两个尾巴，这一版收掉。
 
@@ -28,7 +36,7 @@
 必须走 `rollout restart` 才会真正拉到新镜像。现在脚本按"镜像引用是否变化"自动二选一
 （引用变了 → `set image`；没变 → `rollout restart`）。
 
-## 未发布 — 服务器发布按内容指纹打 tag：只改 CLI / 文档不再重启线上
+### 服务器发布按内容指纹打 tag：只改 CLI / 文档不再重启线上
 
 `install-server.sh` 的镜像 tag 原来是 `main-<commit>`，于是**只要 main 往前走一次**
 就会换 tag → 重建镜像 → `set image` 滚动。而 server 是 `Recreate`（SQLite 不能被两个
@@ -56,7 +64,7 @@ Pod 同时写），每次都是几十秒 API 不可用——哪怕这次合并�
 顺带修掉一个隐患：原来"tag 相同就空跑"不看镜像是否还在 containerd；镜像被清理过时
 空跑会让集群起不来。现在内容一致还要加一条"镜像确实在 containerd 里"才敢跳过。
 
-## 未发布 — 英文正文补全：海外读者拿到的是一份全英文的报告
+### 英文正文补全：海外读者拿到的是一份全英文的报告
 
 上一版把框架文案翻了，但缺一块要命的：**报告正文**（威胁目录的标题/摘要/处置建议、
 判定层生成的 finding 文案、策略草稿的判定依据）。英文模式下会中英混排——对一份要交给
@@ -95,7 +103,7 @@ Pod 同时写），每次都是几十秒 API 不可用——哪怕这次合并�
 
 全量 `pnpm test` 572 项通过，typecheck 通过，i18n 覆盖 751/751（100%）。
 
-## 未发布 — 扫描变成漏斗，审计交付物变成客户能自己验的东西
+### 扫描变成漏斗，审计交付物变成客户能自己验的东西
 
 这一版改的是**交付形态**，不是判定能力：同样一份扫描结果，操作者要的是"我现在做什么"，
 客户要的是"这份结论能不能被复核"。两者需要两份不同的输出。
@@ -134,7 +142,7 @@ Pod 同时写），每次都是几十秒 API 不可用——哪怕这次合并�
 `apps/cli/test/harden.test.ts` 新增 5 项（封面元信息、可交付结构、`--verify` 通过/失败/
 非交付目录、跨层去重）。全量 `pnpm test` 565 项通过，i18n 覆盖 100%。
 
-## 未发布 — 纳管/接管/切执法的事件改成"上得了云"的落点
+### 纳管/接管/切执法的事件改成"上得了云"的落点
 
 一个用户最先发现的问题：**pocloud 上看不到本地做的事**。查下来是事件落点错了。
 
@@ -169,7 +177,7 @@ Pod 同时写），每次都是几十秒 API 不可用——哪怕这次合并�
   这是这条链路唯一的自动化保险——线上那个"0 条"正是没有它才悄悄发生的。
 - 控制台三个测试文件的断言从 `_control` 改成 agent 链。
 
-## 未发布 — 页面与 API 都能看出"这是哪次构建"
+### 页面与 API 都能看出"这是哪次构建"
 
 起因是一个很直接的问题：**"从页面上怎么看出哪些是新功能？"**——答案是看不出来：
 两个控制台都没有构建标识，只能靠"找新元素"或翻运维命令判断版本。
@@ -199,7 +207,7 @@ commit 由 Vite 构建时注入；`+` 表示**构建时工作区有未提交改�
 默认仍是"从节点的 origin/<ref> 构建"，保证镜像对应已推送的 commit。
 发布验证也换成了核对构建标识，而不是拿 401/404 猜。
 
-## 未发布 — 服务器集群发布固化成脚本（`install-server.sh`）
+### 服务器集群发布固化成脚本（`install-server.sh`）
 
 ### 新增：`cloud/server/deploy/k8s/install-server.sh`
 
@@ -249,7 +257,7 @@ KUBECONFIG=~/.kube/config-server.yaml PUBLIC_URL=https://podcloud.dlszjr.com \
 发布后验证：集群内 web→server 反代正常，公开地址 `/` `/pricing` `/product` 200、
 `/api/v1/rules/pack` 与 `/api/v1/harden/reports` 401（401 = 端点在，404 = 旧版本）。
 
-## 未发布 — 第三步：切执法（让网关真的拦）
+### 第三步：切执法（让网关真的拦）
 
 接管只是让调用**经过**网关；这一步让网关**真的判**。
 
@@ -296,7 +304,7 @@ KUBECONFIG=~/.kube/config-server.yaml PUBLIC_URL=https://podcloud.dlszjr.com \
   回到只录不拦、重复切换被拒、逐步撤销）；`server.test.ts` 补 3 例。
 - `pod agents` 补 4 例（无策略拒绝、dry-run、切执法、退回）。合计新增 16 例。
 
-## 未发布 — 第二步：接管（把 MCP server 包进网关）
+### 第二步：接管（把 MCP server 包进网关）
 
 纳管只把资产纳入管理；MCP server 仍然是直连的，策略与审计对它无效。这一版补上第二步：
 
@@ -349,7 +357,7 @@ KUBECONFIG=~/.kube/config-server.yaml PUBLIC_URL=https://podcloud.dlszjr.com \
   `server.test.ts` 补 3 例（计划接口只读、接管+还原端到端、只读模式下 403）。
 - `pod agents` 补 4 例（dry-run 不改配置、`--yes` 接管、revert 还原、缺 pod 时拒绝）。
 
-## 未发布 — 一键纳管：扫描本机 agent，逐个加入监控
+### 一键纳管：扫描本机 agent，逐个加入监控
 
 ### 新增：控制台「扫描本机 agent」+「加入监控」（`pod agents`）
 
@@ -392,7 +400,7 @@ KUBECONFIG=~/.kube/config-server.yaml PUBLIC_URL=https://podcloud.dlszjr.com \
   端到端纳管/移除、返回新鲜 payload）。
 - `pod agents`：`apps/cli/test/agents.test.ts`（10 例，真跑子进程）。
 
-## 未发布 — 多 agent / 多 harness 持续加固（`pod guard`）
+### 多 agent / 多 harness 持续加固（`pod guard`）
 
 ### 新增：`pod guard`
 

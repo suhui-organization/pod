@@ -975,7 +975,34 @@ function cmdOnboard(opts: OnboardOptions): void {
   }
 }
 
+/**
+ * CLI 自身的版本（`pod --version`）。
+ *
+ * 来源是 apps/cli/package.json——发版时它要和 CHANGELOG / install.sh / README 一起改
+ * （`scripts/preflight-publish.sh` 会校验一致性）。dist/index.js 与 src/index.ts 到
+ * package.json 的相对位置相同，所以打包前后都读得到。
+ */
+function cliVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { version?: string };
+    return pkg.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 async function main(): Promise<void> {
+  // `pod --version` / `pod -V` / `pod version`：在 parseArgs 之前拦下来。
+  // 为什么不能交给 parseArgs：`--version` 已被 `pod rules pack --version <pack-version>`
+  // 占用（string 类型），直接跑 `pod --version` 会报 "argument missing" 而不是打版本。
+  // 排查"我装的是哪一版"必须是一条能跑的命令——发版时尤其如此。
+  const rawArgv = process.argv.slice(2);
+  if (rawArgv.length === 1 && ['--version', '-V', 'version'].includes(rawArgv[0]!)) {
+    log(`pod ${cliVersion()}`);
+    return;
+  }
   const { values, positionals } = parseArgs({
     args: normalizePodArgs(process.argv.slice(2)),
     allowPositionals: true,
@@ -2672,6 +2699,7 @@ Usage:
   pod graph baseline [--graph <potential.json>] [--observed <observed.json>] [--agent <name>] [--out-dir <dir>] [--capability-diff <file>] [--json]
   pod graph retention [--days 14] [--out-dir <dir>] [--json]
   pod --help [--lang zh-CN|en-US]
+  pod --version
 
 record: record-only mode (corpus collection) — wrap a real MCP server without blocking anything.
 policy draft: compile a least-privilege policy draft from recorded calls (read-only; --diff against a baseline).
@@ -2775,6 +2803,7 @@ Usage:
   pod graph baseline [--graph <potential.json>] [--observed <observed.json>] [--agent <name>] [--out-dir <dir>] [--capability-diff <file>] [--json]
   pod graph retention [--days 14] [--out-dir <dir>] [--json]
   pod --help
+  pod --version
 
 record: 只录不拦模式（Phase 0 语料采集），从 dsh-mcp-manager 配置包装真实 MCP server。
 policy draft: 从录制语料生成最小权限策略草稿（只读审计，不自动启用）；--diff 对比基线策略，输出收紧/放宽清单。

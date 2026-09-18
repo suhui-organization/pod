@@ -12,15 +12,16 @@
 | A1 | 跑全量门禁 | 本地 `pnpm test`、云端 `pytest`、前端 `npm run build` 全绿 |
 | A2 | 跑 `bash scripts/preflight-publish.sh` | 26 项全过（含干净环境安装 + 主路径冒烟） |
 | A3 | 更新 `CHANGELOG.md` | 新增版本条目：做了什么 / 已知边界 |
-| A4 | 三处版本号一起改 | `CHANGELOG.md`、`scripts/install.sh` 的默认 `POD_VERSION`、`README.md` 的 `raw/<tag>` 链接 |
+| A4 | 四处版本号一起改 | `CHANGELOG.md`、`scripts/install.sh` 的默认 `POD_VERSION`、`README.md` 的 `raw/<tag>` 链接、`apps/cli/package.json` 的 `version`（`pod --version` 读它） |
 | A5 | 版本号改动走 PR 合并，再打 tag 推双远端 | 分支上改完 → 开 PR → CI 全绿 → 合并；`git tag -a vX.Y.Z` → `git push github vX.Y.Z` + `git push gitee vX.Y.Z` |
 | A6 | 建 Release | GitHub 用 `gh release create`（正文取 CHANGELOG 该节）；Gitee 手动建或给令牌 |
 | A7 | 验证钉版本安装链接 | `bash scripts/preflight-publish.sh` 第 5 项已覆盖；或手动 curl 一次 |
 | A8 | 看一眼仓库页的 Sponsor 按钮 | 右上角出现 **Sponsor**（`.github/FUNDING.yml` 指向的账号已开通 GitHub Sponsors 并有公开档位；文件必须在默认分支 main 上——三条缺一条就是**静默不显示**，不会报错） |
 
-**为什么 A4 必须是三处一起改**：`install.sh` 决定克隆哪份代码，README 决定用哪份
-脚本。只改一处 = "旧脚本 + 新代码" 或 "新链接 + 老代码"，发布版形同虚设。
-预检还会检查**第四处**：`docs/content/` 里四篇内容稿的安装命令必须钉在当前版本
+**为什么 A4 必须是四处一起改**：`install.sh` 决定克隆哪份代码，README 决定用哪份
+脚本，`apps/cli/package.json` 决定 `pod --version` 报什么。只改一处 = "旧脚本 + 新代码"、
+"新链接 + 老代码"，或者"装的是新版、自查显示旧版"。预检还会检查**第五处**：
+`docs/content/` 里四篇内容稿的安装命令必须钉在当前版本
 （它们是下一轮要发的东西，读者照着敲就会装到那一版）。改完记得跑一次
 `preflight-publish.sh` —— 它就是这么发现漏改的。
 
