@@ -65,6 +65,7 @@ import { watchPending } from './watch.js';
 import { buildDigest, renderDigest } from './digest.js';
 import { collectPathCandidates, createSnapshot, listSnapshots, restoreSnapshot } from './snapshot.js';
 import { runSync, pullPolicies, loadCloudConfig, uploadHardenReport } from './sync.js';
+import { cliVersion } from './protocol.js';
 import {
   buildTimeline,
   renderTimeline,
@@ -982,17 +983,6 @@ function cmdOnboard(opts: OnboardOptions): void {
  * （`scripts/preflight-publish.sh` 会校验一致性）。dist/index.js 与 src/index.ts 到
  * package.json 的相对位置相同，所以打包前后都读得到。
  */
-function cliVersion(): string {
-  try {
-    const pkg = JSON.parse(
-      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-    ) as { version?: string };
-    return pkg.version ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
 async function main(): Promise<void> {
   // `pod --version` / `pod -V` / `pod version`：在 parseArgs 之前拦下来。
   // 为什么不能交给 parseArgs：`--version` 已被 `pod rules pack --version <pack-version>`
@@ -1270,6 +1260,8 @@ async function main(): Promise<void> {
       apiUrl: values['api-url'],
       agentId: values['agent-id'] ? Number.parseInt(values['agent-id'], 10) : undefined,
       syncToken: values['sync-token'],
+      home: values.home ?? homedir(),
+      rules: resolveRules(values.rules, POD_HOME),
     });
     if (result.total_synced === 0) log('nothing to sync');
     for (const srv of result.servers) log(`synced ${srv.synced} events from "${srv.server}"`);
@@ -1296,6 +1288,8 @@ async function main(): Promise<void> {
       log(t('{count} 项失败，其余已照常同步；修好上面这些再跑一次 pod sync。', { count: result.failures.length }));
       process.exitCode = 1;
     }
+    // 协议提示：不阻断同步，但"少了一半能力"必须说出来
+    for (const n of result.notices) log(`⚠️ ${n}`);
     return;
   }
 

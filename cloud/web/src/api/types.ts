@@ -46,6 +46,20 @@ export interface PasswordChangeResult {
   user: MeProfile
 }
 
+/**
+ * 机器自己上报的健康摘要（只含计数，随 pod sync 的心跳上来）。
+ *
+ * 为什么要它：控制台此前只知道"这台机器多久没同步"。"在线"和"真的在保护"
+ * 是两件事——网关可能没起、审计链可能断了、还有 server 绕过网关，
+ * 这三件事只有机器自己能看见（契约见 docs/local-cloud-contract.md）。
+ */
+export interface AgentHealth {
+  audit: { chains: number; broken: number; last_call_at: string | null }
+  coverage: { servers: number; unmanaged: number }
+  guard: { high: number; medium: number; low: number; scanned_at: string } | null
+  errors: string[]
+}
+
 export interface AgentItem {
   id: number
   name: string
@@ -58,6 +72,13 @@ export interface AgentItem {
   quarantine_reason: string
   quarantined_at: string | null
   quarantined_by: string
+  /** 本机 pod 版本（随心跳上报；老客户端为空） */
+  pod_version: string
+  /** 协议版本：两端错配的判定依据；0 = 老客户端没上报 */
+  protocol_version: number
+  /** 健康摘要；没上报就是 null，不用默认值冒充"健康" */
+  health: AgentHealth | null
+  health_at: string | null
   created_at: string
 }
 

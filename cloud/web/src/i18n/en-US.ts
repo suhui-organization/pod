@@ -668,6 +668,18 @@ export const enUS: Record<string, string> = {
   '发布规则包': 'Publish rule pack',
   '完整': 'Intact',
   '审计链': 'Audit chain',
+  // —— 机器健康摘要（AgentsView；由本机随心跳上报）——
+  '未上报健康状态（本机 pod 0.4.0 起随心跳上报，升级后可见）':
+    'No health reported yet (local pod 0.4.0+ reports it with each heartbeat; upgrade to see it)',
+  '审计链 {n} 条断裂（记录被改过）': '{n} audit chain(s) broken (records were modified)',
+  '审计链 {n} 条完整': '{n} audit chain(s) intact',
+  '网关最近活动 {at}': 'Gateway last active {at}',
+  '网关还没有调用记录': 'Gateway has no calls recorded yet',
+  '漏洞扫描 {n} 项 high': 'Vulnerability scan: {n} high',
+  '漏洞扫描无 high': 'Vulnerability scan: no high',
+  '漏洞扫描未上报': 'Vulnerability scan not reported',
+  '{n} 个 server 绕过网关': '{n} server(s) bypass the gateway',
+  '{n} 个 server 全部经过网关': 'All {n} server(s) go through the gateway',
   '将 {v} 设为生效版本？机器下次拉取时会换成这一版（本地仍会验签 + 过放宽守卫）。':
     'Make {v} the active version? Machines switch to it on their next pull (they still verify the signature and pass the loosening guard locally).',
   '已下发熔断：{name} 下次 pod sync 时生效': 'Quarantine published: takes effect for {name} on the next pod sync',

@@ -70,6 +70,8 @@ export const enUS: Record<string, string> = {
     'Fix: pod onboard --yes (or run pod onboard first to preview the plan)',
   '未配置 cloud.json（pod sync/pull-policy 不可用，本地功能不受影响）':
     'cloud.json not configured (pod sync / pull-policy unavailable; local features unaffected)',
+  '本机 pod 版本比云端支持的最低协议更旧（云端协议 {server}），建议升级：pod 的部分能力不会被云端识别。':
+    'This machine runs an older protocol than the cloud supports (cloud protocol {server}). Upgrading pod is recommended: parts of its capability will not be recognised by the cloud.',
   '审计目录: {dir}': 'Audit directory: {dir}',
 
   // ── 策略 ──

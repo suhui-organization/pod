@@ -45,6 +45,15 @@ def _infer_platform(name: str) -> str:
 
 
 def agent_out(a: Agent, event_count: int = 0) -> dict:
+    # 健康摘要由机器自己上报（只含计数），坏了就当没有——不用默认值冒充"健康"
+    health = None
+    if a.health_json:
+        try:
+            import json
+
+            health = json.loads(a.health_json)
+        except ValueError:
+            health = None
     return {
         "id": a.id,
         "name": a.name,
@@ -57,6 +66,12 @@ def agent_out(a: Agent, event_count: int = 0) -> dict:
         "quarantine_reason": a.quarantine_reason or "",
         "quarantined_at": a.quarantined_at.isoformat() if a.quarantined_at else None,
         "quarantined_by": a.quarantined_by or "",
+        # 版本与健康（契约 docs/local-cloud-contract.md）：
+        # "在线"不等于"真的在保护"，这三项让控制台能区分开
+        "pod_version": a.pod_version or "",
+        "protocol_version": int(a.protocol_version or 0),
+        "health": health,
+        "health_at": a.health_at.isoformat() if a.health_at else None,
         "created_at": a.created_at.isoformat(),
     }
 

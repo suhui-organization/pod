@@ -43,6 +43,11 @@ _COLUMN_MIGRATIONS = {
         "quarantine_reason": "ALTER TABLE pod_agents ADD COLUMN quarantine_reason TEXT DEFAULT ''",
         "quarantined_at": "ALTER TABLE pod_agents ADD COLUMN quarantined_at TIMESTAMP NULL",
         "quarantined_by": "ALTER TABLE pod_agents ADD COLUMN quarantined_by VARCHAR(128) DEFAULT ''",
+        # 端 A 上报的版本与健康摘要（契约 docs/local-cloud-contract.md）
+        "pod_version": "ALTER TABLE pod_agents ADD COLUMN pod_version VARCHAR(32) DEFAULT ''",
+        "protocol_version": "ALTER TABLE pod_agents ADD COLUMN protocol_version INTEGER DEFAULT 0",
+        "health_json": "ALTER TABLE pod_agents ADD COLUMN health_json TEXT DEFAULT ''",
+        "health_at": "ALTER TABLE pod_agents ADD COLUMN health_at TIMESTAMP NULL",
     },
     "pod_subscriptions": {
         # 计费平台无关化：不再只存单一平台的 customer id
