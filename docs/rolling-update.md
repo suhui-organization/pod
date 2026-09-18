@@ -63,11 +63,32 @@ bash cloud/server/deploy/k8s/install-local.sh
 | | 服务器集群 | 本机 kind |
 |---|---|---|
 | 脚本 | `install-server.sh` | `install-local.sh` |
-| 镜像 tag | `main-<commit>`（可追溯到 commit） | `fp-<内容指纹>` |
+| 镜像 tag | `fp-<内容指纹>`（server / web 各自独立；commit 记在 Deployment 注解 `podsec/build-commit`） | `fp-<内容指纹>` |
 | 构建在哪 | **节点上**（集群没有公网镜像仓） | 本机 |
 | 怎么让 k8s 看到镜像 | `docker save \| ctr -n k8s.io images import -`（docker 里的镜像 kubelet 看不见） | `kind load docker-image` |
 | 清单来源 | 线上对象（手工调过，见 [server-cluster-snapshot.yaml](../cloud/server/deploy/k8s/server-cluster-snapshot.yaml)）；脚本只 `set image`，**不 apply** | 仓库模板渲染后 apply |
 | server 发布策略 | `Recreate`（SQLite 不能被两个 Pod 同时写）→ **几十秒 API 不可用** | RollingUpdate |
+
+**为什么 tag 不跟 commit 走。** server 重启是 `Recreate`，一次就是几十秒 API 不可用。
+按 commit 打 tag 的话，"只改了 pod CLI / 文档"的合并也会换 tag → 白重启一次。
+所以 tag 只跟**真正进镜像的文件内容**走：`cloud/server`（Dockerfile + requirements +
+`app/` + `scripts/`）与 `cloud/web` 各自算指纹，谁的指纹变了才滚谁。
+
+因此：
+
+- 只改 CLI / 文档 / `deploy/k8s` 下脚本的合并 → **不重建、不重启**（脚本幂等空跑）；
+- 只改前端 → 只滚 web，server 不动，连数据库备份都跳过（server 没重启）；
+- 只改后端 → 只滚 server（仍先备份库），web 不动；
+- 从旧的 `main-<commit>` 切换过来时，脚本会算出那个 commit 的内容指纹并比对——
+  内容一致就空跑，**切换本身不触发重启**，等 `cloud/` 真变了再自然换 tag。
+
+要查线上跑的到底是哪个 commit：
+
+```bash
+kubectl -n podcloud get deploy podcloud-server \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"  "}{.metadata.annotations.podsec/build-commit}{"\n"}'
+# podcloud-server:fp-77edcdf5a8a4  5adea8ac469ca8aa1b0d701b29ae04dcc8e38be
+```
 
 两条脚本都是幂等的：已经在目标 tag 上就空跑退出。
 
