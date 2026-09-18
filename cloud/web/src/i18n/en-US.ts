@@ -680,6 +680,21 @@ export const enUS: Record<string, string> = {
   '漏洞扫描未上报': 'Vulnerability scan not reported',
   '{n} 个 server 绕过网关': '{n} server(s) bypass the gateway',
   '{n} 个 server 全部经过网关': 'All {n} server(s) go through the gateway',
+  // —— ② 资产 / ③ 发现（机器上报，云端只聚合展示）——
+  '网关覆盖率（机器上报）': 'Gateway coverage (reported by machines)',
+  '{unmanaged} 个 MCP server 绕过网关（涉及 {agents} 台机器）——这些 server 的策略、审批与审计都不生效。':
+    '{unmanaged} MCP server(s) bypass the gateway (across {agents} machine(s)) — policy, approval and audit do not apply to them.',
+  '纳管 harness {managed}/{total}': 'Harnesses managed: {managed}/{total}',
+  '扫描发现（机器上报）': 'Scan findings (reported by machines)',
+  'high / 全部 · 来自 {agents} 台机器的最近一次扫描':
+    'high / all · from the latest scan of {agents} machine(s)',
+  '还没有机器上报扫描结果（本机 pod 0.4.1 起随 sync 上报）':
+    'No machine has reported scan results yet (local pod 0.4.1+ reports them with each sync)',
+  'harness {managed}/{total} 已纳管': 'Harnesses managed: {managed}/{total}',
+  'server {total} 个，其中 {n} 个绕过网关': '{total} server(s), {n} bypass the gateway',
+  'server {total} 个全部经过网关': 'All {total} server(s) go through the gateway',
+  '发现 high {high} · medium {medium}': 'Findings: high {high} · medium {medium}',
+  '资产更新于 {at}': 'Assets updated {at}',
   '将 {v} 设为生效版本？机器下次拉取时会换成这一版（本地仍会验签 + 过放宽守卫）。':
     'Make {v} the active version? Machines switch to it on their next pull (they still verify the signature and pass the loosening guard locally).',
   '已下发熔断：{name} 下次 pod sync 时生效': 'Quarantine published: takes effect for {name} on the next pod sync',

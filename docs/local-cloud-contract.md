@@ -26,6 +26,8 @@
 |---|---|---|---|---|
 | `POST /api/v1/sync/events` | A → B | `pod sync`（默认每 30 分钟） | 审计事件：`tool` / `args_hash` / `output_hash` / `decision` / `reason` / `prev_hash` / `hash` / `seq` / `kind`。**不含参数与输出原文** | `X-Sync-Token` |
 | `POST /api/v1/sync/ping` | A → B | 同上次 sync 一起 | 心跳 + 版本 + **健康摘要**（见 §3）。老客户端不带 body，照常 200 | `X-Sync-Token` |
+| `POST /api/v1/sync/inventory` | A → B | 随 `pod sync` | **② 资产清单**：harness 清单 + 纳管状态、MCP server 清单与是否经过网关、覆盖率、规则版本（见 §3.2） | `X-Sync-Token` |
+| `POST /api/v1/sync/findings` | A → B | 随 `pod sync` | **③ 发现**：漏洞扫描与控制平面姿态的结果，按（威胁/类别 × 级别 × harness）聚合计数（见 §3.3） | `X-Sync-Token` |
 | `POST /api/v1/harden/reports` | A → B | `pod harden --upload`（手动/一次性） | `report.md` + `findings.json`。**不含 `evidence.json`（原始审计链）** | `X-Sync-Token` |
 | `GET /api/v1/sync/quarantine` | B → A | 随 `pod sync` | 熔断**期望状态**（幂等，机器什么时候上线都会收敛） | `X-Sync-Token` |
 | `GET /api/v1/sync/policies` | B → A | `pod pull-policy` | 签名策略（本地验签后生效） | `X-Sync-Token` |
@@ -75,6 +77,58 @@ X-Pod-Version: 0.4.0     # 客户端版本（pod --version 打的是同一个数
 
 健康摘要**只允许计数、布尔与时间戳**：没有路径、没有主机名、没有配置原文、
 没有未纳管 server 的名字。这条与审计同步同源：云端拿到的永远不是内容。
+
+### 3.2 ② 资产清单（`/sync/inventory`）
+
+```json
+{
+  "inventory": {
+    "pod_version": "0.4.0", "rules_version": "1", "scanned_at": "2026-09-18T06:00:00.000Z",
+    "coverage": { "servers": 3, "unmanaged": 1 },
+    "harnesses": [ { "id": "claude-code", "label": "Claude Code", "installed": true, "managed": true, "managed_by": ["policy"] } ],
+    "servers":   [ { "name": "github", "harness": "claude-code", "transport": "stdio",
+                     "behind_gateway": false, "record_only": false, "scope": "user",
+                     "package": "@modelcontextprotocol/server-github", "pinned": false } ]
+  }
+}
+```
+
+**为什么要它**：podcloud 是数据侧，但它看不到本机文件。"这台机器上有几个 harness、
+哪些纳管了、哪些 server 绕过网关"只能由机器自己说。没有这条通道，云端资产表就只能靠人手工维护。
+
+**快照语义**：每次上报**整体替换**该 agent 的资产行——server 被删掉时会自然消失。
+
+**隐私边界**：只出标识与布尔（name / harness / behind_gateway / scope / 包名 / 是否锁版本）。
+**没有路径、没有 args、没有 env 取值、没有配置原文**。
+
+### 3.3 ③ 发现（`/sync/findings`）
+
+```json
+{
+  "findings": {
+    "scanned_at": "2026-09-18T06:00:00.000Z",
+    "totals": { "high": 3, "medium": 1, "low": 0 },
+    "findings": [
+      { "source": "guard",   "key": "AG-03", "severity": "high",   "harness": "claude-code", "count": 2 },
+      { "source": "posture", "key": "hook",  "severity": "medium", "harness": "machine",     "count": 1 }
+    ]
+  }
+}
+```
+
+- `source: guard` = 漏洞扫描（`key` 是 AG-xx）；`source: posture` = 控制平面姿态（`key` 是类别）。
+- **同样是快照**：修好之后下次上报就消失，不会在云端永远留一条红。
+- **不出证据**：只出"哪个威胁、多严重、落在哪个 harness、几处"；路径与证据留在本机报告
+  与 `pod harden` 交付物里。
+
+### 3.4 云端的落库与展示
+
+| 表 | 存什么 | 谁用 |
+|---|---|---|
+| `pod_agent_assets` | ② 的一行一个资产（harness / server） | Agent 卡片、Dashboard 覆盖率 |
+| `pod_agent_findings` | ③ 的一行一条聚合发现 | Agent 卡片、Dashboard Top 威胁 |
+
+两端都只做"存储 + 聚合展示"：**云端不做任何判定**，判定与拦截永远在 pod 上。
 
 ## 4. 兼容策略
 

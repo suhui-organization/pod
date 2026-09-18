@@ -17,7 +17,7 @@ import { verifyPolicy } from './policy-sign.js';
 import { t } from '@podsec/i18n';
 import { quarantineAdd, quarantineRemove, readQuarantineFile } from './control-plane.js';
 import { POD_PROTOCOL_VERSION, cliVersion, type PodHealth } from './protocol.js';
-import { buildHealthSnapshot } from './health.js';
+import { collectReports, type MachineReports } from './health.js';
 
 /**
  * 每个上云请求都带协议版本与客户端版本。
@@ -479,8 +479,10 @@ export async function runSync(opts: {
   syncToken?: string;
   /** 本机 home：健康摘要里 guard 扫描要用（不传则用 homedir()） */
   home?: string;
-  /** 判定规则：健康摘要里 guard 扫描要用；不传则跳过 guard 部分 */
+  /** 判定规则：健康/资产/发现三次采集都要用；不传则跳过这部分上报 */
   rules?: RuleSet;
+  /** 姿态基线路径（发现里的 posture 部分要用） */
+  baselinePath?: string;
 }): Promise<SyncResult> {
   // 三个字段全部显式提供时无需 cloud.json；否则必须能从文件读到
   const needFile = opts.config !== undefined || !(opts.apiUrl && opts.agentId && opts.syncToken);
@@ -500,16 +502,18 @@ export async function runSync(opts: {
   const perBinding: Array<{ agent_id: number; synced: number }> = [];
   const failures: SyncResult['failures'] = [];
   const quarantine: SyncResult['quarantine'] = [];
-  const notices: string[] = [];
-  // 健康摘要每次 sync 采集一次（只读；不因某个绑定失败而重算）
-  let health: PodHealth | null = null;
+const notices: string[] = [];
+  // 一次采集三样：健康 / 资产 / 发现（只读；不因某个绑定失败而重算）
+  let reports: MachineReports | null = null;
   if (opts.rules) {
-    health = buildHealthSnapshot({
+    reports = collectReports({
       home: opts.home ?? homedir(),
       auditDir: opts.auditDir,
       rules: opts.rules,
+      ...(opts.baselinePath ? { baselinePath: opts.baselinePath } : {}),
     });
   }
+  const health: PodHealth | null = reports?.health ?? null;
   let total = 0;
   for (const b of bindings) {
     const cursor = loadSyncState(b.agent_id);
@@ -578,6 +582,32 @@ export async function runSync(opts: {
               server: body.server_protocol ?? '?',
             }),
         );
+      }
+    }
+    // ② 资产 + ③ 发现：pod 干的活的另一半（这台机器是什么状态、扫出了什么）。
+    // 与心跳同频推送。老服务端没有这两个端点 → 404 → 只提示一次，不算失败
+    // （新客户端对着旧服务端不该每次退出码 1，与 /sync/quarantine 同一口径）。
+    if (reports) {
+      for (const [path, payload, label] of [
+        ['/api/v1/sync/inventory', { inventory: reports.inventory }, t('资产清单')],
+        ['/api/v1/sync/findings', { findings: reports.findings }, t('扫描发现')],
+      ] as Array<[string, unknown, string]>) {
+        const res = await fetch(`${cfg.api_url}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...protocolHeaders(), 'X-Sync-Token': b.sync_token },
+          body: JSON.stringify(payload),
+        }).catch(() => null);
+        if (!res) {
+          failures.push({ agent_id: b.agent_id, message: t('{label}上报失败：无法连接云端', { label }) });
+        } else if (res.status === 404) {
+          if (!notices.some((n) => n.includes(label))) {
+            notices.push(
+              t('云端不支持{label}上报（HTTP 404）——本机版本比云端新；升级云端控制台后即可看到这类数据。', { label }),
+            );
+          }
+        } else if (!res.ok) {
+          failures.push({ agent_id: b.agent_id, message: t('{label}上报失败：HTTP {status}', { label, status: res.status }) });
+        }
       }
     }
     // 收敛云端下发的熔断：拉取失败时 syncQuarantine 自己保证"什么都不动"

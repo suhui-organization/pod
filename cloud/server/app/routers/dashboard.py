@@ -10,7 +10,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Agent, PodControlEvent, Subscription, SyncEvent
+from app.models import (
+    Agent,
+    PodAgentAsset,
+    PodAgentFinding,
+    PodControlEvent,
+    Subscription,
+    SyncEvent,
+)
 from app.security import get_current_tenant_id
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -35,12 +42,57 @@ def dashboard_summary(db: Session = Depends(get_db), tenant_id: int = Depends(ge
         .all()
     )
 
-    # 近 7 天按天聚合（按同步时间 synced_at）
+    # ---- ② 资产 / ③ 发现：这台租户下所有机器上报了什么 ----
+    # 为什么放在 dashboard：podcloud 的职责是"展示机器干的活"，
+    # 而"还有几个 server 绕过网关、扫出多少 high"才是运维每天要看的东西。
+    asset_servers = (
+        db.query(PodAgentAsset)
+        .filter(PodAgentAsset.tenant_id == tenant_id, PodAgentAsset.kind == "server")
+        .all()
+    )
+    asset_harnesses = (
+        db.query(PodAgentAsset)
+        .filter(PodAgentAsset.tenant_id == tenant_id, PodAgentAsset.kind == "harness")
+        .all()
+    )
+    coverage_out = {
+        "servers": len(asset_servers),
+        "unmanaged": sum(1 for r in asset_servers if not r.behind_gateway),
+        "harnesses": len(asset_harnesses),
+        "harnesses_managed": sum(1 for r in asset_harnesses if r.managed),
+        "agents_with_unmanaged": len({r.agent_id for r in asset_servers if not r.behind_gateway}),
+    }
+
+    finding_rows = (
+        db.query(PodAgentFinding).filter(PodAgentFinding.tenant_id == tenant_id).all()
+    )
+    sev_rank = {"high": 0, "medium": 1, "low": 2}
+    agg: dict[tuple[str, str, str], int] = {}
+    findings_totals = {"high": 0, "medium": 0, "low": 0}
+    for row in finding_rows:
+        agg[(row.source, row.key, row.severity)] = agg.get((row.source, row.key, row.severity), 0) + row.count
+        if row.severity in findings_totals:
+            findings_totals[row.severity] += row.count
+    findings_top = [
+        {"source": s, "key": k, "severity": sev, "count": n}
+        for (s, k, sev), n in sorted(
+            agg.items(), key=lambda kv: (sev_rank.get(kv[0][2], 9), -kv[1])
+        )[:10]
+    ]
+    findings_reported_agents = len({r.agent_id for r in finding_rows})
+
+    # 近 7 天按天聚合。**按事件发生时间 ts 分组，不是按上传时间 synced_at**：
+    # 离线几天的机器补传时，synced_at 会把历史事件全堆在"今天"，看图会以为今天爆发。
+    # 入库延迟另有 hourly_24h（按 synced_at）可以看。
     since = datetime.utcnow() - timedelta(days=7)
     rows = (
-        db.query(func.date(SyncEvent.synced_at), func.count(SyncEvent.id))
-        .filter(SyncEvent.tenant_id == tenant_id, SyncEvent.synced_at >= since)
-        .group_by(func.date(SyncEvent.synced_at))
+        db.query(func.date(SyncEvent.ts), func.count(SyncEvent.id))
+        .filter(
+            SyncEvent.tenant_id == tenant_id,
+            SyncEvent.synced_at >= since,
+            func.date(SyncEvent.ts).isnot(None),
+        )
+        .group_by(func.date(SyncEvent.ts))
         .all()
     )
     trend = [{"date": str(d), "events": n} for d, n in rows]
@@ -214,4 +266,11 @@ def dashboard_summary(db: Session = Depends(get_db), tenant_id: int = Depends(ge
         "alerts_recent": alerts_recent,
         "plan": plan,
         "agent_limit": agent_limit,
+        # ---- ② 资产 / ③ 发现（机器上报，云端只聚合展示）----
+        "assets": coverage_out,
+        "findings": {
+            "totals": findings_totals,
+            "top": findings_top,
+            "reported_agents": findings_reported_agents,
+        },
     }

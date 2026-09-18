@@ -148,7 +148,63 @@ class Agent(Base):
     protocol_version: Mapped[int] = mapped_column(Integer, default=0)
     health_json: Mapped[str] = mapped_column(Text, default="")
     health_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    # 资产与发现的最近一次上报时间（用于显示"多久没上报"，与 health_at 分开记：
+    # 三个通道各自可能失败，混在一起就说不清是哪一类数据旧了）
+    inventory_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    findings_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PodAgentAsset(Base):
+    """机器上报的资产：一行一个 harness 或一个 MCP server。
+
+    为什么单独建表而不是塞进 Agent 的 JSON 列：Dashboard 要按"哪些 server 绕过网关"
+    跨机器聚合，SQL 能直接算，JSON 只能拉下来在 Python 里遍历。
+    每次上报**整体替换**该 agent 的行（资产是快照，不是流水）。
+    """
+
+    __tablename__ = "pod_agent_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
+    # harness（本机装了哪个 agent 平台）| server（MCP server）
+    kind: Mapped[str] = mapped_column(String(16))
+    # harness id 或 server 名
+    key: Mapped[str] = mapped_column(String(128))
+    label: Mapped[str] = mapped_column(String(64), default="")
+    installed: Mapped[bool] = mapped_column(Boolean, default=True)
+    # harness：是否被 pod 纳管（有策略/审计/身份）；server：是否经过网关（用 behind_gateway）
+    managed: Mapped[bool] = mapped_column(Boolean, default=False)
+    managed_by_json: Mapped[str] = mapped_column(Text, default="[]")
+    behind_gateway: Mapped[bool] = mapped_column(Boolean, default=False)
+    record_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    scope: Mapped[str] = mapped_column(String(16), default="")
+    package: Mapped[str] = mapped_column(String(128), default="")
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    # server 归哪个 harness 管（harness 行本身为空）；控制台要显示"这些 server 属于谁"
+    harness: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PodAgentFinding(Base):
+    """机器上报的发现：一行一条聚合（威胁/类别 × 级别 × harness）。
+
+    只存"哪个威胁、多严重、落在哪、几处"——证据与路径留在本机报告里。
+    """
+
+    __tablename__ = "pod_agent_findings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
+    # guard=漏洞扫描（key 是 AG-xx）；posture=控制平面姿态（key 是类别）
+    source: Mapped[str] = mapped_column(String(16))
+    key: Mapped[str] = mapped_column(String(64))
+    severity: Mapped[str] = mapped_column(String(16))
+    harness: Mapped[str] = mapped_column(String(64), default="")
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class SyncEvent(Base):

@@ -75,3 +75,63 @@ export interface ProtocolNotice {
   clientOutdated?: boolean;
   message?: string;
 }
+
+/**
+ * ② 资产清单：这台机器上有什么（harness / MCP server / 覆盖率 / 生效的规则版本）。
+ *
+ * 为什么必须上报：podcloud 是数据侧——收集、展示、持久化、给二期模型备语料。
+ * 但它**看不到本机文件**，所以"这台机器上有几个 harness、哪些纳管了、
+ * 哪些 server 绕过网关"只能由机器自己说。没有这条通道，云端资产表就只能靠人手工维护
+ * （两处填同一个名字，对不上就"接入了但看不到数据"）。
+ *
+ * 字段名即线上字段名；隐私边界：只出标识与计数——**没有路径、没有 args、
+ * 没有 env 取值、没有配置原文**。
+ */
+export interface InventoryPayload {
+  pod_version: string;
+  rules_version: string;
+  scanned_at: string;
+  coverage: { servers: number; unmanaged: number };
+  harnesses: Array<{
+    id: string;
+    label: string;
+    installed: boolean;
+    /** 是否被 pod 纳管（有策略 / 审计 / 身份） */
+    managed: boolean;
+    /** 纳管证据来源：policy / audit / identity */
+    managed_by: string[];
+  }>;
+  servers: Array<{
+    name: string;
+    harness: string;
+    transport: string;
+    /** 是否经过 pod 网关（false = 策略与审计都对它不生效） */
+    behind_gateway: boolean;
+    /** 经过网关但只录不拦 */
+    record_only: boolean;
+    scope: string;
+    /** 从 npx/npm 命令行解析出的包名（不含版本）——版本锁定与否看 pin 字段 */
+    package: string;
+    /** 是否锁定版本 */
+    pinned: boolean;
+  }>;
+}
+
+/**
+ * ③ 发现：pod 干活时扫出来的问题（漏洞扫描 + 控制平面姿态）。
+ *
+ * 只出"哪个威胁 / 多严重 / 落在哪个 harness / 几处"——路径、证据、配置原文都不出本机
+ * （那些留在本地报告与 `pod harden` 交付物里）。
+ */
+export interface FindingsPayload {
+  scanned_at: string;
+  totals: { high: number; medium: number; low: number };
+  findings: Array<{
+    /** guard = 漏洞扫描（key 是 AG-xx）；posture = 控制平面姿态（key 是类别） */
+    source: 'guard' | 'posture';
+    key: string;
+    severity: string;
+    harness: string;
+    count: number;
+  }>;
+}

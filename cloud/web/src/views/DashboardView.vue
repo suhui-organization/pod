@@ -31,6 +31,38 @@
     </div>
 
     <!-- 图表区 -->
+    <!-- 机器上报的资产与发现：先说"还缺什么防护"，再说"干了多少活" -->
+    <div class="grid">
+      <router-link to="/agents" class="panel link-panel" :class="{ warn: (s?.assets.unmanaged ?? 0) > 0 }">
+        <h3>{{ t('网关覆盖率（机器上报）') }}</h3>
+        <div class="stat-num">{{ (s?.assets.servers ?? 0) - (s?.assets.unmanaged ?? 0) }}<span class="stat-slash">/ {{ s?.assets.servers ?? 0 }}</span></div>
+        <p class="panel-note">
+          {{ t('{unmanaged} 个 MCP server 绕过网关（涉及 {agents} 台机器）——这些 server 的策略、审批与审计都不生效。', {
+            unmanaged: s?.assets.unmanaged ?? 0,
+            agents: s?.assets.agents_with_unmanaged ?? 0,
+          }) }}
+        </p>
+        <p class="panel-note">
+          {{ t('纳管 harness {managed}/{total}', { managed: s?.assets.harnesses_managed ?? 0, total: s?.assets.harnesses ?? 0 }) }}
+        </p>
+      </router-link>
+      <div class="panel" :class="{ warn: (s?.findings.totals.high ?? 0) > 0 }">
+        <h3>{{ t('扫描发现（机器上报）') }}</h3>
+        <div class="stat-num">{{ s?.findings.totals.high ?? 0 }}<span class="stat-slash">/ {{ (s?.findings.totals.high ?? 0) + (s?.findings.totals.medium ?? 0) + (s?.findings.totals.low ?? 0) }}</span></div>
+        <p class="panel-note">
+          {{ t('high / 全部 · 来自 {agents} 台机器的最近一次扫描', { agents: s?.findings.reported_agents ?? 0 }) }}
+        </p>
+        <ul v-if="s?.findings.top.length" class="finding-list">
+          <li v-for="f in s.findings.top.slice(0, 5)" :key="f.source + f.key + f.severity">
+            <span class="sev" :class="'sev--' + f.severity">{{ f.severity }}</span>
+            <code>{{ f.key }}</code>
+            <span class="cnt">×{{ f.count }}</span>
+          </li>
+        </ul>
+        <p v-else class="panel-note">{{ t('还没有机器上报扫描结果（本机 pod 0.4.1 起随 sync 上报）') }}</p>
+      </div>
+    </div>
+
     <div class="grid">
       <div class="panel span2">
         <h3>{{ t('近 7 天事件趋势') }}</h3>
@@ -350,6 +382,18 @@ onBeforeUnmount(() => {
 .panel { padding: 16px 18px; border-radius: 12px; background: var(--pod-panel-bg, #161a1f); border: 1px solid var(--pod-border, #2a2f37); }
 .panel.span2 { grid-column: span 2; }
 .panel h3 { margin: 0 0 12px; font-size: 14px; }
+/* 机器上报的资产/发现：安静的事实 + 一条可点的说明；只有需要处理时才用告警色 */
+.link-panel { text-decoration: none; transition: transform 0.15s; }
+.link-panel:hover { transform: translateY(-2px); }
+.panel.warn .stat-num { color: #e0a23c; }
+.panel-note { margin: 6px 0 0; font-size: 12px; line-height: 1.7; color: var(--pod-text-dim, #9aa3af); }
+.finding-list { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; }
+.finding-list li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.finding-list .cnt { color: var(--pod-text-dim, #9aa3af); }
+.sev { padding: 0 6px; border-radius: 999px; font-size: 11px; }
+.sev--high { background: rgba(245, 108, 108, 0.16); color: #f56c6c; }
+.sev--medium { background: rgba(224, 162, 60, 0.16); color: #e0a23c; }
+.sev--low { background: rgba(144, 147, 153, 0.16); color: #909399; }
 .alert-list { display: flex; flex-direction: column; gap: 8px; }
 .alert-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .alert-kind { font-weight: 600; white-space: nowrap; }

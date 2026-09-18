@@ -48,6 +48,13 @@ _COLUMN_MIGRATIONS = {
         "protocol_version": "ALTER TABLE pod_agents ADD COLUMN protocol_version INTEGER DEFAULT 0",
         "health_json": "ALTER TABLE pod_agents ADD COLUMN health_json TEXT DEFAULT ''",
         "health_at": "ALTER TABLE pod_agents ADD COLUMN health_at TIMESTAMP NULL",
+        # 资产与发现的最近上报时间（新表由 create_all 建，这里只补 Agent 上的时间戳）
+        "inventory_at": "ALTER TABLE pod_agents ADD COLUMN inventory_at TIMESTAMP NULL",
+        "findings_at": "ALTER TABLE pod_agents ADD COLUMN findings_at TIMESTAMP NULL",
+    },
+    "pod_agent_assets": {
+        # 新表由 create_all 建；这条是给"表已存在但缺列"的开发库兜底
+        "harness": "ALTER TABLE pod_agent_assets ADD COLUMN harness VARCHAR(64) DEFAULT ''",
     },
     "pod_subscriptions": {
         # 计费平台无关化：不再只存单一平台的 customer id

@@ -79,6 +79,21 @@ export interface AgentItem {
   /** 健康摘要；没上报就是 null，不用默认值冒充"健康" */
   health: AgentHealth | null
   health_at: string | null
+  /** ② 资产：这台机器上有什么（机器上报，云端只存快照） */
+  assets: {
+    harnesses: Array<{ id: string; label: string; managed: boolean }>
+    servers: Array<{ name: string; harness: string; behind_gateway: boolean; record_only: boolean; package: string; pinned: boolean }>
+    unmanaged: number
+  }
+  /** ③ 发现：扫出来的问题（威胁/类别 × 级别 × 计数） */
+  findings: {
+    rows: Array<{ source: string; key: string; severity: string; harness: string; count: number }>
+    high: number
+    medium: number
+    low: number
+  }
+  inventory_at: string | null
+  findings_at: string | null
   created_at: string
 }
 
@@ -121,6 +136,14 @@ export interface DashboardSummary {
     hourly_24h: Array<{ hour: string; events: number }>
   }
   trend_7d: Array<{ date: string; events: number }>
+  /** ② 资产（机器上报后聚合）：还有多少 server 绕过网关 */
+  assets: { servers: number; unmanaged: number; harnesses: number; harnesses_managed: number; agents_with_unmanaged: number }
+  /** ③ 发现（机器上报后聚合）：扫出来的问题，按严重级别优先 */
+  findings: {
+    totals: { high: number; medium: number; low: number }
+    top: Array<{ source: string; key: string; severity: string; count: number }>
+    reported_agents: number
+  }
   alerts: {
     open: number
     acknowledged: number
