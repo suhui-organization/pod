@@ -189,3 +189,86 @@ DB 不用回滚：本次迁移是追加式的，老代码忽略新列新表。
 | 新客户端 → 新服务端 | 完整能力 |
 
 所以升级可以分批：先把云端滚上去，机器按自己的节奏升级。
+
+---
+
+## 6. 排障
+
+### 6.1 症状 → 处置
+
+先看一眼**发布脚本自己的判定行**，大多数问题在这一行就有答案：
+
+```bash
+KUBECONFIG=~/.kube/config-server.yaml DRY_RUN=1 bash cloud/server/deploy/k8s/install-server.sh
+# 镜像 tag : server=fp-… web=fp-…（按 cloud/ 内容指纹）
+# 当前运行 : server=podcloud-server:fp-… web=podcloud-web:fp-…
+# 判定     : server=内容未变（跳过）  web=内容已变（发布）
+```
+
+| 症状 | 原因 | 处置 |
+|------|------|------|
+| Pod 重启了，但镜像 tag 没变 | 同 tag 重建时镜像引用没变，`set image` 是空操作；kubelet 按 tag 命中旧层缓存 | 用 `REPUBLISH=1 bash install-server.sh`——脚本按"镜像引用是否变化"自动二选一（变了走 `set image`，没变走 `rollout restart`） |
+| 只改了 pod CLI / 文档，server 却重启了 | 旧版本 tag 跟 commit 走（`main-<sha>`），main 一动就换 tag | 现在的 tag 是每镜像独立的内容指纹。看到 `判定: 内容未变（跳过）` 就说明它没动线上；若真重启了，先确认跑的是不是最新的脚本 |
+| 侧栏标红"与后端不是同一次构建" | 真的只滚了一半（新前端撞旧后端，见 §4.2） | 按 §4.2 顺序补滚：先 server 后 web。界面现在按 **commit** 比（`/auth/config` 的 `build_commit`）——tag 是每镜像指纹，天生不同、不可比 |
+| `/auth/config` 的 `build` 还是旧 tag | 镜像没滚上去，或只滚了一半 | 见 6.2 的三条命令 |
+| 镜像不在 containerd | `docker` 与 `kubelet` 看的是两套镜像存储 | 脚本会检测到并重建导入；手工等价：`docker save <img>` → `ssh root@<node> ctr -n k8s.io images import -` |
+| `rollout undo` 之后界面仍标红 | 只退了一个 Deployment | 退的顺序是**先 web 再 server**（§3）；两边都退了才会一致 |
+
+### 6.2 三条命令回答"线上是什么"
+
+```bash
+# 1) 两个 Deployment 的镜像 + 它们是哪个 commit 构建的
+kubectl -n podcloud get deploy podcloud-server \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"  "}{.metadata.annotations.podsec/build-commit}{"\n"}'
+kubectl -n podcloud get deploy podcloud-web \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"  "}{.metadata.annotations.podsec/build-commit}{"\n"}'
+
+# 2) 后端实例自报的 tag 与 commit（前端侧栏显示的是同一组值）
+curl -s https://podcloud.dlszjr.com/api/v1/auth/config \
+  | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["build"], d["build_commit"])'
+
+# 3) 该 tag 的镜像在不在 kubelet 看得见的那套存储里
+ssh root@192.168.66.8 "ctr -n k8s.io images ls | grep podcloud-"
+```
+
+**tag 与 commit 的分工**：tag（`fp-<内容指纹>`）回答"是不是这份内容"，commit 回答
+"是不是同一次发布"。两个 tag 永远不同（server / web 各自算），所以判断"只滚了一半"
+只能按 commit——拿 tag 比只会得到假告警。
+
+### 6.3 一次完整的发布路径记录（2026-09-18，真机）
+
+```text
+── 1/6 解析目标版本（main）
+[ok]   目标 commit: 9158d49
+     镜像 tag : server=fp-211aacdb942a web=fp-ad8601b4a2b5（按 cloud/ 内容指纹）
+     当前运行 : server=podcloud-server:fp-77edcdf5a8a4 web=podcloud-web:fp-b6d910a16e64
+     判定     : server=内容已变（发布）  web=内容已变（发布）
+── 2/6 备份数据库      → /app/data/podcloud.db.bak-2026-09-18（sqlite 在线备份，含 WAL）
+── 3/6 构建镜像        → podcloud-server:fp-211aacdb942a / podcloud-web:fp-ad8601b4a2b5（在节点上）
+── 4/6 导入 containerd → 两个镜像都进了 k8s.io 那套存储（kubelet 可见）
+── 5/6 滚动发布        → 先 server 滚完并就绪，再滚 web（顺序是硬约束，见 §4.2）
+── 6/6 验证            → 集群内自证 web→server 反代正常；后端 build=fp-211aacdb942a；
+                        公开地址 200（rules=401 harden=401）
+```
+
+发布后核对：
+
+```text
+podcloud-server  fp-211aacdb942a  commit=9158d49…   READY
+podcloud-web     fp-ad8601b4a2b5  commit=9158d49…   READY
+/auth/config     build=fp-211aacdb942a  build_commit=9158d498c8d2eeb6780a359edc3f057fe6cf1205
+前端产物         内含同一个 commit → 与后端一致，不误报
+```
+
+**这次踩到的坑（写在这里，别再踩）**：`REPUBLISH=1` 的第一版实现无条件走
+`rollout restart`，而当时 Deployment 的镜像引用还是旧的 `main-5adea8a`——重启只是把
+**同一个旧 tag 又拉了一遍**：白挨几十秒停机，镜像没换。
+
+正确的判断是"**镜像引用变没变**"：
+
+| 情况 | 该用哪条命令 | 为什么 |
+|------|--------------|--------|
+| 引用变了（含旧 `main-<sha>` → `fp-<hash>`） | `kubectl set image` | 改的是 Pod 模板 → 自然触发滚动 |
+| 引用没变（同 tag 重建，`REPUBLISH=1`） | `kubectl rollout restart` | `set image` 是空操作；必须显式重启才会拉新内容 |
+
+脚本现在两个分支都在，`DRY_RUN=1` 也能提前看出会走哪条。
