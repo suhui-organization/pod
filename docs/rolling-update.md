@@ -110,12 +110,21 @@ curl -s -o /dev/null -w "harden/reports: %{http_code}\n" http://127.0.0.1:18088/
 
 ```bash
 curl -s https://podcloud.dlszjr.com/api/v1/auth/config | python3 -c 'import json,sys;print(json.load(sys.stdin)["build"])'
-# 输出应当等于本次发布的 tag，例如 main-119ca70
+# 输出应当等于本次发布的 tag，例如 fp-77edcdf5a8a4（server 的内容指纹）
 ```
 
 401/404 只能说明"端点新旧"，构建标识能说明**"这个实例就是那次构建"**。
-控制台侧栏也显示同一行（前端把自己的 tag 与后端的对照，不一致会标红——
-那正是"只滚了一半"的信号）。
+控制台侧栏也显示同一行。
+
+**"只滚了一半"按 commit 判断，不按 tag。** 两个镜像的 tag 是各自的内容指纹
+（`fp-<hash>`，server 与 web 天生不同），拿 tag 比必然不等、只会变成假告警。
+所以 `/api/v1/auth/config` 另外返回 `build_commit`，前端拿自己的 `BUILD_COMMIT`
+与它对照，不一致才标红（新前端撞旧后端 → 新页面 404，见 §4.2）：
+
+```bash
+curl -s https://podcloud.dlszjr.com/api/v1/auth/config | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["build"], d["build_commit"])'
+# fp-77edcdf5a8a4 672289fe0f02be181faa9be588a73a35139de100
+```
 
 ### ④ 存量机器：补装定时同步（这次必须做）
 

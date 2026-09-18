@@ -81,6 +81,14 @@ kubectl -n podcloud get deploy podcloud-server \
 `/api/v1/auth/config` 的 `build` 字段暴露，前端打进产物显示在侧栏。于是
 "这个实例/这个页面是哪次构建"一条 curl 或一眼就能确认，不用再拿端点 401/404 猜版本。
 
+另外每个镜像都会打进 `BUILD_COMMIT`（本次发布的 commit）：因为 tag 是**每镜像独立**的
+内容指纹，server 与 web 天生不同，所以"前后端是不是同一次发布"只能按 commit 判断——
+前端拿自己的 `BUILD_COMMIT` 与 `/auth/config` 的 `build_commit` 对照，不一致才在侧栏标红
+（那正是"只滚了一半"的信号）。
+
+`REPUBLISH=1 bash install-server.sh` 用于**强制重发一次**：内容指纹一致也重建镜像并滚动，
+用来验证发布路径、或替换可疑镜像（同 tag 重建走 `rollout restart`，因为 `set image` 不会变）。
+
 三条硬约束写在脚本里，别绕过：
 
 1. **顺序**：server 先滚完并就绪，再滚 web（新前端会调服务端新端点，同时重启会出现

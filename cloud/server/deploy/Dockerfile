@@ -8,6 +8,11 @@ FROM python:3.12-slim
 ARG BUILD_TAG=dev
 ENV PODCLOUD_BUILD_TAG=$BUILD_TAG
 
+# 本次构建来自哪个 commit。tag 是每镜像独立的内容指纹，"前后端是不是同一次发布"
+# 只能按 commit 判断（前端拿自己的 commit 与 /auth/config 的 build_commit 对照）。
+ARG BUILD_COMMIT=
+ENV PODCLOUD_BUILD_COMMIT=$BUILD_COMMIT
+
 WORKDIR /app
 ENV PYTHONPATH=/app
 

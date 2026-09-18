@@ -15,6 +15,8 @@ export const useDeploymentStore = defineStore('deployment', () => {
   const billingProvider = ref('')
   /** 后端镜像的构建标识（来自 /auth/config）。前端自己的标识见 utils/build.ts */
   const buildTag = ref('')
+  /** 后端镜像来自哪个 commit——"前后端是不是同一次发布"按它判断 */
+  const buildCommit = ref('')
 
   async function load() {
     if (loaded.value) return
@@ -24,6 +26,7 @@ export const useDeploymentStore = defineStore('deployment', () => {
       billingEnabled.value = cfg.billing_enabled === true
       billingProvider.value = cfg.billing_provider ?? ''
       buildTag.value = cfg.build ?? ''
+      buildCommit.value = cfg.build_commit ?? ''
     } catch {
       // 拉不到就按未启用计费处理：少一个入口，好过一个会报错的入口
       billingEnabled.value = false
@@ -32,5 +35,5 @@ export const useDeploymentStore = defineStore('deployment', () => {
     }
   }
 
-  return { loaded, isPrivate, billingEnabled, billingProvider, buildTag, load }
+  return { loaded, isPrivate, billingEnabled, billingProvider, buildTag, buildCommit, load }
 })

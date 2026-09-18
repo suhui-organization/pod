@@ -29,6 +29,8 @@ export const api = {
     password_reset_minutes: number
     /** 后端镜像的构建标识（tag）；与前端自己的 tag 对照即可看出是否同一次发布 */
     build: string
+    /** 后端镜像来自哪个 commit；前后端是否同一次发布按它判断（tag 每镜像独立，不可比） */
+    build_commit?: string
   }> {
     return http.get('/api/v1/auth/config').then((r) => r.data)
   },
