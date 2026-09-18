@@ -165,6 +165,37 @@ export interface AuditHealthRules {
   expectations: AuditExpectation[];
 }
 
+/**
+ * pod guard（多 agent / 多 harness 漏洞扫描）的判定规则。
+ *
+ * 只放**这一层新增**的判定口径；钩子风险模式、记忆路径、冻结项继续复用
+ * hookRisk / memory / freeze，避免同一件事出现两套阈值。
+ */
+export interface GuardRules {
+  /**
+   * "跳过审批"类启动参数：命中的 server 命令或钩子命令按 high 报。
+   * s1ngularity 攻击用这几个 flag 把本机 AI CLI 变成无审批执行器。
+   */
+  dangerousFlags: string[];
+  /** 视为"能读到私密数据"的 server 名 / 包名片段（致命三角的一条边） */
+  privateDataHints: string[];
+  /** 视为"能把数据发出去"的 server 名 / 包名片段（致命三角的另一条边） */
+  egressHints: string[];
+  /** 视为"第三方分发的插件/技能目录"的 glob（安装即带走钩子与命令） */
+  pluginPaths: string[];
+  /** 注册表没覆盖的 harness，用户自己补的 MCP 配置路径（按通用 JSON 解析） */
+  extraConfigPaths: string[];
+  /**
+   * 允许的远程 MCP 主机（host 或 `*.example.com` 形式）。
+   * 空 = 任何非本机地址都报出来——远程端点默认值得被看一遍。
+   */
+  allowedRemoteHosts: string[];
+  /** true = 发现的已安装 harness 必须有策略/身份/审计，否则报影子 agent */
+  requireManaged: boolean;
+  /** 服务端指纹基线（AG-14 的比对依据）；相对路径按 home 展开 */
+  baselinePath: string;
+}
+
 export interface RuleSet {
   version: string;
   hookRisk: HookRiskRules;
@@ -180,6 +211,7 @@ export interface RuleSet {
   quarantine: QuarantineRules;
   grant: GrantRules;
   auditHealth: AuditHealthRules;
+  guard: GuardRules;
 }
 
 export const DEFAULT_RULES: RuleSet = {
@@ -272,6 +304,86 @@ export const DEFAULT_RULES: RuleSet = {
   quarantine: { file: '~/.pod/quarantine.json' },
   grant: { dir: '~/.pod/grants', requiredForApprove: false },
   auditHealth: { enabled: true, maxIdleHours: 72, ignore: [], expectations: [] },
+  guard: {
+    dangerousFlags: [
+      '--dangerously-skip-permissions',
+      '--dangerously-bypass-approvals-and-sandbox',
+      'dangerously-skip-permissions',
+      '--yolo',
+      '--trust-all-tools',
+      'DANGEROUSLY_OMIT_AUTH',
+      'dangerouslyAllowBrowser',
+    ],
+    privateDataHints: [
+      'filesystem',
+      'github',
+      'gitlab',
+      'gitea',
+      'jira',
+      'confluence',
+      'notion',
+      'gdrive',
+      'google-drive',
+      'dropbox',
+      'slack',
+      'gmail',
+      'email',
+      'postgres',
+      'mysql',
+      'sqlite',
+      'supabase',
+      'snowflake',
+      'bigquery',
+      'salesforce',
+      'aws',
+      'kubernetes',
+      'vault',
+      '1password',
+      'keychain',
+      'secrets',
+      'memory',
+    ],
+    egressHints: [
+      'fetch',
+      'http',
+      'web',
+      'browser',
+      'playwright',
+      'puppeteer',
+      'curl',
+      'request',
+      'slack',
+      'gmail',
+      'email',
+      'smtp',
+      'postmark',
+      'sendgrid',
+      'twilio',
+      'webhook',
+      'linear',
+      'notion',
+      'github',
+      'gitlab',
+      's3',
+      'gcs',
+      'storage',
+      'upload',
+      'telemetry',
+      'analytics',
+    ],
+    pluginPaths: [
+      '~/.claude/plugins/**',
+      '~/.claude/skills/**',
+      '~/.codex/plugins/**',
+      '~/.codex/skills/**',
+      '~/.config/opencode/plugin/**',
+      '~/.config/opencode/skills/**',
+    ],
+    extraConfigPaths: [],
+    allowedRemoteHosts: [],
+    requireManaged: true,
+    baselinePath: '~/.pod/guard/baseline.json',
+  },
 };
 
 type DeepPartial<T> = {
@@ -423,6 +535,27 @@ export function validateRules(rules: RuleSet): void {
     if (typeof value !== 'number' || Number.isNaN(value) || value < 0) {
       throw new RuleSetError(`${where} 必须是非负数`);
     }
+  }
+  for (const [where, list] of [
+    ['guard.dangerousFlags', rules.guard.dangerousFlags],
+    ['guard.privateDataHints', rules.guard.privateDataHints],
+    ['guard.egressHints', rules.guard.egressHints],
+    ['guard.pluginPaths', rules.guard.pluginPaths],
+    ['guard.extraConfigPaths', rules.guard.extraConfigPaths],
+    ['guard.allowedRemoteHosts', rules.guard.allowedRemoteHosts],
+  ] as const) {
+    if (!Array.isArray(list)) throw new RuleSetError(`${where} 必须是数组`);
+    for (const item of list) {
+      if (typeof item !== 'string' || item.trim() === '') {
+        throw new RuleSetError(`${where} 每项必须是非空字符串`);
+      }
+    }
+  }
+  if (typeof rules.guard.requireManaged !== 'boolean') {
+    throw new RuleSetError('guard.requireManaged 必须是布尔值（true=已安装但没有治理记录的 harness 也要报）');
+  }
+  if (typeof rules.guard.baselinePath !== 'string' || rules.guard.baselinePath.trim() === '') {
+    throw new RuleSetError('guard.baselinePath 必须是非空路径');
   }
 }
 

@@ -98,6 +98,7 @@ describe('pod --lang', () => {
       ['anomaly'],
       ['quarantine', 'list'],
       ['digest'],
+      ['guard', 'scan'],
     ]) {
       const out = run([...args, '--lang', 'en-US'], { HOME: home });
       const cn = out.split('\n').filter((l) => /[\u4e00-\u9fa5]/.test(l));
