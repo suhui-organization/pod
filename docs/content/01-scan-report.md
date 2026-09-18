@@ -13,7 +13,7 @@ Cursor、Codex、OpenCode。它们一共配置了 14 个 MCP 服务器。
 想在自己机器上跑同一份扫描（只读、不联网、不上传任何数据）：
 
 ```bash
-curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.4.0/scripts/install.sh | sh
+curl -fsSL https://gitee.com/suhuisoftwares/pod/raw/v0.4.1/scripts/install.sh | sh
 pod scan
 ```
 
