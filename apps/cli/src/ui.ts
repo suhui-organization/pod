@@ -18,6 +18,8 @@ export interface UiCommandOptions {
   token?: string;
   /** true = 只读模式：不接受纳管/移除（写操作） */
   readOnly?: boolean;
+  /** 写进 harness 配置的 pod 可执行文件（默认 "pod"）；pod 不在 PATH 上时必须给绝对路径 */
+  podBin?: string;
   log?: (msg: string) => void;
 }
 
@@ -41,6 +43,7 @@ export async function cmdUi(opts: UiCommandOptions): Promise<void> {
     port: opts.port,
     token: opts.token,
     allowWrites: opts.readOnly !== true,
+    ...(opts.podBin ? { podBin: opts.podBin } : {}),
     log,
   });
 

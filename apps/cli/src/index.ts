@@ -2501,6 +2501,7 @@ async function main(): Promise<void> {
       port,
       token: values['auth-token'],
       readOnly: values['read-only'] === true,
+      ...(values['pod-bin'] ? { podBin: values['pod-bin'] } : {}),
       log,
     });
     return;

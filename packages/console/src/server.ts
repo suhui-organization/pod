@@ -35,6 +35,14 @@ export interface UiServerOptions {
    * 才会接受 POST。控制台前端的按钮也据此显示/隐藏。
    */
   allowWrites?: boolean;
+  /**
+   * 写进 harness 配置的 pod 可执行文件（默认 "pod"，即要求在 PATH 上）。
+   *
+   * 与 `pod onboard --pod-bin` 同一个旋钮：pod 不在 PATH 上时（比如用绝对路径
+   * 启动、或 CI 里），接管会**拒绝执行**——包装命令跑不起来会让该 harness 的
+   * MCP server 全部失效。要接管就得给出可执行的绝对路径。
+   */
+  podBin?: string;
   log?: (msg: string) => void;
 }
 
@@ -249,7 +257,14 @@ export function serveConsole(opts: UiServerOptions): Promise<UiServerHandle> {
             : writeRoute === '/api/agents/forget'
               ? forgetAgent({ podHome, agent, purgeIdentity: body.purgeIdentity === true, actor: 'pod ui' })
               : writeRoute === '/api/agents/takeover'
-                ? applyTakeover({ home: opts.home, podHome, harness, agent, actor: 'pod ui' })
+                ? applyTakeover({
+                    home: opts.home,
+                    podHome,
+                    harness,
+                    agent,
+                    actor: 'pod ui',
+                    ...(opts.podBin ? { podBin: opts.podBin } : {}),
+                  })
                 : writeRoute === '/api/agents/enforce'
                   ? applyEnforcement({ home: opts.home, podHome, harness, agent, mode, actor: 'pod ui' })
                   : revertTakeover({ home: opts.home, podHome, agent, actor: 'pod ui' });
@@ -311,6 +326,7 @@ export function serveConsole(opts: UiServerOptions): Promise<UiServerHandle> {
           home: opts.home,
           podHome: opts.podHome ?? join(opts.home, '.pod'),
           harness,
+          ...(opts.podBin ? { podBin: opts.podBin } : {}),
           ...(url.searchParams.get('agent') ? { agent: url.searchParams.get('agent')! } : {}),
         });
         sendJson(res, 200, { plan, writes: opts.allowWrites === true });

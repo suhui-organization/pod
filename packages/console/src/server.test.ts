@@ -6,7 +6,7 @@
  * 少一条就等于把"任何网页都能让 pod 写本机文件"这件事放出去。
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serveConsole, type UiServerHandle } from './server.js';
@@ -24,10 +24,32 @@ function makeHome(): string {
   return home;
 }
 
+/**
+ * 造一个"机器上装了 pod"的条件。
+ *
+ * 接管会把 harness 的启动命令改写成 `pod serve …`，所以它要求 `pod` 可执行
+ * （不在 PATH 上就拒绝执行——包装命令跑不起来会让该 harness 的 MCP server
+ * 全部失效）。CI 里没有全局安装的 pod，因此测试显式给一个可执行文件，
+ * 走的就是产品里的 `--pod-bin` 同一条路。
+ */
+function fakePodBin(home: string): string {
+  const path = join(home, 'pod');
+  writeFileSync(path, '#!/bin/sh\nexit 0\n', 'utf8');
+  chmodSync(path, 0o755);
+  return path;
+}
+
 async function start(home: string, allowWrites: boolean): Promise<UiServerHandle> {
   const webRoot = join(home, 'webroot');
   mkdirSync(webRoot, { recursive: true });
-  handle = await serveConsole({ home, webRoot, port: 0, token: 'test-token', allowWrites });
+  handle = await serveConsole({
+    home,
+    webRoot,
+    port: 0,
+    token: 'test-token',
+    allowWrites,
+    podBin: fakePodBin(home),
+  });
   return handle;
 }
 
