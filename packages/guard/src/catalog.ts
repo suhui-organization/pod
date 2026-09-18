@@ -17,6 +17,7 @@
  * AWS / Microsoft）、vulnerablemcp.info 汇总项目、OWASP Agentic Top 10（2025-12）。
  */
 import type { Severity } from '@podsec/policy';
+import { t } from '@podsec/i18n';
 
 export type ThreatSourceKind =
   | 'vuln-db'
@@ -502,6 +503,43 @@ export const THREAT_CATALOG: ThreatEntry[] = [
 export const THREAT_BY_ID: Record<string, ThreatEntry> = Object.fromEntries(
   THREAT_CATALOG.map((entry) => [entry.id, entry]),
 );
+
+/**
+ * 目录条目的本地化副本（渲染时调用）。
+ *
+ * 为什么是函数而不是模块级常量：`--lang` / `POD_LANG` 在模块 import **之后**才生效，
+ * 模块加载时求值会把文案冻在默认语言上（改完语言，标题还是中文）。
+ *
+ * 这也是全仓库唯一一处"变量查表"（`t(entry.title)`）——覆盖率脚本按字面量找调用点，
+ * 看不见它。所以这些键在 `packages/i18n/data-keys.txt` 里显式声明：脚本据此
+ * **既要求它们有英文词条，也不把它们误报成僵尸键**。
+ */
+export function localizeThreat(entry: ThreatEntry): ThreatEntry {
+  const localized: ThreatEntry = {
+    ...entry,
+    title: t(entry.title),
+    summary: t(entry.summary),
+    remediation: {
+      ...entry.remediation,
+      action: t(entry.remediation.action),
+      why: t(entry.remediation.why),
+    },
+  };
+  if (entry.gap) localized.gap = t(entry.gap);
+  if (entry.existingControls) localized.existingControls = entry.existingControls.map((item) => t(item));
+  return localized;
+}
+
+/** 本地化后的整份目录（报表、`--json`、模型上下文用） */
+export function localizedCatalog(): ThreatEntry[] {
+  return THREAT_CATALOG.map(localizeThreat);
+}
+
+/** 按编号取本地化条目 */
+export function localizedThreat(id: string): ThreatEntry | undefined {
+  const raw = THREAT_BY_ID[id];
+  return raw ? localizeThreat(raw) : undefined;
+}
 
 /**
  * 目录里每条都要能追到至少一个外部出处；这是 CI 里可以断言的纪律。

@@ -165,11 +165,20 @@ export interface RemediationItem {
   /** 优先级：severity 排序后的序号，1 最先做 */
   priority: number;
   action: string;
+  /**
+   * 可直接复制执行的 pod 命令。
+   * 只影响一个 harness 时给出**带 harness 的命令**（`pod agents enroll --harness claude-code`），
+   * 影响多个 harness 时才是通用形态——一条跑不到实处的命令比没有命令更浪费人。
+   */
   command?: string;
+  /** 命令跑完之后，用什么证明它生效了 */
+  verify?: string;
   why: string;
   automation: 'proposal' | 'manual';
   /** 这条 threat 对 pod 的覆盖程度，避免用户以为做完就绝对安全 */
   coverage: 'covered' | 'partial' | 'gap';
+  /** true = 这条动作只能降低风险 / 让它变得可发现，不能根治 */
+  residualRisk?: boolean;
   /** 相关 finding 数 */
   count: number;
 }

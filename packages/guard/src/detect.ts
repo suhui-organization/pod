@@ -5,6 +5,7 @@
  * 这样"漏洞清单"和"建议清单"能一一对上，用户不会看到一条无法处理的告警。
  */
 import { existsSync } from 'node:fs';
+import { getLocale, t } from '@podsec/i18n';
 import { expandHome, severityRank, type RuleSet, type Severity } from '@podsec/policy';
 import { THREAT_BY_ID } from './catalog.js';
 import { serverKey, type GuardBaseline } from './baseline.js';
@@ -15,6 +16,14 @@ export interface DetectOptions {
   home: string;
   baseline?: GuardBaseline | null;
   now?: Date;
+}
+
+/**
+ * 枚举分隔符随语言切换：中文用「、」，英文用「, 」。
+ * 不放进词表是因为它出现在消息中间，用一个键装不下。
+ */
+function listJoin(items: string[]): string {
+  return items.join(getLocale() === 'en-US' ? ', ' : '、');
 }
 
 function includesHint(text: string, hints: string[]): boolean {
@@ -50,7 +59,9 @@ function finding(input: {
   severity?: Severity;
 }): Finding {
   const entry = THREAT_BY_ID[input.threat];
-  if (!entry) throw new Error(`未知威胁编号 ${input.threat}（catalog 与 detect 不同步）`);
+  if (!entry) {
+    throw new Error(t('未知威胁编号 {threat}（catalog 与 detect 不同步）', { threat: input.threat }));
+  }
   return {
     id: `${input.threat}:${input.harness}:${input.subject}`,
     threat: input.threat,
@@ -77,7 +88,10 @@ function detectSecrets(facts: Facts): Finding[] {
         threat: 'AG-01',
         harness: harnessOfFile(facts, secret.file),
         subject: `${secret.file} → ${secret.key}`,
-        message: `配置里发现明文 ${secret.category}（${secret.masked}）——任何能读这个文件的进程都拿到了它`,
+        message: t('配置里发现明文 {category}（{masked}）——任何能读这个文件的进程都拿到了它', {
+          category: secret.category,
+          masked: secret.masked,
+        }),
         evidence: [`${secret.file}: ${secret.key} = ${secret.masked}`],
       }),
     );
@@ -111,7 +125,11 @@ function detectServers(rules: RuleSet, facts: Facts): Finding[] {
           threat: 'AG-02',
           harness: server.harness,
           subject: `${server.name}@${server.file}`,
-          message: `MCP server "${server.name}" 从 npx 拉取 ${server.package.name}${server.package.version ? '@' + server.package.version : '（未写版本）'}，上游每次发布都会进入本机`,
+          message: t('MCP server "{name}" 从 npx 拉取 {pkg}{version}，上游每次发布都会进入本机', {
+            name: server.name,
+            pkg: server.package.name,
+            version: server.package.version ? `@${server.package.version}` : t('（未写版本）'),
+          }),
           evidence: [`${server.file}: ${[server.command, ...server.args].join(' ')}`],
         }),
       );
@@ -123,7 +141,9 @@ function detectServers(rules: RuleSet, facts: Facts): Finding[] {
           threat: 'AG-03',
           harness: server.harness,
           subject: `${server.name}@${server.file}`,
-          message: `MCP server "${server.name}" 未经过 pod 网关——策略、审批、审计对它都不生效`,
+          message: t('MCP server "{name}" 未经过 pod 网关——策略、审批、审计对它都不生效', {
+            name: server.name,
+          }),
           evidence: [`${server.file}: ${[server.command, ...server.args].join(' ') || server.url || ''}`],
         }),
       );
@@ -139,8 +159,12 @@ function detectServers(rules: RuleSet, facts: Facts): Finding[] {
           harness: server.harness,
           subject: `${server.name}@${server.file}`,
           message: omitAuth
-            ? `MCP server "${server.name}" 关闭了鉴权（DANGEROUSLY_OMIT_AUTH）——工具执行变成了无鉴权的网络接口`
-            : `MCP server "${server.name}" 绑定 0.0.0.0——本机之外的进程也能连上它的工具执行面`,
+            ? t('MCP server "{name}" 关闭了鉴权（DANGEROUSLY_OMIT_AUTH）——工具执行变成了无鉴权的网络接口', {
+                name: server.name,
+              })
+            : t('MCP server "{name}" 绑定 0.0.0.0——本机之外的进程也能连上它的工具执行面', {
+                name: server.name,
+              }),
           evidence: [`${server.file}: ${[server.command, ...server.args].join(' ')}`],
         }),
       );
@@ -167,10 +191,16 @@ function detectServers(rules: RuleSet, facts: Facts): Finding[] {
             severity: scheme === 'http' ? 'high' : 'medium',
             message:
               host === ''
-                ? `MCP server "${server.name}" 的端点 URL 无法解析，无法确认它连到哪里`
+                ? t('MCP server "{name}" 的端点 URL 无法解析，无法确认它连到哪里', { name: server.name })
                 : scheme === 'http'
-                  ? `MCP server "${server.name}" 通过明文 HTTP 连到远程主机 ${host}——token 与工具参数在链路上可读可改`
-                  : `MCP server "${server.name}" 连到远程主机 ${host}——确认它强制鉴权，且只授予必需的工具`,
+                  ? t('MCP server "{name}" 通过明文 HTTP 连到远程主机 {host}——token 与工具参数在链路上可读可改', {
+                      name: server.name,
+                      host,
+                    })
+                  : t('MCP server "{name}" 连到远程主机 {host}——确认它强制鉴权，且只授予必需的工具', {
+                      name: server.name,
+                      host,
+                    }),
             evidence: [`${server.file}: ${server.name} → ${server.url}`],
           }),
         );
@@ -191,7 +221,10 @@ function detectProjects(facts: Facts): Finding[] {
         threat: 'AG-04',
         harness: 'workspace',
         subject: project.root,
-        message: `工作区 ${project.root} 里有 ${project.autoExecConfigs.length} 个 MCP 配置：接受一次"信任此文件夹"就会以你的权限启动其中的 server`,
+        message: t('工作区 {root} 里有 {n} 个 MCP 配置：接受一次"信任此文件夹"就会以你的权限启动其中的 server', {
+          root: project.root,
+          n: project.autoExecConfigs.length,
+        }),
         evidence: project.autoExecConfigs.map((path) => `${project.root}/${path}`),
       }),
     );
@@ -214,7 +247,14 @@ function detectHooks(rules: RuleSet, facts: Facts): Finding[] {
           harness: hook.harness,
           subject: `${hook.file}#${hook.index}`,
           severity: trusted ? 'low' : pattern.severity,
-          message: `钩子（${hook.event}）命中风险规则 ${pattern.id}：${pattern.why ?? '钩子内容可疑'}${trusted ? '（来源在 trustedSources 里，已降级）' : ''}`,
+          message: t('钩子（{event}）命中风险规则 {id}：{why}{trusted}', {
+            event: hook.event,
+            id: pattern.id,
+            // 规则里的 why 是用户可改的数据：命中内置默认值时翻成英文，
+            // 用户自己写的中文说明 t() 查不到词条、原样返回，不会被改写。
+            why: pattern.why ? t(pattern.why) : t('钩子内容可疑'),
+            trusted: trusted ? t('（来源在 trustedSources 里，已降级）') : '',
+          }),
           evidence: [`${hook.file}: ${hook.command}`],
         }),
       );
@@ -226,7 +266,7 @@ function detectHooks(rules: RuleSet, facts: Facts): Finding[] {
           threat: 'AG-06',
           harness: hook.harness,
           subject: `${hook.file}#${hook.index}:${flag}`,
-          message: `钩子用 "${flag}" 启动 agent——审批闸门被这个参数整条绕过`,
+          message: t('钩子用 "{flag}" 启动 agent——审批闸门被这个参数整条绕过', { flag }),
           evidence: [`${hook.file}: ${hook.command}`],
         }),
       );
@@ -242,7 +282,10 @@ function detectHooks(rules: RuleSet, facts: Facts): Finding[] {
           threat: 'AG-06',
           harness: server.harness,
           subject: `${server.name}@${server.file}:${flag}`,
-          message: `MCP server "${server.name}" 用 "${flag}" 启动子进程——审批闸门被这个参数整条绕过`,
+          message: t('MCP server "{name}" 用 "{flag}" 启动子进程——审批闸门被这个参数整条绕过', {
+            name: server.name,
+            flag,
+          }),
           evidence: [`${server.file}: ${argv}`],
         }),
       );
@@ -265,7 +308,9 @@ function detectPlugins(rules: RuleSet, home: string): Finding[] {
       threat: 'AG-13',
       harness: 'plugins',
       subject: hits.join(','),
-      message: `发现 ${hits.length} 个第三方插件/技能目录：它们把提示词、脚本和钩子一起带进来，安装即接受全部三样`,
+      message: t('发现 {n} 个第三方插件/技能目录：它们把提示词、脚本和钩子一起带进来，安装即接受全部三样', {
+        n: hits.length,
+      }),
       evidence: hits,
     }),
   ];
@@ -282,8 +327,10 @@ function detectMemory(facts: Facts): Finding[] {
         threat: 'AG-07',
         harness: mem.harness,
         subject: mem.file,
-        message: `${mem.file} 是长期记忆，但没有纳入 rules.memory.paths——被改写时不会有人知道，而它会影响之后每一次会话`,
-        evidence: [`${mem.file}（${mem.bytes} 字节）`],
+        message: t('{file} 是长期记忆，但没有纳入 rules.memory.paths——被改写时不会有人知道，而它会影响之后每一次会话', {
+          file: mem.file,
+        }),
+        evidence: [`${mem.file}${t('（{bytes} 字节）', { bytes: mem.bytes })}`],
       }),
     );
   }
@@ -309,10 +356,14 @@ function detectTrifecta(rules: RuleSet, facts: Facts): Finding[] {
         threat: 'AG-09',
         harness,
         subject: harness,
-        message: `${harness} 同时具备"读私密数据"与"向外发送"能力（致命三角的两条边：${privateData.map((s) => s.name).join('、')} → ${egress.map((s) => s.name).join('、')}）——它读到的任何不可信内容都可能被发出去`,
+        message: t('{harness} 同时具备"读私密数据"与"向外发送"能力（致命三角的两条边：{private} → {egress}）——它读到的任何不可信内容都可能被发出去', {
+          harness,
+          private: listJoin(privateData.map((s) => s.name)),
+          egress: listJoin(egress.map((s) => s.name)),
+        }),
         evidence: [
-          `读私密：${privateData.map((s) => `${s.name}@${s.file}`).join('、')}`,
-          `可外发：${egress.map((s) => `${s.name}@${s.file}`).join('、')}`,
+          `${t('读私密：')}${listJoin(privateData.map((s) => `${s.name}@${s.file}`))}`,
+          `${t('可外发：')}${listJoin(egress.map((s) => `${s.name}@${s.file}`))}`,
         ],
       }),
     );
@@ -333,13 +384,17 @@ function detectSharedCredentials(facts: Facts): Finding[] {
   const out: Finding[] = [];
   for (const [key, files] of groups) {
     if (files.size < 2) continue;
-    const [category, masked] = key.split('|');
+    const [category = '', masked = ''] = key.split('|');
     out.push(
       finding({
         threat: 'AG-10',
         harness: 'multiple',
         subject: key,
-        message: `同一份 ${category}（${masked}）出现在 ${files.size} 个配置里——出事时无法判断是谁做的，也无法单独吊销`,
+        message: t('同一份 {category}（{masked}）出现在 {n} 个配置里——出事时无法判断是谁做的，也无法单独吊销', {
+          category,
+          masked,
+          n: files.size,
+        }),
         evidence: [...files].sort(),
       }),
     );
@@ -359,7 +414,10 @@ function detectCoverage(rules: RuleSet, facts: Facts): Finding[] {
           threat: 'AG-11',
           harness: harness.id,
           subject: harness.id,
-          message: `${harness.label} 在本机上是装着的，但没有策略、身份或审计记录（发现的证据：${harness.evidence.join('、')}）`,
+          message: t('{harness} 在本机上是装着的，但没有策略、身份或审计记录（发现的证据：{evidence}）', {
+            harness: harness.label,
+            evidence: listJoin(harness.evidence),
+          }),
           evidence: harness.evidence,
         }),
       );
@@ -370,7 +428,10 @@ function detectCoverage(rules: RuleSet, facts: Facts): Finding[] {
           threat: 'AG-16',
           harness: harness.id,
           subject: harness.id,
-          message: `${harness.label} 有治理记录但没有审计链——它做过什么无法证明（managedBy: ${harness.managedBy.join('/')}）`,
+          message: t('{harness} 有治理记录但没有审计链——它做过什么无法证明（managedBy: {by}）', {
+            harness: harness.label,
+            by: harness.managedBy.join('/'),
+          }),
           evidence: harness.agentNames.length > 0 ? harness.agentNames : harness.evidence,
         }),
       );
@@ -391,8 +452,7 @@ function detectFreeze(facts: Facts): Finding[] {
       threat: 'AG-12',
       harness: 'machine',
       subject: 'posture-baseline',
-      message:
-        '尚未建立姿态基线：agent 配置、记忆文件、钩子被改写时不会报出来（攻击者只需要改一个参数就能把闸门悄悄摘掉）',
+      message: t('尚未建立姿态基线：agent 配置、记忆文件、钩子被改写时不会报出来（攻击者只需要改一个参数就能把闸门悄悄摘掉）'),
       evidence: ['pod posture freeze'],
     }),
   ];
@@ -416,7 +476,10 @@ function detectRugPull(rules: RuleSet, facts: Facts, baseline: GuardBaseline | n
           harness: entry.server.harness,
           subject: key,
           severity: 'medium',
-          message: `基线之后新增了 MCP server "${entry.server.name}"（${entry.server.file}）——确认这是你自己加的`,
+          message: t('基线之后新增了 MCP server "{name}"（{file}）——确认这是你自己加的', {
+            name: entry.server.name,
+            file: entry.server.file,
+          }),
           evidence: [`${entry.server.file}: ${[entry.server.command, ...entry.server.args].join(' ')}`],
         }),
       );
@@ -428,7 +491,9 @@ function detectRugPull(rules: RuleSet, facts: Facts, baseline: GuardBaseline | n
           threat: 'AG-14',
           harness: entry.server.harness,
           subject: key,
-          message: `MCP server "${entry.server.name}" 的启动命令与基线不一致——同名 server 可能被换成了另一个包（rug pull）`,
+          message: t('MCP server "{name}" 的启动命令与基线不一致——同名 server 可能被换成了另一个包（rug pull）', {
+            name: entry.server.name,
+          }),
           evidence: [`${entry.server.file}: ${[entry.server.command, ...entry.server.args].join(' ')}`],
         }),
       );
@@ -448,7 +513,7 @@ function detectDisabledControls(rules: RuleSet, facts: Facts): Finding[] {
         threat: 'AG-15',
         harness: 'machine',
         subject: 'injection.block',
-        message: 'rules.injection.block 是关的：工具响应里的注入内容会原样回到 agent 上下文（这正是 EchoLeak 类的入口）',
+        message: t('rules.injection.block 是关的：工具响应里的注入内容会原样回到 agent 上下文（这正是 EchoLeak 类的入口）'),
         evidence: ['rules.injection.block = false'],
       }),
     );
@@ -459,7 +524,10 @@ function detectDisabledControls(rules: RuleSet, facts: Facts): Finding[] {
         threat: 'AG-15',
         harness: 'machine',
         subject: 'egress.enabled',
-        message: `rules.egress 未启用，但本机有 ${egressServers.length} 个能向外发送的 server（${egressServers.map((s) => s.name).join('、')}）——数据出机器前没有可判定的闸门`,
+        message: t('rules.egress 未启用，但本机有 {n} 个能向外发送的 server（{list}）——数据出机器前没有可判定的闸门', {
+          n: egressServers.length,
+          list: listJoin(egressServers.map((s) => s.name)),
+        }),
         evidence: egressServers.map((s) => `${s.name}@${s.file}`),
       }),
     );
@@ -470,7 +538,7 @@ function detectDisabledControls(rules: RuleSet, facts: Facts): Finding[] {
         threat: 'AG-17',
         harness: 'machine',
         subject: 'toolMetadata.block',
-        message: 'rules.toolMetadata.block 是关的：工具描述里的隐藏指令不会被从 tools/list 摘掉，模型会直接读到',
+        message: t('rules.toolMetadata.block 是关的：工具描述里的隐藏指令不会被从 tools/list 摘掉，模型会直接读到'),
         evidence: ['rules.toolMetadata.block = false'],
       }),
     );

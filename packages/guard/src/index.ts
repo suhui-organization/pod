@@ -33,7 +33,18 @@ export {
   renderThreatCatalog,
   categoryLabel,
   SEVERITY_ICON,
+  renderFunnelSection,
+  paren,
+  enumSep,
+  findingsLabel,
 } from './report.js';
+export {
+  buildFunnelPlan,
+  harnessArg,
+  nextCommandFor,
+  nextVerifyFor,
+} from './funnel.js';
+export type { FunnelPlan, NextAction, NextActionKind } from './funnel.js';
 
 export interface GuardScanOptions {
   home: string;

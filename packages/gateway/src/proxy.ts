@@ -440,8 +440,8 @@ export function createProxyServer(opts: ProxyOptions): Server {
         decision: blocks ? 'deny' : 'allow',
         outcome: blocks ? 'blocked' : 'ok',
         reason: blocks
-          ? `tool_metadata_blocked: ${hit.ruleId} (${hit.severity} ≥ ${rules.toolMetadata.blockAtOrAbove}) — 已从 tools/list 摘除`
-          : `tool_metadata_suspect: ${hit.ruleId} (${hit.severity})${hit.why ? ` — ${hit.why}` : ''}`,
+          ? `tool_metadata_blocked: ${hit.ruleId} (${hit.severity} ≥ ${rules.toolMetadata.blockAtOrAbove}) — ${t('已从 tools/list 摘除')}`
+          : `tool_metadata_suspect: ${hit.ruleId} (${hit.severity})${hit.why ? ` — ${t(hit.why)}` : ''}`,
         policyVersion: policy.version,
       });
     }
@@ -570,7 +570,7 @@ export function createProxyServer(opts: ProxyOptions): Server {
           outcome: 'ok',
           reason:
             `injection_suspect: output matched signal "${injection.id}" (${injection.severity})` +
-            `${injection.why ? ` — ${injection.why}` : ''} (T1)`,
+            `${injection.why ? ` — ${t(injection.why)}` : ''} (T1)`,
           approver: extra?.approver,
           snapshot: snapshotId,
           outputHash: hashValue(result.content),

@@ -6,18 +6,33 @@
  * 2. **说清楚不夸大**：每条建议都标注 pod 对这类威胁的覆盖程度；
  *    做不到的写在"覆盖边界"里，不用一句"已加固"盖过去。
  */
-import { t } from '@podsec/i18n';
+import { getLocale, t } from '@podsec/i18n';
 import type { Severity } from '@podsec/policy';
 import {
-  THREAT_BY_ID,
-  THREAT_CATALOG as THREAT_CATALOG_ALL,
+  localizedCatalog,
+  localizedThreat,
   type GuardCategory,
   type ThreatEntry,
 } from './catalog.js';
 import type { Finding, GuardReport, RemediationItem } from './types.js';
 import { SEVERITY_ORDER } from './types.js';
+import { buildFunnelPlan, nextCommandFor, nextVerifyFor, type FunnelPlan } from './funnel.js';
 
 export const SEVERITY_ICON: Record<Severity, string> = { high: '🔴', medium: '🟠', low: '🟡' };
+
+/** 括号随语言切换：中文用全角，英文用半角。导出给 pod harden 的报告复用。 */
+export function paren(text: string): string {
+  return getLocale() === 'en-US' ? `(${text})` : `（${text}）`;
+}
+
+export function enumSep(): string {
+  return getLocale() === 'en-US' ? ', ' : '、';
+}
+
+/** "3 findings" / "3 处"——英文要单复数，中文不需要。导出给 pod harden 的报告复用。 */
+export function findingsLabel(n: number): string {
+  return getLocale() === 'en-US' ? `${n} finding${n === 1 ? '' : 's'}` : `${n} 处`;
+}
 
 /**
  * 类别的可读名。
@@ -79,7 +94,7 @@ export function buildRemediations(findings: Finding[]): RemediationItem[] {
   const items: RemediationItem[] = [];
   const worstByThreat = new Map<string, Severity>();
   for (const [threat, list] of groups) {
-    const entry: ThreatEntry | undefined = THREAT_BY_ID[threat];
+    const entry: ThreatEntry | undefined = localizedThreat(threat);
     if (!entry) continue;
     const worst = list.reduce<Severity>(
       (acc, cur) => (SEVERITY_ORDER[cur.severity] < SEVERITY_ORDER[acc] ? cur.severity : acc),
@@ -93,9 +108,16 @@ export function buildRemediations(findings: Finding[]): RemediationItem[] {
       why: entry.remediation.why,
       automation: entry.remediation.automation,
       coverage: entry.coverage,
+      residualRisk: entry.coverage !== 'covered',
       count: list.length,
     };
-    if (entry.remediation.command) item.command = entry.remediation.command;
+    // 只落在一个 harness 上时，给带 harness 的实命令；否则退回目录里的通用形态
+    const single = item.affects.length === 1 ? item.affects[0]! : null;
+    const concrete = single ? nextCommandFor(threat, single) : undefined;
+    const command = concrete ?? entry.remediation.command;
+    if (command) item.command = command;
+    if (single) item.verify = nextVerifyFor(threat, single);
+    else if (entry.coverage === 'covered') item.verify = 'pod guard scan';
     // 最严重级别只用于排序，不进对外结构（RemediationItem 里没有这个字段）
     worstByThreat.set(threat, worst);
     items.push(item);
@@ -115,11 +137,78 @@ export function buildRemediations(findings: Finding[]): RemediationItem[] {
 function refsBlock(entries: ThreatEntry[]): string[] {
   const lines: string[] = [];
   for (const entry of entries) {
-    lines.push(`- **${entry.id} ${entry.title}**（OWASP ${entry.asi.join('、')}${entry.localThreats.length > 0 ? ` · 威胁模型 ${entry.localThreats.join('/')}` : ''}）`);
+    const meta = [
+      `OWASP ${entry.asi.join(enumSep())}`,
+      entry.localThreats.length > 0
+        ? t('威胁模型 {list}', { list: entry.localThreats.join('/') })
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    lines.push(`- **${entry.id} ${entry.title}** ${paren(meta)}`);
     for (const ref of entry.refs) {
       lines.push(`  - [${ref.id}](${ref.url}) — ${ref.by}`);
     }
   }
+  return lines;
+}
+
+/**
+ * §0 里的两小节：先做这三件事 + 交付入口。
+ *
+ * 位置是刻意的：用户在读完严重级别计数之后，第一个问题就是"那我现在干什么"。
+ * 把答案压在报表末尾等于没给——扫描器与"能用的工具"的差别就在这一段。
+ */
+export function renderFunnelSection(plan: FunnelPlan): string[] {
+  const lines: string[] = [];
+  lines.push(t('### 先做这三件事'));
+  lines.push('');
+  if (plan.actions.length === 0) {
+    lines.push(t('没有需要立刻处理的项（这不等于"没问题"，见 §4 的覆盖边界）。'));
+    lines.push('');
+  } else {
+    for (const item of plan.actions) {
+      const icon = SEVERITY_ICON[item.severity];
+      lines.push(
+        `${item.priority}. ${icon} **${item.threat} ${item.title}** · \`${item.harness}\` ${paren(
+          findingsLabel(item.affects),
+        )}`,
+      );
+      lines.push('');
+      lines.push(`   ${item.action}`);
+      lines.push('');
+      lines.push('   ```bash');
+      lines.push(`   ${item.command}`);
+      lines.push('   ```');
+      lines.push('');
+      lines.push(t('   确认：`{cmd}`', { cmd: item.verify }));
+      lines.push(
+        item.residualRisk
+          ? t('   覆盖：pod 只能发现或降低风险，处理完这类问题**不会**消失——原因见 §4。')
+          : t('   覆盖：pod 有执行点，处理完这类问题就消失了。'),
+      );
+      lines.push('');
+    }
+  }
+  lines.push(t('### 从扫描到交付'));
+  lines.push('');
+  lines.push(t('本轮扫出 {total} 条：可根治 {fixable} · 只能降险/发现 {review} · pod 看不到 {uncovered}。', {
+    total: plan.counts.findings,
+    fixable: plan.counts.fixable,
+    review: plan.counts.review,
+    uncovered: plan.counts.uncovered,
+  }));
+  lines.push('');
+  lines.push(plan.deliverable.reason);
+  lines.push('');
+  lines.push('```bash');
+  lines.push(plan.deliverable.command);
+  lines.push('```');
+  lines.push('');
+  lines.push(t('报告目录里包含：'));
+  lines.push('');
+  for (const item of plan.deliverable.contains) lines.push(`- ${item}`);
+  lines.push('');
   return lines;
 }
 
@@ -161,6 +250,7 @@ export function renderGuardReport(report: GuardReport): string {
     }),
   );
   lines.push('');
+  lines.push(...renderFunnelSection(buildFunnelPlan(report)));
   if (report.findings.length === 0) {
     lines.push(t('本轮没有发现可判定的问题。注意这不等于"安全"——§4 列了 pod 看不到的那部分。'));
     lines.push('');
@@ -174,21 +264,23 @@ export function renderGuardReport(report: GuardReport): string {
     lines.push('');
   } else {
     const bySeverity: Array<[Severity, string]> = [
-      ['high', '🔴 high — 现在就该处理'],
-      ['medium', '🟠 medium — 本周处理'],
-      ['low', '🟡 low — 记录在案'],
+      ['high', t('🔴 high — 现在就该处理')],
+      ['medium', t('🟠 medium — 本周处理')],
+      ['low', t('🟡 low — 记录在案')],
     ];
     for (const [severity, heading] of bySeverity) {
       const list = report.findings.filter((f) => f.severity === severity);
       if (list.length === 0) continue;
-      lines.push(`### ${heading}（${list.length}）`);
+      lines.push(`### ${heading}${paren(String(list.length))}`);
       lines.push('');
       // 按威胁分组：同一类问题（比如 20 个 server 都没走网关）读成一条，
       // 逐条平铺会让清单在第一屏就失去可读性。
       for (const [threat, group] of groupBy(list, (f) => f.threat)) {
-        const entry = THREAT_BY_ID[threat];
+        const entry = localizedThreat(threat);
         lines.push(
-          `#### ${threat}${entry ? ` ${entry.title}` : ''} · \`${categoryLabel(group[0]!.category)}\`（${group.length} 处）`,
+          `#### ${threat}${entry ? ` ${entry.title}` : ''} · \`${categoryLabel(group[0]!.category)}\` ${paren(
+            findingsLabel(group.length),
+          )}`,
         );
         lines.push('');
         const shown = group.slice(0, MAX_PER_THREAT);
@@ -196,7 +288,7 @@ export function renderGuardReport(report: GuardReport): string {
           lines.push(`- \`${item.harness}\` · \`${item.subject}\``);
           lines.push(`  ${item.message}`);
           for (const evidence of item.evidence.slice(0, 3)) {
-            lines.push(`  - 证据：\`${evidence}\``);
+            lines.push(t('  - 证据：`{evidence}`', { evidence }));
           }
         }
         if (group.length > shown.length) {
@@ -216,17 +308,17 @@ export function renderGuardReport(report: GuardReport): string {
     lines.push('');
   } else {
     for (const item of report.remediations) {
-      const entry = THREAT_BY_ID[item.threat];
+      const entry = localizedThreat(item.threat);
       lines.push(
         `### ${item.priority}. ${item.action}`,
       );
       lines.push('');
       lines.push(
-        t('对应威胁：`{threat}`{title} · 影响 {count} 处 · harness：{affects}', {
+        t('对应威胁：`{threat}`{title} · 影响 {count} · harness：{affects}', {
           threat: item.threat,
           title: entry ? ` ${entry.title}` : '',
-          count: item.count,
-          affects: item.affects.join('、') || '—',
+          count: findingsLabel(item.count),
+          affects: item.affects.join(enumSep()) || '—',
         }),
       );
       lines.push(t('为什么：{why}', { why: item.why }));
@@ -242,6 +334,14 @@ export function renderGuardReport(report: GuardReport): string {
         lines.push('```bash');
         lines.push(item.command);
         lines.push('```');
+      }
+      if (item.verify) {
+        lines.push('');
+        lines.push(t('确认：`{cmd}`', { cmd: item.verify }));
+      }
+      if (item.residualRisk) {
+        lines.push('');
+        lines.push(t('这一条不能根治：pod 只能发现或降低风险，剩余风险见 §4。'));
       }
       if (item.automation === 'proposal') {
         lines.push(t('可以让模型生成加固建议物：`pod guard remediate --llm`（建议物不自动生效，先过放宽守卫）。'));
@@ -264,11 +364,12 @@ export function renderGuardReport(report: GuardReport): string {
   lines.push(t('## 4. 覆盖边界与出处'));
   lines.push('');
   const triggered = [...new Set(report.findings.map((f) => f.threat))];
-  const catalogEntries = triggered.map((id) => THREAT_BY_ID[id]).filter((e): e is ThreatEntry => Boolean(e));
+  const catalogEntries = triggered.map((id) => localizedThreat(id)).filter((e): e is ThreatEntry => Boolean(e));
   const partial = catalogEntries.filter((e) => e.coverage === 'partial');
   // AG-18（无沙箱）是结构性的：只要这台机器上有 MCP server 就成立，不依赖本轮是否触发
   const gapEntries = new Map<string, ThreatEntry>();
-  if (report.scanned.servers > 0 && THREAT_BY_ID['AG-18']) gapEntries.set('AG-18', THREAT_BY_ID['AG-18']);
+  const sandboxGap = localizedThreat('AG-18');
+  if (report.scanned.servers > 0 && sandboxGap) gapEntries.set('AG-18', sandboxGap);
   for (const entry of catalogEntries.filter((e) => e.coverage === 'gap')) gapEntries.set(entry.id, entry);
   const gaps = [...gapEntries.values()];
   if (partial.length > 0) {
@@ -317,7 +418,7 @@ export function guardReportJson(report: GuardReport): string {
  * 目录是"我们声称懂什么"的公开清单，所以它必须能被单独读一遍——
  * 包括每条的外部出处，和 pod 到底覆盖到哪。
  */
-export function renderThreatCatalog(entries: ThreatEntry[] = THREAT_CATALOG_ALL): string {
+export function renderThreatCatalog(entries: ThreatEntry[] = localizedCatalog()): string {
   const lines: string[] = [t('# pod guard 威胁目录'), ''];
   lines.push(t('> 每条都对应一个可自动执行的检测器，并带上可核查的外部出处。'));
   lines.push('');

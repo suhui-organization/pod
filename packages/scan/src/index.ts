@@ -287,6 +287,11 @@ export function renderMarkdown(result: ScanResult): string {
   lines.push('');
   lines.push(t('**下一步**：`pod init --template baseline` 装上闸门，'));
   lines.push(t('每次工具调用写入 SHA-256 哈希链——从今天起，你的 Agent 每一步都有不可篡改的证据。'));
+  lines.push('');
+  // 漏斗：scan 是 6 类平台的快速体检，guard 覆盖 16 类并给出"先做这三件事"，
+  // harden 把结论变成可交付的报告。三条命令都只读或本地落盘，不制造压力。
+  lines.push(t('**想把 16 类 harness 都过一遍**：`pod guard scan`（只读，输出「先做这三件事」与逐条处置命令）。'));
+  lines.push(t('**要交给客户或审计方**：`pod harden --out ~/pod-audit-<日期>`（可交付、对方能用 `pod harden --verify` 自己验的报告目录）。'));
   return lines.join('\n');
 }
 

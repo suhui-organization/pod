@@ -13,7 +13,9 @@ import {
 import { behindGateway, parsePackageFrom } from './collect.js';
 import {
   buildGuardBaseline,
+  buildFunnelPlan,
   diffFindings,
+  nextCommandFor,
   runGuardScan,
   snapshotOf,
   type Finding,
@@ -368,5 +370,58 @@ describe('目录完整性', () => {
     const ids = THREAT_CATALOG.map((entry) => entry.id).filter((id) => id !== 'AG-18');
     expect(ids).toHaveLength(17);
     expect(THREAT_BY_ID['AG-18']!.coverage).toBe('gap');
+  });
+});
+
+// 漏斗层：扫描结果必须能折成"先做这三件事"，每条都带一条能直接跑的 pod 命令。
+// 这是"扫描器"和"能被用起来的工具"的分界线，所以它跟检测器一样需要被测试守住。
+describe('漏斗：从扫描到下一步', () => {
+  it('带 harness 的发现给出带 harness 的命令，而不是目录里的通用模板', () => {
+    expect(nextCommandFor('AG-11', 'claude-code')).toBe('pod agents enroll --harness claude-code');
+    expect(nextCommandFor('AG-03', 'cursor')).toBe('pod agents onboard --harness cursor --yes');
+    expect(nextCommandFor('AG-12', 'machine')).toBe('pod posture freeze');
+  });
+
+  it('harness 名不合法时不拼进命令行（不给注入留位置）', () => {
+    expect(nextCommandFor('AG-11', 'unknown')).toBe('pod agents scan');
+    expect(nextCommandFor('AG-11', 'a; rm -rf /')).toBe('pod agents scan');
+  });
+
+  it('最多给三条，按"严重级别 → 能不能根治 → 影响面"排序', () => {
+    const findings: Finding[] = [
+      { id: 'AG-12:machine:x', threat: 'AG-12', category: 'permission', severity: 'high', harness: 'machine', subject: 'x', message: 'm', evidence: [] },
+      { id: 'AG-11:claude-code:y', threat: 'AG-11', category: 'visibility', severity: 'medium', harness: 'claude-code', subject: 'y', message: 'm', evidence: [] },
+      { id: 'AG-07:gemini-cli:z', threat: 'AG-07', category: 'memory', severity: 'high', harness: 'gemini-cli', subject: 'z', message: 'm', evidence: [] },
+      { id: 'AG-01:unknown:a', threat: 'AG-01', category: 'credential', severity: 'high', harness: 'unknown', subject: 'a', message: 'm', evidence: [] },
+    ];
+    const report = {
+      generatedAt: '2026-09-18T00:00:00.000Z',
+      home: '/tmp/home',
+      scanned: { harnesses: 16, installedHarnesses: 2, servers: 3, hooks: 1, secrets: 1, projects: 0 },
+      findings,
+      remediations: [],
+      coverage: { automated: 7, partial: 10, gap: 1 },
+      notes: [],
+    };
+    const plan = buildFunnelPlan(report, new Date('2026-09-18T00:00:00Z'));
+    expect(plan.actions).toHaveLength(3);
+    expect(plan.actions.every((a) => a.command.startsWith('pod '))).toBe(true);
+    expect(plan.actions[0]!.threat).toBe('AG-12'); // high 且能根治，排在只能降险的 AG-07 前
+    expect(plan.counts).toEqual({ findings: 4, fixable: 3, review: 1, uncovered: 0 });
+  });
+
+  it('交付入口始终存在：扫描干净时也要能证明"干净"', () => {
+    const report = {
+      generatedAt: '2026-09-18T00:00:00.000Z',
+      home: '/tmp/home',
+      scanned: { harnesses: 16, installedHarnesses: 0, servers: 0, hooks: 0, secrets: 0, projects: 0 },
+      findings: [],
+      remediations: [],
+      coverage: { automated: 7, partial: 10, gap: 1 },
+      notes: [],
+    };
+    const plan = buildFunnelPlan(report, new Date('2026-09-18T00:00:00Z'));
+    expect(plan.actions).toHaveLength(0);
+    expect(plan.deliverable.command).toBe('pod harden --out ~/pod-audit-2026-09-18');
   });
 });

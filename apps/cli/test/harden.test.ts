@@ -123,6 +123,8 @@ describe('pod harden — 加固审计交付物', () => {
     expect(manifest.artifacts.map((a: { file: string }) => a.file).sort()).toEqual([
       'evidence.json',
       'findings.json',
+      'harness-findings.json',
+      'harness-scan.md',
       'policy-draft.json',
       'report.md',
     ]);
@@ -137,7 +139,7 @@ describe('pod harden — 加固审计交付物', () => {
     const report = readFileSync(join(outDir, 'report.md'), 'utf8');
     expect(report).toContain('钩子里出现网络出口');
     expect(report).toContain('@evil/mcp-latest');
-    expect(report).toContain('## 2. 暴露面');
+    expect(report).toContain('## 4. 暴露面（静态扫描）');
     // 内嵌子报告被降级，不会在交付物里插入第二个一级标题
     expect(report.split('\n').filter((l) => /^# /.test(l))).toEqual(['# pod 加固审计报告']);
   });
@@ -160,6 +162,84 @@ describe('pod harden — 加固审计交付物', () => {
     const report = readFileSync(join(outDir, 'report.md'), 'utf8');
     expect(report).toContain('没有语料的策略只是猜测');
     expect(report).toContain('审计目录为空');
+  });
+
+  it('交付封面写入客户 / 出具方 / 报告编号，并同步进 findings 与 manifest', () => {
+    seedCorpus();
+    run(
+      hardenArgs([
+        '--client', '某某工作室',
+        '--auditor', '素辉安全',
+        '--engagement', 'POD-2026-0918',
+      ]),
+    );
+    const report = readFileSync(join(outDir, 'report.md'), 'utf8');
+    expect(report).toContain('某某工作室');
+    expect(report).toContain('素辉安全');
+    expect(report).toContain('POD-2026-0918');
+    const findings = JSON.parse(readFileSync(join(outDir, 'findings.json'), 'utf8'));
+    expect(findings.engagement.client).toBe('某某工作室');
+    const manifest = JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8'));
+    expect(manifest.engagement.engagementId).toBe('POD-2026-0918');
+  });
+
+  it('报告是一份可交付结构：执行摘要 / 范围与方法 / 覆盖边界 / 如何验证', () => {
+    seedCorpus();
+    run(hardenArgs());
+    const report = readFileSync(join(outDir, 'report.md'), 'utf8');
+    expect(report).toContain('## 0. 执行摘要');
+    expect(report).toContain('## 1. 范围与方法');
+    expect(report).toContain('## 3. 覆盖边界（本报告不能证明什么）');
+    expect(report).toContain('## 5. 多 agent / 多 harness 覆盖面');
+    expect(report).toContain('## 9. 如何验证这份交付物');
+    // 交付物里不出现只对操作者说的漏斗话术
+    expect(report).not.toContain('从扫描到交付');
+    // 只有操作者关心的"先做这三件事"也不该出现在客户交付物里
+    expect(report).not.toContain('先做这三件事');
+  });
+
+  it('--verify 能独立复验交付物；被改动的文件会被指出来', () => {
+    seedCorpus();
+    run(hardenArgs());
+    const ok = run(['harden', '--verify', outDir]);
+    expect(ok.out).toContain('交付物校验通过');
+
+    // 改动一个字节：接收方必须能看出这份报告被动过
+    const findingsPath = join(outDir, 'findings.json');
+    writeFileSync(findingsPath, `${readFileSync(findingsPath, 'utf8')}\n`);
+    const bad = run(['harden', '--verify', outDir], 1);
+    expect(bad.out).toContain('交付物校验失败');
+    expect(bad.out).toContain('findings.json');
+  });
+
+  it('--verify 指向一个不是交付目录的位置时明确报错，不假装通过', () => {
+    const empty = join(root, 'not-a-delivery');
+    mkdirSync(empty, { recursive: true });
+    const res = run(['harden', '--verify', empty], 1);
+    expect(res.out).toContain('这不是一份 pod harden 交付目录');
+  });
+
+  it('同一处问题被多层各报一次时只保留一条（钩子：posture + guard）', () => {
+    seedCorpus();
+    run(hardenArgs());
+    const findings = JSON.parse(readFileSync(join(outDir, 'findings.json'), 'utf8'));
+    const hookFindings = findings.findings.filter((f: { message: string }) =>
+      f.message.includes('钩子里出现网络出口'),
+    );
+    expect(hookFindings).toHaveLength(1);
+    // 保留的是 guard 那条：带 AG 编号与可执行命令，客户照抄就能走下一步
+    expect(hookFindings[0].threat).toBe('AG-05');
+    expect(hookFindings[0].command).toBeTruthy();
+  });
+
+  it('英文模式下交付物（报告 / 清单 / harness 明细）不留中文', () => {
+    seedCorpus();
+    run(hardenArgs(['--lang', 'en-US']));
+    // 交付物是给客户看的：中英混排会直接削弱"这份报告是给谁看的"这个判断
+    for (const file of ['report.md', 'findings.json', 'harness-scan.md']) {
+      const text = readFileSync(join(outDir, file), 'utf8');
+      expect(text, file).not.toMatch(/[\u4e00-\u9fff]/);
+    }
   });
 });
 

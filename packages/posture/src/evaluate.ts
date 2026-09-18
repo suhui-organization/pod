@@ -78,7 +78,12 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
         category: 'hook',
         severity,
         subject: `${hook.event} @ ${hook.file}`,
-        message: t('{why}（规则 {rule}）：{command}', { why: p.why ?? t('钩子命中风险规则'), rule: p.id, command: hook.command }),
+        // 规则里的 why 是用户可改的数据：命中内置默认值时才翻，用户自己写的说明原样显示
+        message: t('{why}（规则 {rule}）：{command}', {
+          why: p.why ? t(p.why) : t('钩子命中风险规则'),
+          rule: p.id,
+          command: hook.command,
+        }),
         evidence: [hook.command],
       });
     }

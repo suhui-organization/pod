@@ -44,10 +44,10 @@ import {
 } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { diffPolicies, draftPolicy, mostCommonAgent, renderPolicyDiff } from './policy-draft.js';
-import { runHarden } from './harden.js';
+import { runHarden, verifyHardenPackage } from './harden.js';
 import { runRedteam } from './redteam.js';
 import { cmdGuardBaseline, cmdGuardRemediate, cmdGuardScan, cmdGuardWatch } from './guard.js';
-import { THREAT_CATALOG, renderThreatCatalog, runGuardScan } from '@podsec/guard';
+import { localizedCatalog, renderThreatCatalog, runGuardScan } from '@podsec/guard';
 import {
   applyEnforcement,
   applyTakeover,
@@ -1006,6 +1006,10 @@ async function main(): Promise<void> {
       'allow-expansion': { type: 'boolean' },
       'no-evidence': { type: 'boolean' },
       upload: { type: 'boolean' },
+      client: { type: 'string' },
+      auditor: { type: 'string' },
+      engagement: { type: 'string' },
+      verify: { type: 'string' },
       scenarios: { type: 'string' },
       'export-surface': { type: 'string' },
       'from-cloud': { type: 'boolean' },
@@ -1377,6 +1381,33 @@ async function main(): Promise<void> {
   // ---------- 加固审计交付（方向 A：一次性审计服务） ----------
 
   if (cmd === 'harden') {
+    // 校验模式：收到报告的一方用它独立复验，不需要重跑审计、也不需要信任出具方
+    if (values.verify) {
+      const result = verifyHardenPackage(String(values.verify));
+      if (values.json) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else if (result.error) {
+        log(`❌ ${result.error}`);
+      } else if (result.ok) {
+        log(t('✅ 交付物校验通过：{n} 份产物哈希全部匹配（生成于 {ts}）', {
+          n: result.checked,
+          ts: result.generatedAt ?? '—',
+        }));
+      } else {
+        log(t('❌ 交付物校验失败：缺失 {missing} 份、哈希不匹配 {mismatch} 份', {
+          missing: result.missing.length,
+          mismatch: result.mismatches.length,
+        }));
+        for (const file of result.missing) log(t('   - 缺失：{file}', { file }));
+        for (const item of result.mismatches) {
+          log(t('   - 已被修改：{file}', { file: item.file }));
+          log(t('     期望 {expected}', { expected: item.expected }));
+          log(t('     实际 {actual}', { actual: item.actual }));
+        }
+      }
+      if (!result.ok) process.exitCode = 1;
+      return;
+    }
     const result = runHarden({
       home: values.home ?? homedir(),
       auditDir: values['audit-dir'] ?? podPath('audit'),
@@ -1388,6 +1419,15 @@ async function main(): Promise<void> {
       server: values.server,
       includeEvidence: values['no-evidence'] !== true,
       writeAudit: values.audit === true,
+      ...(values.client || values.auditor || values.engagement
+        ? {
+            engagement: {
+              ...(values.client ? { client: String(values.client) } : {}),
+              ...(values.auditor ? { auditor: String(values.auditor) } : {}),
+              ...(values.engagement ? { engagementId: String(values.engagement) } : {}),
+            },
+          }
+        : {}),
     });
     if (values.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -1400,6 +1440,14 @@ async function main(): Promise<void> {
           platforms: s.platforms.length,
           servers: s.mcpServers,
           secrets: s.exposedSecrets,
+        }),
+      );
+      log(
+        t('  harness 扫描 {harnesses} 类（{installed} 类已安装，{unmanaged} 类未纳管）· 真实调用语料 {corpus} 条', {
+          harnesses: s.harnessesScanned,
+          installed: s.installedHarnesses,
+          unmanaged: s.unmanagedHarnesses,
+          corpus: s.corpusEntries,
         }),
       );
       log(
@@ -1465,7 +1513,7 @@ async function main(): Promise<void> {
 
     if (sub === 'catalog') {
       process.stdout.write(
-        (values.json ? JSON.stringify(THREAT_CATALOG, null, 2) : renderThreatCatalog()) + '\n',
+        (values.json ? JSON.stringify(localizedCatalog(), null, 2) : renderThreatCatalog()) + '\n',
       );
       return;
     }
@@ -2590,7 +2638,9 @@ Usage:
              | onboard --harness <id> [--pod-bin <path>] [--yes] | revert --agent <name>
              | enforce --harness <id> [--record-only] [--yes]
   pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
+             [--client <name>] [--auditor <name>] [--engagement <id>] \\
              [--no-evidence] [--audit] [--upload] [--config <cloud.json>] [--json]
+  pod harden --verify <dir> [--json]
   pod rules [show] [--rules <file>] [--json]
   pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
                  --version <pack-version> --issued-by <who> [--note <text>]
@@ -2629,7 +2679,7 @@ onboard: discover and take over local MCP servers (dry-run by default; --yes wri
 digest: local weekly security digest (audit + coverage + hash-chain health; no network).
 coverage: managed coverage and config drift (--strict exits 1 when a server bypasses the gateway).
 posture: control-plane posture (hooks, frozen config, memory, package sources, identities, delegation); rules from --rules or ~/.pod/rules.json.
-harden: one-shot hardening audit deliverable — exposure scan + control-plane posture + least-privilege draft + evidence, all in one report directory. Local only; --upload sends just report.md + findings.json (never the raw evidence bundle).
+harden: one-shot hardening audit deliverable — multi-harness scan + exposure scan + control-plane posture + least-privilege draft + evidence, all in one client-ready report directory. --client/--auditor/--engagement stamp the cover; --verify re-checks a delivered directory's sha256 manifest by hand. Local only; --upload sends just report.md + findings.json (never the raw evidence bundle).
 guard: continuous vulnerability scan and remediation guidance across agents and harnesses. scan produces a vulnerability list plus recommendations; watch speaks only on new/changed/gone findings and records them in the audit chain; remediate --llm has a model draft proposals (never auto-applied; they pass the relaxation guard first); catalog lists the threat catalog with sources.
 agents: enroll local agents (the same write path as the console's "Enroll" button): scan lists installed harnesses; enroll creates an identity + zero-permission policy + audit dir (it does not touch harness config); forget removes the enrollment (identity kept by default).
         onboard takes over: wraps MCP servers in the gateway (**it rewrites the harness config**: a plan is printed first, --yes applies it, backups and revert are included); revert restores the config from the most recent backup.
@@ -2691,7 +2741,9 @@ Usage:
              | onboard --harness <id> [--pod-bin <path>] [--yes] | revert --agent <name>
              | enforce --harness <id> [--record-only] [--yes]
   pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
+             [--client <name>] [--auditor <name>] [--engagement <id>] \\
              [--no-evidence] [--audit] [--upload] [--config <cloud.json>] [--json]
+  pod harden --verify <dir> [--json]
   pod rules [show] [--rules <file>] [--json]
   pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
                  --version <pack-version> --issued-by <who> [--note <text>]
@@ -2730,7 +2782,7 @@ onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--re
 digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
 coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。
 posture: 控制平面姿态检查（钩子/冻结项/记忆/包来源/身份/委托），规则来自 --rules 或 ~/.pod/rules.json。
-harden: 一次性加固审计交付物——暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份报告目录。默认全程本地；--upload 只上传 report.md 与 findings.json，绝不上传原始证据包。
+harden: 一次性加固审计交付物——多 harness 扫描 + 暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份可直接交给客户的报告目录。--client/--auditor/--engagement 写进封面；--verify 让收到报告的一方自己复验 sha256 清单。默认全程本地；--upload 只上传 report.md 与 findings.json，绝不上传原始证据包。
 guard:  多 agent / 多 harness 的持续漏洞扫描与加固建议。scan 出漏洞清单 + 建议清单；watch 只对"新增/变化/消失"说话并写审计链；remediate --llm 让模型产出加固建议物（不自动生效，先过放宽守卫）；catalog 列出威胁目录与出处。
 agents: 纳管本机 agent（与控制台「加入监控」同一条写路径）：scan 列出装了哪些 harness；enroll 建身份 + 零权限策略 + 审计目录（不改 harness 配置）；forget 移除纳管（默认保留身份）。
         onboard 接管——把 MCP server 包进网关（**会改写 harness 的配置**：先出计划，--yes 才执行，带备份与 revert）；revert 从最近备份还原配置。

@@ -26,9 +26,10 @@ import {
   resolveBaselinePath,
   runGuardScan,
   snapshotOf,
-  THREAT_BY_ID,
-  THREAT_CATALOG,
+  localizedThreat,
+  localizedCatalog,
   diffFindings,
+  nextCommandFor,
   type Finding,
   type GuardReport,
   type GuardScanResult,
@@ -234,10 +235,13 @@ export async function cmdGuardWatch(opts: GuardWatchOptions): Promise<GuardWatch
 
 function printChange(opts: GuardCliOptions, label: string, finding: Finding): void {
   const icon = finding.severity === 'high' ? '🔴' : finding.severity === 'medium' ? '🟠' : '🟡';
-  const entry = THREAT_BY_ID[finding.threat];
+  const entry = localizedThreat(finding.threat);
   opts.log(`   ${icon} [${label}] ${finding.threat}${entry ? ` ${entry.title}` : ''} · ${finding.harness} · ${finding.subject}`);
   opts.log(`      ${finding.message}`);
-  if (entry?.remediation.command) opts.log(`      建议：${entry.remediation.command}`);
+  // 变化通知里给的是**带这个 harness 的命令**，不是目录里的通用模板：
+  // 常驻监控看到"新增"时最该做的就是把下一步复制走。
+  const command = nextCommandFor(finding.threat, finding.harness) ?? entry?.remediation.command;
+  if (command) opts.log(`      建议：${command}`);
 }
 
 // ---------- 模型辅助加固（建议物，不自动生效） ----------
@@ -278,7 +282,7 @@ export function buildGuardModelInput(report: GuardReport): GuardModelInput {
     grouped.set(key, bucket);
   }
   const findings = [...grouped.entries()].map(([threat, bucket]) => {
-    const entry = THREAT_BY_ID[threat];
+    const entry = localizedThreat(threat);
     return {
       threat,
       title: entry?.title ?? threat,
@@ -297,7 +301,7 @@ export function buildGuardModelInput(report: GuardReport): GuardModelInput {
 }
 
 function catalogForPrompt(): string {
-  return THREAT_CATALOG.map(
+  return localizedCatalog().map(
     (entry) =>
       `- ${entry.id} ${entry.title}（${entry.category}，severity=${entry.severity}，coverage=${entry.coverage}）\n` +
       `  现象：${entry.summary}\n` +

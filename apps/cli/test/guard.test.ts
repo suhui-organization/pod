@@ -148,6 +148,12 @@ describe('pod guard scan / baseline / watch / catalog', () => {
     expect(out.combined).toContain('AG-01');
     expect(out.combined).toContain('## 2. 建议清单');
     expect(out.combined).not.toContain('0123456789012345678901234567890123456');
+    // 漏斗：先做这三件事 + 交付入口。扫描器与"能被用起来的工具"的差别就在这两段。
+    expect(out.combined).toContain('### 先做这三件事');
+    expect(out.combined).toContain('pod harden --out');
+    expect(out.combined).toContain('确认：');
+    // 每条建议都落成一条能复制的 pod 命令，而不是"请参考文档"
+    expect(out.combined).toContain('pod posture freeze');
     expect(existsSync(join(home, 'out/guard-report.md'))).toBe(true);
     expect(existsSync(join(home, 'out/guard-findings.json'))).toBe(true);
   });
@@ -206,10 +212,13 @@ describe('pod guard scan / baseline / watch / catalog', () => {
   });
 
   it('guard 的输出随语言切换', () => {
-    const home = mkdtempSync(join(tmpdir(), 'pod-guard-en-'));
+    // 用带问题的 home：空机器不出 finding，断言"没有中文"会变成空转
+    const home = seedHome();
     const out = run(['guard', 'scan', '--lang', 'en-US'], { HOME: home });
     expect(out.combined).toContain('# pod guard — multi-agent / multi-harness vulnerability scan');
     expect(out.combined).toContain('## 1. Vulnerability list');
+    expect(out.combined).toContain('### Do these three things first');
+    expect(out.combined).toContain('AG-03 MCP server bypasses the gateway');
     expect(out.combined).not.toMatch(/[\u4e00-\u9fff]/);
   });
 });
