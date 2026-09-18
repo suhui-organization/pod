@@ -16,7 +16,7 @@ import type { Policy, RuleSet } from '@podsec/policy';
 import { verifyPolicy } from './policy-sign.js';
 import { t } from '@podsec/i18n';
 import { quarantineAdd, quarantineRemove, readQuarantineFile } from './control-plane.js';
-import { POD_PROTOCOL_VERSION, cliVersion, type PodHealth } from './protocol.js';
+import { POD_PROTOCOL_VERSION, cliVersion, machineId, type PodHealth } from './protocol.js';
 import { collectReports, type MachineReports } from './health.js';
 
 /**
@@ -27,7 +27,12 @@ import { collectReports, type MachineReports } from './health.js';
  * 于是"新客户端 → 老服务端"不会炸，而"新服务端 ← 老客户端"能从缺失看出客户端过旧。
  */
 function protocolHeaders(): Record<string, string> {
-  return { 'X-Pod-Protocol': String(POD_PROTOCOL_VERSION), 'X-Pod-Version': cliVersion() };
+  return {
+    'X-Pod-Protocol': String(POD_PROTOCOL_VERSION),
+    'X-Pod-Version': cliVersion(),
+    // 机器标识：资产与发现是机器级快照，云端按它去重（一台机器接多个绑定时不翻倍）
+    'X-Pod-Machine': machineId(),
+  };
 }
 
 export interface CloudAgentBinding {

@@ -83,7 +83,8 @@ X-Pod-Version: 0.4.0     # 客户端版本（pod --version 打的是同一个数
 ```json
 {
   "inventory": {
-    "pod_version": "0.4.0", "rules_version": "1", "scanned_at": "2026-09-18T06:00:00.000Z",
+    "pod_version": "0.4.1", "rules_version": "1", "scanned_at": "2026-09-18T06:00:00.000Z",
+    "machine_id": "a1b2c3d4e5f60718",
     "coverage": { "servers": 3, "unmanaged": 1 },
     "harnesses": [ { "id": "claude-code", "label": "Claude Code", "installed": true, "managed": true, "managed_by": ["policy"] } ],
     "servers":   [ { "name": "github", "harness": "claude-code", "transport": "stdio",
@@ -97,6 +98,13 @@ X-Pod-Version: 0.4.0     # 客户端版本（pod --version 打的是同一个数
 哪些纳管了、哪些 server 绕过网关"只能由机器自己说。没有这条通道，云端资产表就只能靠人手工维护。
 
 **快照语义**：每次上报**整体替换**该 agent 的资产行——server 被删掉时会自然消失。
+
+**`machine_id`（伪匿名）**：资产是**机器级**快照，而云端一行 Agent = 一个绑定。
+一台机器接多个 agent 时清单会复制多份，Dashboard 必须按 `machine_id` 去重才不会翻倍
+（真机上踩到过：三个绑定 → "48 个 server 绕过网关"其实是 16 × 3）。
+取值是 `sha256(hostname|username|platform)` 前 16 位——**哈希而非明文**，
+云端无法反推主机名，只能判断"是不是同一台机器"。同一标识也随 `X-Pod-Machine` 头
+用于发现上报。老客户端不上报时按 `agent_id` 计（宁可不合并，也不错合并）。
 
 **隐私边界**：只出标识与布尔（name / harness / behind_gateway / scope / 包名 / 是否锁版本）。
 **没有路径、没有 args、没有 env 取值、没有配置原文**。

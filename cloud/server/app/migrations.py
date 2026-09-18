@@ -55,6 +55,11 @@ _COLUMN_MIGRATIONS = {
     "pod_agent_assets": {
         # 新表由 create_all 建；这条是给"表已存在但缺列"的开发库兜底
         "harness": "ALTER TABLE pod_agent_assets ADD COLUMN harness VARCHAR(64) DEFAULT ''",
+        # 资产是机器级快照：一条机器接多个绑定时会复制多份，Dashboard 按它去重
+        "machine_id": "ALTER TABLE pod_agent_assets ADD COLUMN machine_id VARCHAR(32) DEFAULT ''",
+    },
+    "pod_agent_findings": {
+        "machine_id": "ALTER TABLE pod_agent_findings ADD COLUMN machine_id VARCHAR(32) DEFAULT ''",
     },
     "pod_subscriptions": {
         # 计费平台无关化：不再只存单一平台的 customer id
