@@ -1,5 +1,33 @@
 # Changelog
 
+## 未发布 — 服务器发布按内容指纹打 tag：只改 CLI / 文档不再重启线上
+
+`install-server.sh` 的镜像 tag 原来是 `main-<commit>`，于是**只要 main 往前走一次**
+就会换 tag → 重建镜像 → `set image` 滚动。而 server 是 `Recreate`（SQLite 不能被两个
+Pod 同时写），每次都是几十秒 API 不可用——哪怕这次合并只动了 pod CLI、文档或 k8s 脚本。
+
+现在 tag 只跟**真正进镜像的文件内容**走：
+
+| | 之前 | 现在 |
+|---|---|---|
+| tag | `main-<commit>` | `fp-<内容指纹>`，且 **server 与 web 各自独立** |
+| 只改 CLI / 文档 | 重建 + 重启 server 与 web | 幂等空跑，零重启 |
+| 只改前端 | 重建 + 重启两个 | 只滚 web（server 不动，连库备份都跳过） |
+| 只改后端 | 重建 + 重启两个 | 只滚 server（仍先备份库），web 不动 |
+| "线上是哪个 commit" | 看 tag | 看 Deployment 注解 `podsec/build-commit` |
+
+两个实现细节：
+
+- **指纹用 git blob 列表算**（`git ls-tree -r --full-tree <rev> -- <镜像输入路径>`），
+  在节点上直接对目标 commit 求值，不需要先 checkout；只有真正进镜像的路径参与
+  （server：Dockerfile + requirements.txt + `app/` + `scripts/`；web：整个 `cloud/web`），
+  所以改 `deploy/k8s` 下的脚本不会误触发。
+- **切换本身不重启**：旧的 `main-<sha>` tag 会被识别为"同一个 sha 的内容指纹"并比对，
+  内容一致就空跑——采纳这个改动当天不会多挨一次重启，等 `cloud/` 真变了再自然换 tag。
+
+顺带修掉一个隐患：原来"tag 相同就空跑"不看镜像是否还在 containerd；镜像被清理过时
+空跑会让集群起不来。现在内容一致还要加一条"镜像确实在 containerd 里"才敢跳过。
+
 ## 未发布 — 英文正文补全：海外读者拿到的是一份全英文的报告
 
 上一版把框架文案翻了，但缺一块要命的：**报告正文**（威胁目录的标题/摘要/处置建议、

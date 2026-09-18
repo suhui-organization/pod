@@ -18,7 +18,7 @@
 # 用法:
 #   KUBECONFIG=~/.kube/config-server.yaml bash install-server.sh
 #   GIT_REF=main bash install-server.sh                  # 指定要发布的 ref
-#   SKIP_BUILD=1 IMAGE_TAG=main-fbf730b bash install-server.sh   # 镜像已在节点，只滚动
+#   SKIP_BUILD=1 IMAGE_TAG=fp-1a2b3c4d5e6f bash install-server.sh   # 镜像已在节点，只滚动
 #   DRY_RUN=1 bash install-server.sh                     # 只打印计划，不改任何东西
 #   LOCAL_BUILD=1 bash install-server.sh                 # 代码还没 push？在本机构建再流式导入节点
 #
@@ -26,13 +26,20 @@
 #   KUBECONFIG    默认 ~/.kube/config-server.yaml（存在时）
 #   NAMESPACE     默认 podcloud
 #   GIT_REF       默认 main
-#   IMAGE_TAG     默认 main-<目标 commit 短 sha>（内容变了 tag 就变，可追溯）
+#   IMAGE_TAG     显式指定 tag（server/web 共用）。不指定时按 **cloud/ 内容指纹** 各自生成
+#                 fp-<指纹>：只改 CLI / 文档的提交不动 tag → 不重建、不重启线上
 #   BUILD_DIR     节点上的源码目录，默认 /opt/podcloud-build/pod
 #   SSH_USER      默认 root
 #   NO_BACKUP=1   跳过发布前的数据库备份（不建议）
 #   SKIP_VERIFY=1 跳过发布后的健康验证
 #   DRY_RUN=1     只打印计划
 #   LOCAL_BUILD=1 从**本机 HEAD** 构建（默认从节点的 origin/<GIT_REF> 构建）
+#
+# 为什么 tag 不再用 commit:
+#   服务器上重启一次是 Recreate（SQLite 不能被两个 Pod 同时写），会有几十秒 API 不可用。
+#   按 commit 打 tag 的话，"只改了 pod CLI / 文档"的合并也会换 tag → 白重启一次。
+#   所以 tag 只跟**真正进镜像的文件内容**走（server 与 web 各自独立算）；
+#   commit 记在 Deployment 的 `podsec/build-commit` 注解里，可追溯性不丢。
 # ============================================================================
 set -euo pipefail
 
@@ -95,37 +102,96 @@ else
   TARGET_SHA="$(cat /tmp/.podcloud-target-sha)"
 fi
 TARGET_SHORT="$(printf '%s' "$TARGET_SHA" | cut -c1-7)"
-[ -n "$IMAGE_TAG" ] || IMAGE_TAG="main-${TARGET_SHORT}"
-ok "目标 commit: ${TARGET_SHORT}（镜像 tag: ${IMAGE_TAG}）"
 
-# 运行中的 tag 形如 main-4ba4f91：取后半段当 sha，用来算差异
+# 镜像输入的内容指纹：只统计**真正进镜像**的文件，用 git blob 列表算（内容寻址），
+# 所以改 deploy/k8s 下的脚本、README、CLI 都不会误触发重建。
+# 在节点上用 git ls-tree 直接对目标 commit 求值——不需要先把工作树 checkout 过去。
+content_fp() { # $1=server|web  $2=rev
+  local kind="$1" rev="$2" paths out
+  if [ "$kind" = "server" ]; then
+    # server Dockerfile 只 COPY requirements.txt + app/ + scripts/（外加 Dockerfile 自己）
+    paths="cloud/server/deploy/Dockerfile cloud/server/requirements.txt cloud/server/app cloud/server/scripts"
+  else
+    # web 是 COPY . ./（整个 cloud/web；node_modules/dist 不在 git 里）
+    paths="cloud/web"
+  fi
+  if [ "$LOCAL_BUILD" = "1" ]; then
+    out="$(git -C "$REPO_ROOT" ls-tree -r --full-tree "$rev" -- $paths 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  else
+    out="$(ssh_node "cd '$BUILD_DIR' && git ls-tree -r --full-tree '$rev' -- $paths 2>/dev/null | sha256sum | cut -d' ' -f1")"
+  fi
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"
+}
+
+SERVER_FP="$(content_fp server "$TARGET_SHA")" || fail "算 server 内容指纹失败（$TARGET_SHA）"
+WEB_FP="$(content_fp web "$TARGET_SHA")" || fail "算 web 内容指纹失败（$TARGET_SHA）"
+EXPLICIT_TAG=0
+if [ -n "$IMAGE_TAG" ]; then
+  SERVER_TAG="$IMAGE_TAG"; WEB_TAG="$IMAGE_TAG"; EXPLICIT_TAG=1
+else
+  SERVER_TAG="fp-${SERVER_FP:0:12}"
+  WEB_TAG="fp-${WEB_FP:0:12}"
+fi
+ok "目标 commit: ${TARGET_SHORT}"
+echo "     镜像 tag : server=${SERVER_TAG} web=${WEB_TAG}$([ "$EXPLICIT_TAG" = "1" ] && echo '（显式指定）' || echo '（按 cloud/ 内容指纹）')"
+
 RUN_SERVER_IMG="$(kubectl -n "$NS" get deploy podcloud-server -o jsonpath='{.spec.template.spec.containers[0].image}')"
 RUN_WEB_IMG="$(kubectl -n "$NS" get deploy podcloud-web -o jsonpath='{.spec.template.spec.containers[0].image}')"
-echo "     当前运行: server=${RUN_SERVER_IMG} web=${RUN_WEB_IMG}"
+echo "     当前运行 : server=${RUN_SERVER_IMG} web=${RUN_WEB_IMG}"
 
-diff_since() { # $1=运行中的 tag  $2=子路径
-  local from_sha="${1##*main-}"
-  [ -n "$from_sha" ] || return 0
-  if [ "$LOCAL_BUILD" = "1" ]; then
-    git -C "$REPO_ROOT" cat-file -e "${from_sha}^{commit}" 2>/dev/null \
-      && git -C "$REPO_ROOT" diff --stat "$from_sha" "$TARGET_SHA" -- "$2" | tail -1
-  else
-    ssh_node "cd '$BUILD_DIR' && git cat-file -e '${from_sha}^{commit}' 2>/dev/null \
-      && git diff --stat '$from_sha' '$TARGET_SHA' -- '$2' | tail -1" 2>/dev/null || true
-  fi
+# 内容是否已经一致（= 不需要重建、更不需要重启）。
+# 兼容两种 tag 形态：
+#   fp-<指纹>  直接与目标 tag 比；
+#   main-<sha> 旧形态——把那个 commit 的内容指纹算出来比。于是**切换到内容指纹
+#              这一步本身不会触发重启**，等 cloud/ 真的变了再自然换 tag。
+content_matches() { # $1=kind  $2=运行中镜像  $3=镜像名  $4=目标 tag  $5=目标指纹
+  local kind="$1" image="$2" name="$3" want_tag="$4" want_fp="$5"
+  local tag sha fp
+  [ "${image%%:*}" = "$name" ] || return 1
+  tag="${image##*:}"
+  [ "$tag" = "$want_tag" ] && return 0
+  [ "$EXPLICIT_TAG" = "1" ] && return 1
+  case "$tag" in
+    main-*)
+      sha="${tag#main-}"
+      [ "${#sha}" -ge 7 ] || return 1
+      fp="$(content_fp "$kind" "$sha" 2>/dev/null)" || return 1
+      [ "$fp" = "$want_fp" ]
+      ;;
+    *) return 1 ;;
+  esac
 }
-SRV_DIFF="$(diff_since "$RUN_SERVER_IMG" cloud/server)"
-WEB_DIFF="$(diff_since "$RUN_WEB_IMG" cloud/web)"
-echo "     cloud/server 差异: ${SRV_DIFF:-（无）}"
-echo "     cloud/web    差异: ${WEB_DIFF:-（无）}"
-if [ "$RUN_SERVER_IMG" = "podcloud-server:$IMAGE_TAG" ] && [ "$RUN_WEB_IMG" = "podcloud-web:$IMAGE_TAG" ]; then
-  ok "两个 Deployment 都已经是 $IMAGE_TAG——无需发布（幂等空跑）"
+
+# 镜像在不在 containerd 里：tag 一样但镜像被清理过（或节点重装过）时，
+# 空跑会让集群起不来——所以"内容一致"还要加这一条才敢跳过。
+image_in_ctr() { ssh_node "ctr -n k8s.io images ls | grep -q '$1'" >/dev/null 2>&1; }
+
+SERVER_OK=0; WEB_OK=0
+if content_matches server "$RUN_SERVER_IMG" podcloud-server "$SERVER_TAG" "$SERVER_FP"; then SERVER_OK=1; fi
+if content_matches web    "$RUN_WEB_IMG"    podcloud-web    "$WEB_TAG"    "$WEB_FP";    then WEB_OK=1;    fi
+# 注意查的是**正在运行的那个镜像引用**（兼容旧 tag 时它和新 tag 不是同一个串）：
+# 内容一致但镜像被清理过/节点重装过，空跑会让集群起不来，所以这一条必须过。
+if [ "$SERVER_OK" = "1" ] && ! image_in_ctr "${RUN_SERVER_IMG##*/}"; then
+  warn "server 内容一致，但镜像 ${RUN_SERVER_IMG##*/} 不在 containerd（被清理过？）→ 重新构建导入"
+  SERVER_OK=0
+fi
+if [ "$WEB_OK" = "1" ] && ! image_in_ctr "${RUN_WEB_IMG##*/}"; then
+  warn "web 内容一致，但镜像 ${RUN_WEB_IMG##*/} 不在 containerd（被清理过？）→ 重新构建导入"
+  WEB_OK=0
+fi
+echo "     判定     : server=$([ "$SERVER_OK" = "1" ] && echo '内容未变（跳过）' || echo '内容已变（发布）')  web=$([ "$WEB_OK" = "1" ] && echo '内容未变（跳过）' || echo '内容已变（发布）')"
+if [ "$SERVER_OK" = "1" ] && [ "$WEB_OK" = "1" ]; then
+  ok "两个镜像的内容都没变——无需发布（幂等空跑）"
   exit 0
 fi
 
 # ── 2. 备份数据库（WAL 模式下必须用 sqlite 的在线备份，不能直接 cp）──────────
 step "2/6 备份数据库"
-if [ "${NO_BACKUP:-0}" = "1" ]; then
+if [ "$SERVER_OK" = "1" ]; then
+  # 只有 web 要滚：不动 server、不碰数据库，跳过备份
+  warn "本次只滚 web（server 内容未变）→ 跳过数据库备份"
+elif [ "${NO_BACKUP:-0}" = "1" ]; then
   warn "NO_BACKUP=1 → 跳过备份"
 elif [ "${DRY_RUN:-0}" = "1" ]; then
   echo "   [dry-run] 在 server Pod 内用 sqlite3 backup API 生成 podcloud.db.bak-$(date +%F)"
@@ -143,50 +209,71 @@ print('backup ok')
 fi
 
 # ── 3. 在节点上构建镜像 ────────────────────────────────────────────────────
-step "3/6 构建镜像（在 $NODE_NAME 上，tag=$IMAGE_TAG）"
+step "3/6 构建镜像（在 $NODE_NAME 上）"
 if [ "${SKIP_BUILD:-0}" = "1" ]; then
   warn "SKIP_BUILD=1 → 假定镜像已在节点上"
-elif [ "$LOCAL_BUILD" = "1" ]; then
-  echo "   LOCAL_BUILD=1 → 在本机构建（$REPO_ROOT）"
-  run_or_print bash -c "cd '$REPO_ROOT' && docker build --build-arg BUILD_TAG=$IMAGE_TAG \
-    -f cloud/server/deploy/Dockerfile -t podcloud-server:$IMAGE_TAG cloud/server"
-  run_or_print bash -c "cd '$REPO_ROOT' && docker build --build-arg BUILD_TAG=$IMAGE_TAG \
-    -f cloud/web/deploy/Dockerfile -t podcloud-web:$IMAGE_TAG cloud/web"
-  ok "镜像构建完成: podcloud-server:$IMAGE_TAG / podcloud-web:$IMAGE_TAG"
 else
-  # 构建前把工作树收敛到目标 commit：镜像必须对应一个可追溯的 commit，
-  # 而不是"节点上那份不知道改了什么的源码"。
-  run_or_print ssh_node "cd '$BUILD_DIR' && git checkout -f -q FETCH_HEAD"
+  if [ "$LOCAL_BUILD" = "1" ]; then
+    echo "   LOCAL_BUILD=1 → 在本机构建（$REPO_ROOT）"
+  else
+    # 构建前把工作树收敛到目标 commit：镜像必须对应一个可追溯的 commit，
+    # 而不是"节点上那份不知道改了什么的源码"。
+    run_or_print ssh_node "cd '$BUILD_DIR' && git checkout -f -q FETCH_HEAD"
+  fi
   # BUILD_TAG 打进镜像：后端经 /api/v1/auth/config 的 build 字段暴露，
   # 前端打进产物显示在侧栏——于是"这个页面/这个实例是哪次构建"一眼可查，
   # 不用再靠"端点返回 401 还是 404"去猜版本。
-  run_or_print ssh_node "cd '$BUILD_DIR' && docker build --build-arg BUILD_TAG=$IMAGE_TAG -f cloud/server/deploy/Dockerfile -t podcloud-server:$IMAGE_TAG cloud/server"
-  run_or_print ssh_node "cd '$BUILD_DIR' && docker build --build-arg BUILD_TAG=$IMAGE_TAG -f cloud/web/deploy/Dockerfile -t podcloud-web:$IMAGE_TAG cloud/web"
-  ok "镜像构建完成: podcloud-server:$IMAGE_TAG / podcloud-web:$IMAGE_TAG"
+  build_image() { # $1=server|web  $2=tag
+    local kind="$1" tag="$2"
+    if [ "$LOCAL_BUILD" = "1" ]; then
+      run_or_print bash -c "cd '$REPO_ROOT' && docker build --build-arg BUILD_TAG=$tag -f cloud/$kind/deploy/Dockerfile -t podcloud-$kind:$tag cloud/$kind"
+    else
+      run_or_print ssh_node "cd '$BUILD_DIR' && docker build --build-arg BUILD_TAG=$tag -f cloud/$kind/deploy/Dockerfile -t podcloud-$kind:$tag cloud/$kind"
+    fi
+    ok "镜像构建完成: podcloud-$kind:$tag"
+  }
+  if [ "$SERVER_OK" = "1" ]; then
+    ok "server 内容未变 → 不重建（沿用在跑的镜像）"
+  else
+    build_image server "$SERVER_TAG"
+  fi
+  if [ "$WEB_OK" = "1" ]; then
+    ok "web 内容未变 → 不重建（沿用在跑的镜像）"
+  else
+    build_image web "$WEB_TAG"
+  fi
 fi
 
 # ── 4. 导入 k8s 的 containerd（docker 里的镜像 kubelet 看不见）──────────────
 step "4/6 导入 containerd(k8s.io)"
-if [ "$LOCAL_BUILD" = "1" ]; then
-  # 本机构建的镜像要流式送进节点的 containerd（docker 的镜像 kubelet 看不见）
-  for img in podcloud-server podcloud-web; do
+# docker 里的镜像 kubelet 看不见，必须 save | ctr import 送进 containerd。
+import_image() { # $1=server|web  $2=tag
+  local kind="$1" tag="$2" img="podcloud-$1"
+  if [ "$LOCAL_BUILD" = "1" ]; then
     if [ "${DRY_RUN:-0}" = "1" ]; then
-      echo "   [dry-run] docker save $img:$IMAGE_TAG | ssh ${SSH_USER}@${NODE_IP} ctr -n k8s.io images import -"
+      echo "   [dry-run] docker save $img:$tag | ssh ${SSH_USER}@${NODE_IP} ctr -n k8s.io images import -"
     else
-      docker save "$img:$IMAGE_TAG" | ssh -o BatchMode=yes "${SSH_USER}@${NODE_IP}" \
+      docker save "$img:$tag" | ssh -o BatchMode=yes "${SSH_USER}@${NODE_IP}" \
         "ctr -n k8s.io images import - >/dev/null" || fail "$img 导入节点失败"
     fi
-  done
+  else
+    run_or_print ssh_node "docker save $img:$tag | ctr -n k8s.io images import - >/dev/null"
+  fi
+  if [ "${DRY_RUN:-0}" != "1" ]; then
+    ssh_node "ctr -n k8s.io images ls | grep -q '$img:$tag'" \
+      || fail "$img:$tag 没进 containerd——kubelet 会拉不到镜像"
+    ok "$img:$tag 已在 containerd 里（kubelet 可直接用）"
+  fi
+}
+if [ "$SERVER_OK" = "1" ]; then
+  echo "   server 内容未变 → 不导入"
 else
-  run_or_print ssh_node "docker save podcloud-server:$IMAGE_TAG | ctr -n k8s.io images import - >/dev/null"
-  run_or_print ssh_node "docker save podcloud-web:$IMAGE_TAG    | ctr -n k8s.io images import - >/dev/null"
+  import_image server "$SERVER_TAG"
 fi
-if [ "${DRY_RUN:-0}" != "1" ]; then
-  for img in podcloud-server podcloud-web; do
-    ssh_node "ctr -n k8s.io images ls | grep -q '$img:$IMAGE_TAG'" \
-      || fail "$img:$IMAGE_TAG 没进 containerd——kubelet 会拉不到镜像"
-  done
-  ok "两个镜像都已在 containerd 里（kubelet 可直接用）"
+if [ "$WEB_OK" = "1" ]; then
+  echo "   web 内容未变 → 不导入"
+else
+  import_image web "$WEB_TAG"
 fi
 
 # ── 5. 滚动发布：server 先滚完并就绪，再滚 web ──────────────────────────────
@@ -194,24 +281,24 @@ step "5/6 滚动发布（顺序：server → web）"
 # 顺序是硬约束：新前端会调服务端新增端点，两个一起重启会出现
 # 「新前端 + 旧后端」的窗口，用户刷新就 404（见 docs/rolling-update.md §4.2）。
 if [ "${DRY_RUN:-0}" = "1" ]; then
-  echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-server server=podcloud-server:$IMAGE_TAG"
-  echo "   [dry-run] kubectl -n $NS rollout status deploy/podcloud-server --timeout=300s"
-  echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-web web=podcloud-web:$IMAGE_TAG"
-  echo "   [dry-run] kubectl -n $NS rollout status deploy/podcloud-web --timeout=300s"
+  [ "$SERVER_OK" = "1" ] || echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-server server=podcloud-server:$SERVER_TAG && rollout status（会中断几十秒）"
+  [ "$WEB_OK" = "1" ]    || echo "   [dry-run] kubectl -n $NS set image deploy/podcloud-web web=podcloud-web:$WEB_TAG"
 else
-  if [ "$RUN_SERVER_IMG" != "podcloud-server:$IMAGE_TAG" ]; then
-    kubectl -n "$NS" set image deploy/podcloud-server "server=podcloud-server:$IMAGE_TAG" >/dev/null
+  if [ "$SERVER_OK" != "1" ]; then
+    kubectl -n "$NS" set image deploy/podcloud-server "server=podcloud-server:$SERVER_TAG" >/dev/null
     kubectl -n "$NS" rollout status deploy/podcloud-server --timeout=300s
-    ok "server 已就绪: $IMAGE_TAG"
+    kubectl -n "$NS" annotate deploy/podcloud-server "podsec/build-commit=$TARGET_SHA" --overwrite >/dev/null
+    ok "server 已就绪: $SERVER_TAG（commit $TARGET_SHORT）"
   else
-    ok "server 已在 $IMAGE_TAG，跳过"
+    ok "server 内容未变，跳过（仍为 ${RUN_SERVER_IMG##*:}）"
   fi
-  if [ "$RUN_WEB_IMG" != "podcloud-web:$IMAGE_TAG" ]; then
-    kubectl -n "$NS" set image deploy/podcloud-web "web=podcloud-web:$IMAGE_TAG" >/dev/null
+  if [ "$WEB_OK" != "1" ]; then
+    kubectl -n "$NS" set image deploy/podcloud-web "web=podcloud-web:$WEB_TAG" >/dev/null
     kubectl -n "$NS" rollout status deploy/podcloud-web --timeout=300s
-    ok "web 已就绪: $IMAGE_TAG"
+    kubectl -n "$NS" annotate deploy/podcloud-web "podsec/build-commit=$TARGET_SHA" --overwrite >/dev/null
+    ok "web 已就绪: $WEB_TAG（commit $TARGET_SHORT）"
   else
-    ok "web 已在 $IMAGE_TAG，跳过"
+    ok "web 内容未变，跳过（仍为 ${RUN_WEB_IMG##*:}）"
   fi
 fi
 
@@ -236,10 +323,10 @@ RESTARTS:.status.containerStatuses[*].restartCount,IMAGE:.spec.containers[*].ima
   # 直接核对构建标识，而不是靠"端点 401/404"猜版本：
   # 后端 /auth/config 的 build 字段就是本次 BUILD_TAG。
   deployed_build="$(printf '%s' "$cfg" | sed -n 's/.*"build":"\([^"]*\)".*/\1/p')"
-  if [ "$deployed_build" = "$IMAGE_TAG" ]; then
+  if [ "$deployed_build" = "$SERVER_TAG" ]; then
     ok "后端构建标识 = $deployed_build（与本次发布一致）"
   else
-    warn "后端构建标识为 '${deployed_build:-未知}'，本次发布 tag 是 $IMAGE_TAG（旧镜像没有该字段，属预期）"
+    warn "后端构建标识为 '${deployed_build:-未知}'，server 目标 tag 是 $SERVER_TAG（跳过 server 发布或旧镜像无该字段，属预期）"
   fi
 
   # NodePort 是**尽力而为**的检查：节点防火墙常只放行内网/反代机，
@@ -272,7 +359,9 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  服务器集群发布完成${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
 echo "  命名空间 : $NS"
-echo "  目标版本 : ${TARGET_SHORT}（tag ${IMAGE_TAG}）"
+echo "  目标版本 : ${TARGET_SHORT}"
+echo "  镜像 tag : server=$SERVER_TAG$([ "$SERVER_OK" = "1" ] && echo '（内容未变，未重启）') web=$WEB_TAG$([ "$WEB_OK" = "1" ] && echo '（内容未变，未重启）')"
+echo "  已发布   : 见 Deployment 注解 podsec/build-commit=${TARGET_SHA:0:7}"
 echo "  回滚     : kubectl -n $NS rollout undo deploy/podcloud-web"
 echo "             kubectl -n $NS rollout undo deploy/podcloud-server"
 echo "             （顺序反过来：先退 web 再退 server，见 docs/rolling-update.md）"

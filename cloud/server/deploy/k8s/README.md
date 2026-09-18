@@ -48,7 +48,7 @@
 
 | | 服务器集群 | 本机 kind |
 |---|---|---|
-| 镜像 tag | `main-<commit>` | `fp-<内容指纹>` |
+| 镜像 tag | `fp-<内容指纹>`（server / web 各自独立） | `fp-<内容指纹>` |
 | 构建位置 | **节点上就地构建**（集群没有可达的公网镜像仓） | 本机 |
 | 让 k8s 看见镜像 | `docker save \| ctr -n k8s.io images import -`（**docker 里的镜像 kubelet 看不见**） | `kind load` |
 | 清单 | 线上对象手工调过；脚本只 `set image`，不 apply | 仓库模板渲染后 apply |
@@ -60,14 +60,22 @@ KUBECONFIG=~/.kube/config-server.yaml PUBLIC_URL=https://podcloud.dlszjr.com \
 
 GIT_REF=main bash install-server.sh      # 指定要发布的 ref（默认 main）
 DRY_RUN=1 bash install-server.sh         # 只打印计划
-SKIP_BUILD=1 IMAGE_TAG=main-fbf730b bash install-server.sh   # 镜像已在节点，只滚动
+SKIP_BUILD=1 IMAGE_TAG=fp-1a2b3c4d5e6f bash install-server.sh   # 镜像已在节点，只滚动
 LOCAL_BUILD=1 bash install-server.sh     # 代码还没 push：在本机构建，再把镜像流式导入节点
 ```
 
 默认从**节点的 `origin/<GIT_REF>`** 构建，所以镜像一定对应一个已推送的 commit。
 `LOCAL_BUILD=1` 是给"改完想先上服务器看看"的场景：在本机从 HEAD 构建，
-`docker save | ssh ctr import` 送进节点；tag 仍指向一个真实 commit（只是尚未推送），
-推送之后它就自动可追溯了。
+`docker save | ssh ctr import` 送进节点。
+
+**tag 跟内容走，不跟 commit 走**：tag 是 `cloud/server` / `cloud/web` 各自的内容指纹
+（`fp-<hash>`），只改 CLI 或文档的提交不会换 tag，于是不会白白重启线上。发布时脚本会把
+目标 commit 写进 Deployment 注解 `podsec/build-commit`，所以"线上跑的是哪个 commit"仍然可查：
+
+```bash
+kubectl -n podcloud get deploy podcloud-server \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"  "}{.metadata.annotations.podsec/build-commit}{"\n"}'
+```
 
 每次构建都会把 `BUILD_TAG` 打进镜像：后端 `app/config.py` 读它、经
 `/api/v1/auth/config` 的 `build` 字段暴露，前端打进产物显示在侧栏。于是
