@@ -24,15 +24,19 @@ warn() { echo -e "  ${YELLOW}⚠️${NC}  $*"; }
 step() { echo; echo "── $*"; }
 
 # ── 1. 版本一致性 ───────────────────────────────────────────────────────────
-step "1. 版本号一致（CHANGELOG / README / install.sh）"
+step "1. 版本号一致（CHANGELOG / README / install.sh / apps/cli）"
 CHANGELOG_VER="$(grep -m1 -oE '^## v[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null | sed 's/## //')"
 INSTALL_VER="$(grep -m1 -oE 'POD_VERSION:-v?[0-9]+\.[0-9]+\.[0-9]+' scripts/install.sh | sed 's/POD_VERSION:-//')"
 README_VER="$(grep -m1 -oE 'raw/v[0-9]+\.[0-9]+\.[0-9]+/' README.md | sed 's#raw/##; s#/##')"
+# `pod --version` 读的就是这个文件——版本号不一致时，用户自查会看到另一个数
+CLI_VER="v$(python3 -c "import json;print(json.load(open('apps/cli/package.json'))['version'])" 2>/dev/null)"
 [ -n "$CHANGELOG_VER" ] && ok "CHANGELOG 最新版本: $CHANGELOG_VER" || bad "CHANGELOG.md 找不到版本条目"
 if [ "$INSTALL_VER" = "$CHANGELOG_VER" ]; then ok "install.sh 默认版本一致: $INSTALL_VER"
 else bad "install.sh 默认 POD_VERSION=${INSTALL_VER}，但 CHANGELOG 是 ${CHANGELOG_VER}（发新版本时两处要一起改）"; fi
 if [ "$README_VER" = "$CHANGELOG_VER" ]; then ok "README 安装链接钉在: $README_VER"
 else bad "README 安装链接指向 ${README_VER}，与 ${CHANGELOG_VER} 不一致"; fi
+if [ "$CLI_VER" = "$CHANGELOG_VER" ]; then ok "apps/cli/package.json 版本一致: $CLI_VER（pod --version 会打这个）"
+else bad "apps/cli/package.json 是 ${CLI_VER}，但 CHANGELOG 是 ${CHANGELOG_VER}（pod --version 会报错版本）"; fi
 # 发布 tag 必须已存在（钉版本的前提）
 if git rev-parse -q --verify "refs/tags/$CHANGELOG_VER" >/dev/null; then ok "本地存在 tag $CHANGELOG_VER"
 else bad "本地没有 tag ${CHANGELOG_VER}——安装链接会 404"; fi

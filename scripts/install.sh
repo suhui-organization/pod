@@ -12,7 +12,7 @@
 #
 # 环境变量：
 #   POD_REPO_URL   源码地址（默认 Gitee；可指向本地路径做离线安装）
-#   POD_VERSION    分支/标签（默认 v0.3.2 = 当前发布版；跟主干用 POD_VERSION=main）
+#   POD_VERSION    分支/标签（默认 v0.4.0 = 当前发布版；跟主干用 POD_VERSION=main）
 #   POD_SRC        源码目录（默认 ~/.pod/src）
 #   POD_BIN_DIR    可执行文件目录（默认 ~/.local/bin）
 # ============================================================================
@@ -21,7 +21,7 @@ set -euo pipefail
 POD_REPO_URL="${POD_REPO_URL:-https://gitee.com/suhuisoftwares/pod.git}"
 # 发新版本时**同时**更新这里与 README 里的 raw/<tag> 链接——两处都指向同一个
 # tag，安装脚本与它克隆的代码才是同一份，"装到的东西"才可复现。
-POD_VERSION="${POD_VERSION:-v0.3.2}"
+POD_VERSION="${POD_VERSION:-v0.4.0}"
 POD_SRC="${POD_SRC:-$HOME/.pod/src}"
 POD_BIN_DIR="${POD_BIN_DIR:-$HOME/.local/bin}"
 
