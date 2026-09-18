@@ -85,6 +85,17 @@ curl -s -o /dev/null -w "harden/reports: %{http_code}\n" http://127.0.0.1:18088/
 前两条应就绪；后两条**401 = 端点在了、只是没鉴权**（正确），
 **404 = 还在跑旧版本**（镜像没滚上去）。再确认控制台左侧出现「规则包」「加固报告」。
 
+**更确定的做法：直接看构建标识。** 后端把镜像 tag 写进了 `/api/v1/auth/config`：
+
+```bash
+curl -s https://podcloud.dlszjr.com/api/v1/auth/config | python3 -c 'import json,sys;print(json.load(sys.stdin)["build"])'
+# 输出应当等于本次发布的 tag，例如 main-119ca70
+```
+
+401/404 只能说明"端点新旧"，构建标识能说明**"这个实例就是那次构建"**。
+控制台侧栏也显示同一行（前端把自己的 tag 与后端的对照，不一致会标红——
+那正是"只滚了一半"的信号）。
+
 ### ④ 存量机器：补装定时同步（这次必须做）
 
 本次之前接入的机器没有定时同步，而熔断与规则包下发依赖机器主动拉。
