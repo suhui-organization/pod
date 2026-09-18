@@ -1,8 +1,10 @@
 /**
- * `pod ui` — 启动本地只读控制台。
+ * `pod ui` — 启动本地控制台。
  *
  * 定位：把 ~/.pod 下已落盘的策略、审计、能力图渲染成可读的资产视图。
- * 约束（threat-model.md T8）：只绑 127.0.0.1、随机 token 鉴权、只读、前台运行。
+ * 约束（threat-model.md T8）：只绑 127.0.0.1、随机 token 鉴权、前台运行。
+ * 读全部只读；唯一的写操作是纳管/移除 agent（建身份 + 零权限策略 + 审计目录），
+ * 可以用 --read-only 整个关掉。
  */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +16,8 @@ export interface UiCommandOptions {
   podHome: string;
   port: number;
   token?: string;
+  /** true = 只读模式：不接受纳管/移除（写操作） */
+  readOnly?: boolean;
   log?: (msg: string) => void;
 }
 
@@ -36,11 +40,23 @@ export async function cmdUi(opts: UiCommandOptions): Promise<void> {
     webRoot: resolveWebRoot(),
     port: opts.port,
     token: opts.token,
+    allowWrites: opts.readOnly !== true,
     log,
   });
 
-  log(t('pod 控制台（只读）已启动：{url}', { url: handle.url }));
+  log(
+    opts.readOnly === true
+      ? t('pod 控制台（只读模式）已启动：{url}', { url: handle.url })
+      : t('pod 控制台已启动：{url}', { url: handle.url }),
+  );
   log(t('数据目录：{path}', { path: opts.podHome }));
+  if (opts.readOnly !== true) {
+    log(
+      t(
+        '写操作已开启（页面上的「加入监控 / 移除监控」）：只写 ~/.pod 下的身份、零权限策略与审计记录，每次都会进哈希链。要关掉用 --read-only。',
+      ),
+    );
+  }
   log(t('token 只在本机终端出现；页面加载后会从地址栏移除。按 Ctrl+C 停止。'));
 
   await new Promise<void>((resolvePromise) => {

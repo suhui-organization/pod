@@ -18,7 +18,8 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">
           <span className="brand__name">pod 控制台</span>
-          <span className="brand__meta">本地 · 只读</span>
+          {/* 只读/可纳管由顶栏的状态 pill 表达（它读的是服务端真实能力），这里不再写死 */}
+          <span className="brand__meta">本地</span>
         </div>
         <nav className="nav" aria-label="控制台导航">
           {NAV.map((item) =>
@@ -42,7 +43,27 @@ export function App() {
           )}
         </nav>
         <div className="sidebar__foot">
-          数据来自本机 <code>~/.pod</code>，不离开这台机器。
+          <div>
+            数据来自本机 <code>~/.pod</code>，不离开这台机器。
+          </div>
+          {/* 构建标识：回答"这个页面是哪次构建"。带 + 号 = 构建时工作区有未提交改动 */}
+          <div
+            className="sidebar__build"
+            title={`构建时间 ${new Date(__POD_BUILD__.builtAt).toLocaleString()}${
+              __POD_BUILD__.dirty ? '（构建时工作区有未提交改动）' : ''
+            }`}
+          >
+            build <code>{__POD_BUILD__.commit}{__POD_BUILD__.dirty ? '+' : ''}</code>
+            <span className="sidebar__build-time">
+              {new Date(__POD_BUILD__.builtAt).toLocaleString(undefined, {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              })}
+            </span>
+          </div>
         </div>
       </aside>
       <AgentsPage />

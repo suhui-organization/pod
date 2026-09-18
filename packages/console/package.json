@@ -18,8 +18,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@podsec/audit": "workspace:*",
     "@podsec/graph": "workspace:*",
+    "@podsec/guard": "workspace:*",
     "@podsec/i18n": "workspace:*",
+    "@podsec/identity": "workspace:*",
+    "@podsec/onboard": "workspace:*",
     "@podsec/policy": "workspace:*",
     "@podsec/scan": "workspace:*"
   }
