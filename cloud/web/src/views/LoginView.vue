@@ -4,7 +4,7 @@
       <div class="login-lang"><LangSwitch /></div>
       <div class="login-logo"><img src="/logo.svg" alt="Pod Cloud" /></div>
       <h1 class="title">Pod Cloud</h1>
-      <p class="subtitle">{{ t('AI Agent 安全控制平面 · 本地优先，云端可选') }}</p>
+      <p class="subtitle">{{ t('本地执行，云端汇总：AI Agent 的安全控制平面') }}</p>
       <el-tabs v-if="mode !== 'forgot'" v-model="mode" stretch>
         <el-tab-pane :label="t('登录')" name="login" />
         <el-tab-pane v-if="registerEnabled" :label="t('注册')" name="register" />

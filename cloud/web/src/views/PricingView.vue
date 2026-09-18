@@ -4,7 +4,7 @@
     <header class="hero">
       <img class="logo" src="/logo.svg" alt="Pod Cloud" />
       <h1 class="hero__title">Pod Cloud</h1>
-      <p class="hero__sub">{{ t('AI Agent 安全控制平面 · 本地优先，云端可选') }}</p>
+      <p class="hero__sub">{{ t('本地执行，云端汇总：AI Agent 的安全控制平面') }}</p>
       <p class="hero__lead">{{ t('按 Agent 席位订阅，随时可取消。') }}</p>
     </header>
 
@@ -38,7 +38,7 @@
       {{ t('价格以下单时收银台显示为准，币种为美元。订阅通过 Paddle 收款——Paddle 是这笔交易的记录商家，负责开票、代缴税费（VAT/GST）与退款。可随时在控制台取消，取消后当前已付周期继续可用。') }}
     </p>
     <p class="note note--dim">
-      {{ t('所有计划都包含本地开源网关（pod CLI）、审计哈希链、策略闸门与告警；付费计划增加跨 Agent 证据链、合规报告和更多 Agent 席位。') }}
+      {{ t('所有计划都包含本地开源 CLI（pod）、策略闸门与审批、SHA-256 哈希链审计与漏洞扫描；付费计划增加跨机器总览、健康与资产视图、合规报告和更多 Agent 席位。') }}
     </p>
 
     <footer class="pricing-foot">
@@ -69,7 +69,12 @@ const plans = [
     price: t('免费'),
     unit: '',
     seatsText: t('最多 3 个 Agent'),
-    features: [t('SHA-256 哈希链审计（不可篡改）'), t('策略闸门 + 审批'), t('审计同步与总览')],
+    features: [
+      t('本地开源 CLI：策略闸门 + 审批 + 密钥防线'),
+      t('SHA-256 哈希链审计（不可篡改）'),
+      t('漏洞扫描（16 类 harness）与加固报告（本地生成）'),
+      t('审计同步与总览'),
+    ],
     cta: t('免费开始'),
   },
   {
@@ -79,9 +84,10 @@ const plans = [
     unit: t('/月'),
     seatsText: t('最多 100 个 Agent'),
     features: [
-      t('跨 Agent 证据链：完整时间线，篡改即报错'),
-      t('合规报告（GDPR，Art.30 处理活动记录）'),
-      t('云端告警（密钥拦截 / 注入信号 / Deny 突增）'),
+      t('跨机器总览与健康状态（链完整性 / 网关覆盖）'),
+      t('资产与发现汇总（harness 纳管 / 绕过网关的 server / 威胁计数）'),
+      t('跨 Agent 证据链与合规报告（GDPR Art.30 处理活动记录）'),
+      t('规则包订阅与远程熔断'),
       t('优先支持'),
     ],
     cta: t('登录后订阅'),

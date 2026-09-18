@@ -49,7 +49,6 @@ export const enUS: Record<string, string> = {
   '已有账号？': 'Already have an account?',
   '创建账号': 'Create account',
   '姓名': 'Name',
-  'AI Agent 安全控制平面 · 本地优先，云端可选': 'Security control plane for AI agents · local-first, cloud optional',
   '服务地址（私有化实例填写，留空为公有 SaaS）': 'Server URL (self-hosted only; leave empty for hosted SaaS)',
   '如 https://podcloud.your-company.com': 'e.g. https://podcloud.your-company.com',
   '请输入密码': 'Enter your password',
@@ -825,24 +824,10 @@ export const enUS: Record<string, string> = {
   '适用对象': 'Who it is for',
   '价格与交付': 'Pricing and delivery',
   '查看定价': 'See pricing',
-  'Pod Cloud 是给「跑 AI Agent 的团队」用的安全控制平面：把本地 Agent 的工具调用统一收口，留下不可篡改的审计记录，并用策略与审批拦下危险操作。':
-    'Pod Cloud is a security control plane for teams running AI agents: it funnels the tool calls made by local agents into one place, keeps a tamper-evident audit trail, and blocks risky operations behind policies and approvals.',
-  'SHA-256 哈希链审计：每次工具调用都留证，改一个字节就能验出来':
-    'SHA-256 hash-chain audit: every tool call is recorded as evidence — change a single byte and verification fails',
   '策略闸门与审批：按工具、路径、参数决定放行 / 审批 / 拒绝':
     'Policy gate and approvals: allow, require approval, or deny by tool, path and arguments',
-  '跨 Agent 证据链：完整时间线，支持事后追溯':
-    'Cross-agent evidence chain: one complete timeline for after-the-fact investigation',
-  '合规报告：GDPR Art.30 处理活动记录':
-    'Compliance reports: GDPR Article 30 records of processing activities',
-  '云端告警：密钥读取、注入信号、拒绝突增':
-    'Cloud alerts: secret access, injection signals, spikes in denials',
-  '云端 SaaS：浏览器打开控制台即可使用，无需安装':
-    'Cloud SaaS: open the console in a browser — nothing to install',
   '本地网关：开源 CLI（pod），跑在用户自己的机器上；同一套代码也支持私有化部署':
     'Local gateway: an open-source CLI (pod) that runs on the customer’s own machine; the same code can be self-hosted',
-  '使用 AI 编码与自动化 Agent 的工程团队和安全团队。':
-    'Engineering and security teams that use AI coding and automation agents.',
   '基础版免费；专业版 $19/月，按月订阅、随时可取消。':
     'The basic plan is free; Pro is US$19/month, billed monthly and cancellable at any time.',
   '价格以下单时收银台显示为准，币种为美元。订阅通过 Paddle 收款——Paddle 是这笔交易的记录商家，负责开票、代缴税费（VAT/GST）与退款。可随时在控制台取消，取消后当前已付周期继续可用。':
@@ -850,4 +835,73 @@ export const enUS: Record<string, string> = {
   '所有计划都包含本地开源网关（pod CLI）、审计哈希链、策略闸门与告警；付费计划增加跨 Agent 证据链、合规报告和更多 Agent 席位。':
     'Every plan includes the local open-source gateway (pod CLI), the audit hash chain, the policy gate and alerts; paid plans add the cross-agent evidence chain, compliance reports and more agent seats.',
   'Pod Cloud — AI Agent 安全舱': 'Pod Cloud — AI agent security control plane',
+
+  // —— 公开产品页 / 定价页（随 v0.4.2 能力更新）——
+  '本地执行，云端汇总：AI Agent 的安全控制平面':
+    'Local enforcement, cloud roll-up: the security control plane for AI agents',
+  'Pod 分两端：机器上的开源 CLI（pod）负责判定、拦截与留证——真的在干活；Pod Cloud 负责汇总、展示与持久化，并为以后的模型训练积累语料。两端之间只传哈希与摘要，不传你的内容。':
+    'Pod has two halves: the open-source CLI (pod) on each machine makes the decisions, blocks and keeps the evidence — the half that actually does the work; Pod Cloud collects, displays and persists it and accumulates the corpus for future model training. Only hashes and summaries cross between them — never your content.',
+  '在 Agent 机器上（开源 CLI，Apache-2.0）':
+    'On the agent machine (open-source CLI, Apache-2.0)',
+  '从真实行为编译策略：pod record 只录不拦采几天真实调用，pod policy draft 编译出最小权限策略（读放行 / 写审批 / 破坏性拒绝），并与基线 diff 出收紧与放宽':
+    'Compile policy from real behaviour: run `pod record` (record-only) for a few days, then `pod policy draft` compiles a least-privilege policy (reads allowed / writes need approval / destructive calls denied) and diffs it against your baseline',
+  '策略闸门与审批：按工具、路径、参数判定放行 / 审批 / 拒绝；未登记的 server 与工具一律拒绝（fail-closed），审批超时即拒':
+    'Policy gate and approvals: allow / approve / deny per tool, path and argument; unregistered servers and tools are denied (fail-closed), and approvals that time out are refused',
+  '密钥防线：敏感路径拒读、输出侧密钥正则、高熵兜底（未知格式的密钥也拦得住）':
+    'Credential defences: sensitive paths are refused, known key formats are matched on the way out, and a high-entropy fallback catches formats nobody has seen yet',
+  '漏洞扫描：16 类 harness（Claude Code / Codex / Cursor / …）与项目级配置，按 18 条威胁目录出清单——每条带外部出处，并写明我们覆盖到哪（覆盖 / 只能发现 / 看不到）':
+    'Vulnerability scan: 16 harness types (Claude Code / Codex / Cursor / …) plus project-level configs, reported against an 18-entry threat catalog — every entry cites its source and states how far we actually cover it (covered / detect only / invisible)',
+  '哈希链审计与证据：每次工具调用进 SHA-256 哈希链，pod verify-audit 指出第一处断裂；证据包可导出、可独立校验':
+    'Hash-chained audit and evidence: every tool call goes into a SHA-256 hash chain; `pod verify-audit` points at the first break, and evidence bundles can be exported and checked independently',
+  '可交付的加固报告：pod harden 一次生成执行摘要、范围与方法、按优先级排序的待办、覆盖边界与逐文件 sha256；接收方用 pod harden --verify 自己验，不需要信任我们':
+    'A deliverable hardening report: `pod harden` produces an executive summary, scope and method, a prioritised to-do list, the coverage boundaries and a per-file sha256 manifest; the recipient verifies it with `pod harden --verify` without having to trust us',
+  '在控制台上（Pod Cloud）':
+    'On the console (Pod Cloud)',
+  '跨机器总览：每台机器最近同步时间、装的是哪一版':
+    'Across machines: when each one last synced and which version it runs',
+  '健康状态：审计链是否完整、网关最近有没有活动、还有多少个 MCP server 绕过网关（按机器去重，不是按绑定累加）':
+    'Health: whether the audit chains are intact, whether the gateway has been active, and how many MCP servers bypass it (deduplicated per machine, not summed per binding)',
+  '资产清单：每台机器上有哪些 harness、哪些已纳管，哪些 server 经过网关':
+    'Asset inventory: which harnesses exist on each machine, which are managed, and which servers go through the gateway',
+  '发现汇总：漏洞扫描与控制平面姿态的结果，按威胁与级别聚合；修好后自动消失':
+    'Findings roll-up: vulnerability scans and control-plane posture aggregated by threat and severity; fixed items disappear on the next report',
+  '分发与响应：策略下发、规则包订阅（本地验签 + 放宽守卫）、远程熔断（机器下次同步时收敛）':
+    'Distribution and response: policy delivery, rule-pack subscription (verified locally, with a loosening guard) and remote quarantine (converged on the next sync)',
+  '数据边界':
+    'Data boundaries',
+  '只上哈希与摘要：工具参数与输出只留哈希；资产与发现只出标识与计数——没有路径、没有配置原文':
+    'Hashes and summaries only: tool arguments and outputs are hashed, and assets and findings report identifiers and counts — no paths, no raw configuration',
+  '云端不在调用路径上：判定与拦截全在本机，云端不可用不影响 Agent 工作':
+    'The cloud is not in the call path: decisions and blocking happen locally, so an unavailable cloud never stops your agents',
+  '判定口径归你：风险模式、阈值、可信来源都在本机的 rules.json；写错会 fail-closed 报错，不静默回退默认值':
+    'You own the thresholds: risk patterns, severities and trusted sources live in your local rules.json; a bad rule fails closed instead of silently falling back to defaults',
+  '明确不做的':
+    'What we deliberately do not do',
+  '不做沙箱或进程隔离：需要强隔离时用平台原生沙箱或容器，我们负责策略与证据':
+    'No sandbox or process isolation: use the platform sandbox or a container when you need hard isolation; we provide the policy and the evidence on top',
+  '看不到 harness 原生工具路径的全部动作：MCP 边界与已接 hook 之外的部分只能发现与取证':
+    'We do not see every action on a harness-native tool path: outside the MCP boundary and wired-up hooks we can only detect and preserve evidence',
+  '不做模型对话的内容审查：我们判定的是行为，不是语义':
+    'No content moderation of model conversations: we judge behaviour, not semantics',
+  '本地：开源 CLI（pod，Apache-2.0），跑在你自己的机器上；pod --version 可自查版本':
+    'Local: the open-source CLI (pod, Apache-2.0) runs on your own machine; `pod --version` tells you which version you have',
+  '云端 SaaS：浏览器打开控制台即可使用，无需安装；同一套代码也支持私有化部署（Docker Compose / Kubernetes）':
+    'Cloud SaaS: open the console in a browser, nothing to install; the same code also deploys self-hosted (Docker Compose / Kubernetes)',
+  '使用 AI 编码与自动化 Agent、需要向客户或审计方交代「Agent 能碰什么、做过什么」的团队。':
+    'Teams running AI coding and automation agents that have to answer — to a client or an auditor — what their agents can touch and what they actually did.',
+  '所有计划都包含本地开源 CLI（pod）、策略闸门与审批、SHA-256 哈希链审计与漏洞扫描；付费计划增加跨机器总览、健康与资产视图、合规报告和更多 Agent 席位。':
+    'Every plan includes the local open-source CLI (pod), the policy gate and approvals, SHA-256 hash-chain audit and the vulnerability scan; paid plans add the cross-machine roll-up, health and asset views, compliance reports and more agent seats.',
+  '本地开源 CLI：策略闸门 + 审批 + 密钥防线':
+    'Local open-source CLI: policy gate + approvals + credential defences',
+  '漏洞扫描（16 类 harness）与加固报告（本地生成）':
+    'Vulnerability scan (16 harness types) and the hardening report (generated locally)',
+  '跨机器总览与健康状态（链完整性 / 网关覆盖）':
+    'Cross-machine roll-up and health (chain integrity / gateway coverage)',
+  '资产与发现汇总（harness 纳管 / 绕过网关的 server / 威胁计数）':
+    'Asset and findings roll-up (managed harnesses / servers bypassing the gateway / threat counts)',
+  '跨 Agent 证据链与合规报告（GDPR Art.30 处理活动记录）':
+    'Cross-agent evidence chains and compliance reports (GDPR Art. 30 records of processing)',
+  '规则包订阅与远程熔断':
+    'Rule-pack subscription and remote quarantine',
+
 }

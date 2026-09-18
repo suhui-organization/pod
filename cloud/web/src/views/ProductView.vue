@@ -4,35 +4,65 @@
     <header class="hero">
       <img class="logo" src="/logo.svg" alt="Pod Cloud" />
       <h1 class="hero__title">Pod Cloud</h1>
-      <p class="hero__sub">{{ t('AI Agent 安全控制平面 · 本地优先，云端可选') }}</p>
+      <p class="hero__sub">{{ t('本地执行，云端汇总：AI Agent 的安全控制平面') }}</p>
     </header>
 
     <p class="lead">
-      {{ t('Pod Cloud 是给「跑 AI Agent 的团队」用的安全控制平面：把本地 Agent 的工具调用统一收口，留下不可篡改的审计记录，并用策略与审批拦下危险操作。') }}
+      {{ t('Pod 分两端：机器上的开源 CLI（pod）负责判定、拦截与留证——真的在干活；Pod Cloud 负责汇总、展示与持久化，并为以后的模型训练积累语料。两端之间只传哈希与摘要，不传你的内容。') }}
     </p>
 
     <section class="block">
-      <h2>{{ t('核心能力') }}</h2>
+      <h2>{{ t('在 Agent 机器上（开源 CLI，Apache-2.0）') }}</h2>
       <ul>
-        <li>{{ t('SHA-256 哈希链审计：每次工具调用都留证，改一个字节就能验出来') }}</li>
-        <li>{{ t('策略闸门与审批：按工具、路径、参数决定放行 / 审批 / 拒绝') }}</li>
-        <li>{{ t('跨 Agent 证据链：完整时间线，支持事后追溯') }}</li>
-        <li>{{ t('合规报告：GDPR Art.30 处理活动记录') }}</li>
-        <li>{{ t('云端告警：密钥读取、注入信号、拒绝突增') }}</li>
+        <li>{{ t('从真实行为编译策略：pod record 只录不拦采几天真实调用，pod policy draft 编译出最小权限策略（读放行 / 写审批 / 破坏性拒绝），并与基线 diff 出收紧与放宽') }}</li>
+        <li>{{ t('策略闸门与审批：按工具、路径、参数判定放行 / 审批 / 拒绝；未登记的 server 与工具一律拒绝（fail-closed），审批超时即拒') }}</li>
+        <li>{{ t('密钥防线：敏感路径拒读、输出侧密钥正则、高熵兜底（未知格式的密钥也拦得住）') }}</li>
+        <li>{{ t('漏洞扫描：16 类 harness（Claude Code / Codex / Cursor / …）与项目级配置，按 18 条威胁目录出清单——每条带外部出处，并写明我们覆盖到哪（覆盖 / 只能发现 / 看不到）') }}</li>
+        <li>{{ t('哈希链审计与证据：每次工具调用进 SHA-256 哈希链，pod verify-audit 指出第一处断裂；证据包可导出、可独立校验') }}</li>
+        <li>{{ t('可交付的加固报告：pod harden 一次生成执行摘要、范围与方法、按优先级排序的待办、覆盖边界与逐文件 sha256；接收方用 pod harden --verify 自己验，不需要信任我们') }}</li>
+      </ul>
+    </section>
+
+    <section class="block">
+      <h2>{{ t('在控制台上（Pod Cloud）') }}</h2>
+      <ul>
+        <li>{{ t('跨机器总览：每台机器最近同步时间、装的是哪一版') }}</li>
+        <li>{{ t('健康状态：审计链是否完整、网关最近有没有活动、还有多少个 MCP server 绕过网关（按机器去重，不是按绑定累加）') }}</li>
+        <li>{{ t('资产清单：每台机器上有哪些 harness、哪些已纳管，哪些 server 经过网关') }}</li>
+        <li>{{ t('发现汇总：漏洞扫描与控制平面姿态的结果，按威胁与级别聚合；修好后自动消失') }}</li>
+        <li>{{ t('分发与响应：策略下发、规则包订阅（本地验签 + 放宽守卫）、远程熔断（机器下次同步时收敛）') }}</li>
+      </ul>
+    </section>
+
+    <section class="block">
+      <h2>{{ t('数据边界') }}</h2>
+      <ul>
+        <li>{{ t('只上哈希与摘要：工具参数与输出只留哈希；资产与发现只出标识与计数——没有路径、没有配置原文') }}</li>
+        <li>{{ t('云端不在调用路径上：判定与拦截全在本机，云端不可用不影响 Agent 工作') }}</li>
+        <li>{{ t('判定口径归你：风险模式、阈值、可信来源都在本机的 rules.json；写错会 fail-closed 报错，不静默回退默认值') }}</li>
+      </ul>
+    </section>
+
+    <section class="block">
+      <h2>{{ t('明确不做的') }}</h2>
+      <ul>
+        <li>{{ t('不做沙箱或进程隔离：需要强隔离时用平台原生沙箱或容器，我们负责策略与证据') }}</li>
+        <li>{{ t('看不到 harness 原生工具路径的全部动作：MCP 边界与已接 hook 之外的部分只能发现与取证') }}</li>
+        <li>{{ t('不做模型对话的内容审查：我们判定的是行为，不是语义') }}</li>
       </ul>
     </section>
 
     <section class="block">
       <h2>{{ t('交付方式') }}</h2>
       <ul>
-        <li>{{ t('云端 SaaS：浏览器打开控制台即可使用，无需安装') }}</li>
-        <li>{{ t('本地网关：开源 CLI（pod），跑在用户自己的机器上；同一套代码也支持私有化部署') }}</li>
+        <li>{{ t('本地：开源 CLI（pod，Apache-2.0），跑在你自己的机器上；pod --version 可自查版本') }}</li>
+        <li>{{ t('云端 SaaS：浏览器打开控制台即可使用，无需安装；同一套代码也支持私有化部署（Docker Compose / Kubernetes）') }}</li>
       </ul>
     </section>
 
     <section class="block">
       <h2>{{ t('适用对象') }}</h2>
-      <p class="block__p">{{ t('使用 AI 编码与自动化 Agent 的工程团队和安全团队。') }}</p>
+      <p class="block__p">{{ t('使用 AI 编码与自动化 Agent、需要向客户或审计方交代「Agent 能碰什么、做过什么」的团队。') }}</p>
     </section>
 
     <section class="block">
