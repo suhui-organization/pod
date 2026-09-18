@@ -63,6 +63,19 @@
           </div>
         </dl>
 
+        <!-- 健康摘要：机器自己上报的"到底在不在保护"。与上面的"在线"分开看——
+             在线只说明它还能同步，不代表网关在跑、链没断、server 都过了网关。 -->
+        <p
+          v-if="a.health"
+          class="agent-health"
+          :class="{ 'agent-health--alert': healthAlert(a) }"
+        >
+          {{ healthLine(a) }}
+        </p>
+        <p v-else-if="a.last_seen_at" class="agent-health agent-health--unknown">
+          {{ t('未上报健康状态（本机 pod 0.4.0 起随心跳上报，升级后可见）') }}
+        </p>
+
         <!-- 未接入的 agent 给出下一步，而不是让用户对着"离线"发呆 -->
         <p v-if="!a.last_seen_at" class="agent-tip">
           {{ t('还没收到过它的同步。点「接入命令」拿一条命令，在跑 agent 的机器上执行； 执行完这里会自动变成「在线」。') }}
@@ -216,6 +229,46 @@ const syncToken = ref('')
 const showRawToken = ref(false)
 const connected = ref(false)
 const creating = ref(false)
+
+/**
+ * 健康摘要 → 一行字。
+ *
+ * 口径（与 PRODUCT.md 一致）：**缺数据就说缺数据**，不用绿色掩盖。
+ * 所以分三段：链（有没有被改过）、网关（在不在干活）、覆盖与漏洞（有没有绕过的口子）。
+ */
+function healthLine(a: AgentItem): string {
+  const h = a.health!
+  const parts: string[] = []
+  parts.push(
+    h.audit.broken > 0
+      ? t('审计链 {n} 条断裂（记录被改过）', { n: h.audit.broken })
+      : t('审计链 {n} 条完整', { n: h.audit.chains }),
+  )
+  parts.push(
+    h.audit.last_call_at
+      ? t('网关最近活动 {at}', { at: formatDateTime(h.audit.last_call_at) })
+      : t('网关还没有调用记录'),
+  )
+  if (h.guard) {
+    parts.push(h.guard.high > 0 ? t('漏洞扫描 {n} 项 high', { n: h.guard.high }) : t('漏洞扫描无 high'))
+  } else {
+    parts.push(t('漏洞扫描未上报'))
+  }
+  parts.push(
+    h.coverage.unmanaged > 0
+      ? t('{n} 个 server 绕过网关', { n: h.coverage.unmanaged })
+      : t('{n} 个 server 全部经过网关', { n: h.coverage.servers }),
+  )
+  if (a.pod_version) parts.push(`pod ${a.pod_version}`)
+  return parts.join(' · ')
+}
+
+/** 需要处理的信号：链断 / 有 server 绕过网关 / 扫出 high */
+function healthAlert(a: AgentItem): boolean {
+  const h = a.health
+  if (!h) return false
+  return h.audit.broken > 0 || h.coverage.unmanaged > 0 || (h.guard?.high ?? 0) > 0
+}
 
 const setupCommand = computed(() =>
   createdAgent.value
@@ -464,6 +517,13 @@ onUnmounted(stopWaiting)
 .agent-meta dt { margin-bottom: 2px; font-size: 11px; color: var(--pod-text-dim, #9aa3af); }
 .agent-meta dd { margin: 0; font-size: 13px; color: var(--pod-text, #e6e8ec); overflow-wrap: anywhere; }
 .agent-meta dd.num { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* 健康摘要：安静的一行事实；只有"需要处理"时才用告警色 */
+.agent-health {
+  margin: 0; font-size: 12px; line-height: 1.7;
+  color: var(--pod-text-dim, #9aa3af);
+}
+.agent-health--alert { color: #e0a23c; }
+.agent-health--unknown { font-style: italic; }
 .agent-tip {
   margin: 0; padding: 8px 10px; border-radius: 8px;
   font-size: 12px; line-height: 1.7;

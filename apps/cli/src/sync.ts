@@ -12,10 +12,23 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
-import type { Policy } from '@podsec/policy';
+import type { Policy, RuleSet } from '@podsec/policy';
 import { verifyPolicy } from './policy-sign.js';
 import { t } from '@podsec/i18n';
 import { quarantineAdd, quarantineRemove, readQuarantineFile } from './control-plane.js';
+import { POD_PROTOCOL_VERSION, cliVersion, type PodHealth } from './protocol.js';
+import { buildHealthSnapshot } from './health.js';
+
+/**
+ * 每个上云请求都带协议版本与客户端版本。
+ *
+ * 为什么用 header 而不是塞进 body：events 的 body 有严格 schema 与哈希链校验，
+ * 动它风险大；header 对老服务端完全透明（不认识的 header 会被忽略），
+ * 于是"新客户端 → 老服务端"不会炸，而"新服务端 ← 老客户端"能从缺失看出客户端过旧。
+ */
+function protocolHeaders(): Record<string, string> {
+  return { 'X-Pod-Protocol': String(POD_PROTOCOL_VERSION), 'X-Pod-Version': cliVersion() };
+}
 
 export interface CloudAgentBinding {
   /** 本地审计文件的 agent 字段（"*" = 全部） */
@@ -64,6 +77,11 @@ export interface SyncResult {
    * 这一点写进了文档，不假装是实时的。
    */
   quarantine: Array<{ agent_id: number } & QuarantineSyncResult>;
+  /**
+   * 云端回给客户端的协议提示（版本错配时用）。
+   * 不放进 failures：协议过旧不会让同步失败，但用户必须知道"少了一半能力"。
+   */
+  notices: string[];
 }
 
 export function loadCloudConfig(configPath?: string): CloudConfig {
@@ -196,7 +214,7 @@ export async function pushBatch(
   const url = `${cfg.api_url}/api/v1/sync/events`;
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': cfg.sync_token },
+    headers: { 'Content-Type': 'application/json', ...protocolHeaders(), 'X-Sync-Token': cfg.sync_token },
     body: JSON.stringify({ events }),
   });
   if (resp.status === 409) {
@@ -259,7 +277,7 @@ export async function pullPolicies(opts: {
   } as CloudConfig;
 
   const url = `${cfg.api_url}/api/v1/sync/policies`;
-  const resp = await fetch(url, { headers: { 'X-Sync-Token': cfg.sync_token ?? '' } });
+  const resp = await fetch(url, { headers: { ...protocolHeaders(), 'X-Sync-Token': cfg.sync_token ?? '' } });
   if (!resp.ok) {
     const body = (await resp.json().catch(() => ({}))) as { detail?: string };
     throw new Error(t('拉取策略失败 HTTP {status}：{detail}', { status: resp.status, detail: body.detail ?? '' }));
@@ -344,7 +362,7 @@ export async function uploadHardenReport(
 ): Promise<{ id: number }> {
   const resp = await fetch(`${cfg.api_url}/api/v1/harden/reports`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': cfg.sync_token },
+    headers: { 'Content-Type': 'application/json', ...protocolHeaders(), 'X-Sync-Token': cfg.sync_token },
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
@@ -414,7 +432,7 @@ export async function syncQuarantine(opts: {
   let body: { quarantined?: boolean; reason?: string };
   try {
     const resp = await fetch(`${opts.api_url}/api/v1/sync/quarantine`, {
-      headers: { 'X-Sync-Token': opts.sync_token },
+      headers: { ...protocolHeaders(), 'X-Sync-Token': opts.sync_token },
     });
     if (!resp.ok) {
       return { applied: [], released: [], error: `拉取熔断状态失败：HTTP ${resp.status}` };
@@ -459,6 +477,10 @@ export async function runSync(opts: {
   apiUrl?: string;
   agentId?: number;
   syncToken?: string;
+  /** 本机 home：健康摘要里 guard 扫描要用（不传则用 homedir()） */
+  home?: string;
+  /** 判定规则：健康摘要里 guard 扫描要用；不传则跳过 guard 部分 */
+  rules?: RuleSet;
 }): Promise<SyncResult> {
   // 三个字段全部显式提供时无需 cloud.json；否则必须能从文件读到
   const needFile = opts.config !== undefined || !(opts.apiUrl && opts.agentId && opts.syncToken);
@@ -478,6 +500,16 @@ export async function runSync(opts: {
   const perBinding: Array<{ agent_id: number; synced: number }> = [];
   const failures: SyncResult['failures'] = [];
   const quarantine: SyncResult['quarantine'] = [];
+  const notices: string[] = [];
+  // 健康摘要每次 sync 采集一次（只读；不因某个绑定失败而重算）
+  let health: PodHealth | null = null;
+  if (opts.rules) {
+    health = buildHealthSnapshot({
+      home: opts.home ?? homedir(),
+      auditDir: opts.auditDir,
+      rules: opts.rules,
+    });
+  }
   let total = 0;
   for (const b of bindings) {
     const cursor = loadSyncState(b.agent_id);
@@ -524,10 +556,29 @@ export async function runSync(opts: {
     // 401 = token 失效(轮换过 / agent 被删过),同样只记这一项,不拖垮其它绑定。
     const ping = await fetch(`${cfg.api_url}/api/v1/sync/ping`, {
       method: 'POST',
-      headers: { 'X-Sync-Token': b.sync_token },
+      headers: { 'Content-Type': 'application/json', ...protocolHeaders(), 'X-Sync-Token': b.sync_token },
+      body: JSON.stringify({
+        protocol_version: POD_PROTOCOL_VERSION,
+        pod_version: cliVersion(),
+        ...(health ? { health } : {}),
+      }),
     }).catch(() => null);
     if (ping && ping.status === 401) {
       failures.push({ agent_id: b.agent_id, message: t('sync token 无效（HTTP 401）') });
+    } else if (ping) {
+      // 协议提示：老服务端不认识这个 body 会直接忽略（200），新服务端会回一段提示。
+      // 只有"确实少了一半能力"时才打扰用户，且不阻断同步。
+      const body = await ping.json().catch(() => null) as
+        | { client_outdated?: boolean; message?: string; server_protocol?: number }
+        | null;
+      if (body?.client_outdated) {
+        notices.push(
+          body.message ??
+            t('本机 pod 版本比云端支持的最低协议更旧（云端协议 {server}），建议升级：pod 的部分能力不会被云端识别。', {
+              server: body.server_protocol ?? '?',
+            }),
+        );
+      }
     }
     // 收敛云端下发的熔断：拉取失败时 syncQuarantine 自己保证"什么都不动"
     const q = await syncQuarantine({
@@ -549,5 +600,6 @@ export async function runSync(opts: {
     bindings: perBinding,
     failures,
     quarantine,
+    notices,
   };
 }

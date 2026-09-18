@@ -139,6 +139,15 @@ class Agent(Base):
     quarantine_reason: Mapped[str] = mapped_column(Text, default="")
     quarantined_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     quarantined_by: Mapped[str] = mapped_column(String(128), default="")
+    # 端 A 上报的版本与健康摘要（契约见 docs/local-cloud-contract.md）。
+    # 为什么要有：控制台此前只知道"这台机器 30 分钟前在线"，但"在线"≠"真的在保护"——
+    # 网关可能没起、审计链可能断了、还有 server 绕过网关。这三件事是"部署了但没生效"的
+    # 典型形态，必须由机器自己上报（云端看不到本机文件）。
+    # health_json 只存计数与时间戳，不含路径/主机名/配置原文。
+    pod_version: Mapped[str] = mapped_column(String(32), default="")
+    protocol_version: Mapped[int] = mapped_column(Integer, default=0)
+    health_json: Mapped[str] = mapped_column(Text, default="")
+    health_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

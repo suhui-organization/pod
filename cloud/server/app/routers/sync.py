@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import CONTROL_CHAIN, Agent, PodAlert, PodControlEvent, PodPolicy, SyncEvent
+from app.protocol import MIN_CLIENT_PROTOCOL, SERVER_PROTOCOL
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -43,11 +44,59 @@ class SyncBatchRequest(BaseModel):
     events: list[SyncEventIn] = Field(max_length=500)
 
 
+class AuditHealthIn(BaseModel):
+    """审计链健康：条数 / 断裂数 / 最近一次工具调用时间。"""
+
+    chains: int = Field(default=0, ge=0, le=1_000_000)
+    broken: int = Field(default=0, ge=0, le=1_000_000)
+    last_call_at: str | None = Field(default=None, max_length=64)
+
+
+class CoverageHealthIn(BaseModel):
+    """网关覆盖率：发现的 server 数 / 其中绕过网关的数量。"""
+
+    servers: int = Field(default=0, ge=0, le=1_000_000)
+    unmanaged: int = Field(default=0, ge=0, le=1_000_000)
+
+
+class GuardHealthIn(BaseModel):
+    """最近一次只读漏洞扫描的计数。"""
+
+    high: int = Field(default=0, ge=0, le=1_000_000)
+    medium: int = Field(default=0, ge=0, le=1_000_000)
+    low: int = Field(default=0, ge=0, le=1_000_000)
+    scanned_at: str = Field(default="", max_length=64)
+
+
+class HealthIn(BaseModel):
+    """本机健康摘要。
+
+    字段显式列出（而不是收任意 dict）有两个原因：只存我们知道含义的东西，
+    以及给存储一个上界——健康摘要是机器自报的，不能让它把库写爆。
+    契约上**只允许计数、布尔与时间戳**：路径、主机名、配置原文一律不出本机。
+    """
+
+    audit: AuditHealthIn = Field(default_factory=AuditHealthIn)
+    coverage: CoverageHealthIn = Field(default_factory=CoverageHealthIn)
+    guard: GuardHealthIn | None = None
+    errors: list[str] = Field(default_factory=list, max_length=20)
+
+
+class PingIn(BaseModel):
+    """心跳载荷。**全部可选**：v0.4.0 之前的客户端不带 body，心跳照常工作。"""
+
+    protocol_version: int = Field(default=0, ge=0, le=10_000)
+    pod_version: str = Field(default="", max_length=32)
+    health: HealthIn | None = None
+
+
 @router.post("/events")
 def sync_events(
     body: SyncBatchRequest,
     db: Session = Depends(get_db),
     x_sync_token: str = Header(default=""),
+    x_pod_protocol: str = Header(default=""),
+    x_pod_version: str = Header(default=""),
 ):
     """推送一批审计事件；校验哈希链连续性后入库。"""
     if not x_sync_token:
@@ -58,6 +107,12 @@ def sync_events(
     agent = db.query(Agent).filter(Agent.sync_token_hash == token_hash).first()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="sync token 无效")
+    # 顺手记下客户端版本：即使这台机器的心跳被防火墙挡掉、只有事件能上来，
+    # 控制台也能回答"它装的是哪一版"。
+    if x_pod_protocol.strip().isdigit():
+        agent.protocol_version = int(x_pod_protocol.strip())
+    if x_pod_version.strip():
+        agent.pod_version = x_pod_version.strip()[:32]
 
     # 每个 (agent, 链) 一条独立哈希链（本地每个审计文件一条链）：
     #   - tool-call → pod_sync_events，链键 = server（本地每 server 一个文件）
@@ -157,11 +212,21 @@ def sync_events(
 
 
 @router.post("/ping")
-def sync_ping(db: Session = Depends(get_db), x_sync_token: str = Header(default="")):
-    """轻量心跳：即使 0 条新审计也刷新 last_seen/online。
+def sync_ping(
+    body: PingIn | None = None,
+    db: Session = Depends(get_db),
+    x_sync_token: str = Header(default=""),
+    x_pod_protocol: str = Header(default=""),
+    x_pod_version: str = Header(default=""),
+):
+    """轻量心跳：刷新 last_seen/online，并收下"这台机器现在什么状态"。
 
     规模化后 agent 可能长时间无审计事件；在线判定不应依赖“有新事件”，
     而由定时 pod sync（含本心跳）维持，失联才由巡检切 offline。
+
+    **在线 ≠ 真的在保护**：网关可能没起、链可能断了、还有 server 绕过网关。
+    这些只有机器自己能看见，所以随心跳上报一份只含计数的健康摘要；
+    控制台据此把"部署了但没生效"和"正常"分开。
     """
     if not x_sync_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少 X-Sync-Token")
@@ -174,11 +239,49 @@ def sync_ping(db: Session = Depends(get_db), x_sync_token: str = Header(default=
     now = datetime.utcnow()
     agent.status = "online"
     agent.last_seen_at = now
+
+    # 版本：body 优先，header 兜底（老客户端只带 header 的话也能记上）
+    client_protocol = 0
+    if body is not None and body.protocol_version:
+        client_protocol = body.protocol_version
+    elif x_pod_protocol.strip().isdigit():
+        client_protocol = int(x_pod_protocol.strip())
+    agent.protocol_version = client_protocol
+    if body is not None and body.pod_version:
+        agent.pod_version = body.pod_version
+    elif x_pod_version.strip():
+        agent.pod_version = x_pod_version.strip()[:32]
+
+    # 健康摘要：只存合规字段（Pydantic 已限定形状），过期数据不留着冒充现状
+    if body is not None and body.health is not None:
+        import json
+
+        agent.health_json = json.dumps(body.health.model_dump(), ensure_ascii=False)
+        agent.health_at = now
+
     # 带上已有事件数:接入脚本据此把"token 有效"和"真的有审计上云"区分开,
     # 否则用户看到 ✅ 却不知道数据到底进来没有。
     event_count = db.query(SyncEvent).filter(SyncEvent.agent_id == agent.id).count()
     db.commit()
-    return {"pong": True, "agent_id": agent.id, "last_seen_at": now.isoformat(), "event_count": event_count}
+
+    # 协议提示：告诉客户端"你是不是已经旧到少了一半能力"。
+    # 老客户端会忽略这些字段，所以加它们不会破坏任何东西。
+    client_outdated = client_protocol < MIN_CLIENT_PROTOCOL
+    resp = {
+        "pong": True,
+        "agent_id": agent.id,
+        "last_seen_at": now.isoformat(),
+        "event_count": event_count,
+        "server_protocol": SERVER_PROTOCOL,
+        "min_client_protocol": MIN_CLIENT_PROTOCOL,
+        "client_outdated": client_outdated,
+    }
+    if client_outdated:
+        resp["message"] = (
+            f"本机 pod 上报的协议版本为 {client_protocol}，云端要求至少 {MIN_CLIENT_PROTOCOL}"
+            f"（云端协议 {SERVER_PROTOCOL}）。建议升级本机 pod：当前版本的部分能力不会被云端识别。"
+        )
+    return resp
 
 
 def _notify_alerts(db: Session, agent: Agent, new_alerts: list) -> None:
