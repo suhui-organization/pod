@@ -19,6 +19,8 @@ compile  从语料编译最小权限策略，并 diff 出"收紧了什么、放�
 enforce  网关执法 deny > approve > allow，fail-closed
    ↓
 prove    SHA-256 哈希链审计 + 可导出、可校验的证据包
+   ↺
+guard    持续扫描所有 agent / harness 的漏洞，只对变化说话，并给出建议清单
 ```
 
 每一步都能单独用，但真正的价值在闭环：**你不需要凭空写一份策略，也不用在出事之后靠回忆。**
@@ -80,7 +82,120 @@ prove    SHA-256 哈希链审计 + 可导出、可校验的证据包
 |---|---|
 | 一个 agent 一份策略 | 策略绑定 agent 身份；多 agent 各管各的，不互相污染 |
 | 覆盖率与漂移检查 | `pod coverage --strict`：还有哪些 MCP server 绕过网关（退出码可直接挂 CI） |
+| 多 harness 持续漏洞扫描 | `pod guard`：16 类 harness + 项目级配置，出漏洞清单与建议清单，只对变化说话 |
+| 一键纳管本机 agent | `pod agents` / 控制台的「扫描本机 agent → 加入监控」：建身份 + 零权限策略 + 审计目录，不改 harness 配置 |
 | 可选云端控制平面 | 自托管 Pod Cloud：注册 agent、汇聚审计、策略中心、告警、时间线、控制平面事件、合规报告 |
+
+### 六、持续扫描：漏洞清单 + 建议清单
+
+| 能力 | 命令 | 说明 |
+|---|---|---|
+| 一次扫清 | `pod guard scan` | 按 18 条威胁目录（AG-01–AG-18）出**漏洞清单**，再折成**建议清单**（按优先级、带可跑的命令、带 pod 的覆盖声明），最前面还给**先做这三件事** |
+| 每条都有下一步 | `pod guard scan` | 建议里是**带 harness 的实命令**（`pod agents enroll --harness claude-code`），不是模板；每条都配一条"怎么确认生效"的命令 |
+| 只对变化说话 | `pod guard watch` | 常驻轮询；新增/变化/消失才输出，并写进哈希链。同一份告警不会每五分钟重打一遍 |
+| 冻结现状 | `pod guard baseline` | 冻结 server 与钩子指纹；之后"同名 server 换包""钩子被插件更新改写"会被报出来 |
+| 模型辅助加固 | `pod guard remediate --llm` | 模型只拿到"哪些类问题、各多少处、落在哪个 harness"；产出处置步骤与规则增量，增量必须过放宽守卫才可用 |
+| 威胁目录 | `pod guard catalog` | 打印每条威胁的原始披露出处（HackerOne / Bugcrowd / CVE / 厂商研究）与 pod 到底覆盖到哪 |
+
+### 六之二、把扫描变成能交付的审计（`pod harden`）
+
+扫描是入口，交付是产物。`pod harden` 把同一批事实编成一份**能交给客户/审计方、
+而且对方能自己校验**的报告目录，而不是"自己跑四条命令再把输出拼起来"：
+
+| 章节 | 回答的问题 |
+|---|---|
+| §0 执行摘要 | 一句话结论 + 最重要的三件事（每条带命令） |
+| §1 范围与方法 | 读了什么、怎么判的、**没建基线时哪类判定不生效** |
+| §2 结论与待办 | 按严重级别排序的发现 + 可直接复制的处置命令 |
+| §3 覆盖边界 | pod 看不到什么、拦不住什么——比一句"通过"更值钱 |
+| §4–§8 | 暴露面 / 多 harness / 控制平面姿态 / 最小权限草稿 / 证据链自检 |
+| §9 如何验证 | `pod harden --verify <目录>` 或任何 sha256 工具，逐文件独立复验 |
+| §10 产物清单与声明 | 逐文件哈希 + 交付声明（谁在何时何地生成） |
+
+交付元信息写进封面与清单：`--client` / `--auditor` / `--engagement`。
+报告被改动一个字节，验证就会失败并指出是哪个文件——这是"证据优先"与"口头保证"的分界线。
+
+### 七、把 agent 纳进管理（控制台一键 / CLI 一条命令）
+
+控制台（`pod ui`）顶栏的**「扫描本机 agent」**列出这台机器上装了什么 harness，
+每张卡上带安装证据、MCP server 数、其中几个绕过网关、以及 `pod guard` 的漏洞计数。
+点**「加入监控」**即纳管：
+
+| 会做什么 | 不会做什么 |
+|---|---|
+| 建 ed25519 身份（`~/.pod/identity/<agent>/`，私钥 0600） | **不改动 harness 的配置**（那是 `pod onboard --yes` 的事，有备份与回滚） |
+| 写一个**零权限策略**（未登记 server 一律拒绝；已有策略则不动） | 不拦流量：纳管只是把资产纳入管理，拦住工具调用还要 `pod onboard` 把 server 包进网关 |
+| 建审计目录 + 写控制平面事件进 SHA-256 哈希链 | 不动你正在生效的策略 |
+
+移除纳管（卡片上的「移除监控」）：删掉**纳管时创建的**那份策略，身份默认保留
+（删了就无法再证明历史上的调用是它做的），要连私钥一起删用 `--purge-identity`。
+命令行的等价物是 `pod agents scan | enroll | forget`——控制台能做的，CLI 都能做。
+只想看不想改的话，`pod ui --read-only` 关掉整个写通道。
+
+**第二步：接管（包进网关）。** 纳管只是把资产纳入管理，MCP server 仍然是直连的——
+策略与审计对它们无效。卡片上的**「接管（包进网关）」**做这一步，而且它比纳管危险得多
+（会改写 harness 的配置文件），所以流程是"先看计划、再确认"：
+
+```text
+会改写的配置（1 个文件）
+  ~/.claude.json
+  github
+    改前  npx -y @modelcontextprotocol/server-github
+    改后  pod serve --record-only --agent claude-code --server github \
+            --policy ~/.pod/policies/onboard-claude-code.json \
+            --command npx --arg -y --arg @modelcontextprotocol/server-github
+    备份：~/.claude.json.pod-backup-2026-09-18T01-17-44-538Z
+```
+
+四条边界（都写在确认框里）：
+
+| 说明 | 为什么 |
+|---|---|
+| **只录不拦**（`--record-only`） | 接管当天不打断工作流；采几天语料 → `pod policy draft` 编译最小权限策略 → 复核后去掉 `--record-only` 才切执法 |
+| **可回滚** | 改写前备份成 `<配置>.pod-backup-<时间戳>`，卡片上的「还原配置」从最近的备份恢复 |
+| **只碰用户级配置** | 仓库里的项目级配置（`.mcp.json` / `.cursor/mcp.json` 等）不在这个按钮的授权范围内 |
+| **`pod` 不在 PATH 就拒绝执行** | 包装后的命令跑不起来会让该 harness 的 MCP server 全部失效——宁可不做 |
+
+接管时会**沿用你已有的零权限策略**（如果纳管时建过），不新建 allow-all 模板：
+即使哪天有人去掉 `--record-only`，行为也是 fail-closed 而不是全部放行。
+命令行等价物：`pod agents onboard --harness <id> [--yes]` / `pod agents revert --agent <name>`。
+
+暂不支持自动改写的格式会明确写出来（例如 Codex 的 TOML），不会假装接管成功。
+
+**第三步：切执法。** 接管只是让调用**经过**网关；真正**拦住**是在这一步：把包装命令里的
+`--record-only` 去掉，并让它使用你编译好的策略。
+
+这一步最危险的失败不是"改坏了"（有备份），而是**"看起来生效了，其实没有保护"**。
+所以它有硬前置，不满足就直接拒绝执行：
+
+| 前置 | 不满足时的行为 |
+|---|---|
+| 有一份**绑定该 agent 且含 server 规则**的策略 | 拒绝，并给出要跑的命令与当前语料量（"先跑 `pod policy draft --agent X --out <file>`"） |
+| 那份策略不是 `allow:["*"]` | 拒绝——接管时的 record 模板拿去执法等于全部放行，只会制造"已保护"的错觉 |
+| server 确实在只录不拦状态 | 拒绝，并说明先用「接管」 |
+
+确认框里会显示**用哪份策略执法**（含 server / 工具 / allow·approve·deny 计数）、
+改前 → 改后、备份路径，以及切完之后会发生什么：
+**命中 approve 的调用会挂起等审批**，没在跑 `pod watch` 就等到超时被拒（fail-closed，不是故障）；
+想免掉人工那一步又保持可审计，用 `pod grant issue` 签发限时令牌。
+
+打断工作时可以**「回到只录不拦」**（策略不变，只是不再阻断），或「还原配置」。
+「还原配置」按"撤销上一步"工作：接管 → 切执法 → 回到只录不拦 之后连点两次，
+会先退到只录不拦、再退回到接管之前。卡片上同时显示**当前实际生效的策略文件**——
+因为纳管会写一份零权限策略、编译后又多一份 draft，"一个 agent 两份策略"是常态，
+界面必须直接回答"哪一份是真的在用"。
+
+命令行等价物：`pod agents enforce --harness <id> [--record-only] [--yes]`。
+
+**能扫什么**：16 类 harness（Claude Code / Codex / Cursor / DSH / OpenClaw / OpenCode /
+Gemini CLI / Windsurf / Zed / VS Code / Cline / Kilo / Amazon Q / Copilot CLI / Amp / Continue）、
+5 种配置格式（含 Codex 的 TOML）、项目级 `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`、
+生命周期钩子、长期记忆文件、明文凭据（只显示掩码）、远程端点与"跳过审批"的启动参数。
+注册表没覆盖到的 harness 可以写进 `rules.guard.extraConfigPaths`。
+
+**说不清楚的都写在报表里**：每条建议都标着 pod 对这类威胁的覆盖程度
+（有确定性判定 / 只能给信号 / pod 看不到），做不到的那几条单列一节。完整盘点见
+[agent-harness-security.md](agent-harness-security.md)。
 
 ## 给你带来什么
 

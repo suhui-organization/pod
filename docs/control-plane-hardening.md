@@ -326,3 +326,10 @@ pod trace <agent>                     # 5. 追污染源与影响面
    （云端对应一个"机器级"agent，如 `macbook-control-plane`）。
    按 agent 归属的发现（身份/委托/令牌/熔断）本来就写在各 agent 自己的链里，
    沿用既有绑定即可。
+
+   同理，**纳管/接管/切执法（控制台与 `pod agents`）必须写被改动的那个 agent 的链**：
+   它们改的是某个 agent 的身份、策略与网关形态，属于"按 agent 归属"。曾经写成
+   `_control`，结果线上 `pod_control_events` 一条都没有——本地记了、云端看不到，
+   而界面还在说"已纳管"。回归用例：`apps/cli/test/control-plane-sync.test.ts`。
+   判断口径：**这台机器上某个 agent 被改了 → 写那个 agent 的链；
+   与具体 agent 无关的机器级事实 → `_control`。**

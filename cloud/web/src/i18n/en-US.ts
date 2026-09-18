@@ -18,6 +18,8 @@ export const enUS: Record<string, string> = {
   // ── 导航与布局 ──
   '总览': 'Overview',
   'Agent 资产': 'Agent Assets',
+  '构建': 'Build',
+  '前端 {tag}（与后端不是同一次构建）': 'web {tag} (not the same build as the backend)',
   '告警': 'Alerts',
   '时间线': 'Timeline',
   '控制平面': 'Control Plane',

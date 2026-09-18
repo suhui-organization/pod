@@ -1,0 +1,264 @@
+# Pod Cloud 服务器集群清单快照（**只读参考，不由脚本 apply**）
+#
+# 这份文件是从线上集群导出并清洗过的（去掉 status / resourceVersion / uid /
+# creationTimestamp / managedFields 等运行时字段），用途只有两个：
+#   1. 让"服务器上到底跑的是什么"不只存在于集群里，仓库里也有一份能读的；
+#   2. 集群重建时有据可依。
+#
+# 为什么不放进 install-server.sh 去 apply：这些对象是**手工调过的**
+# （nodeSelector→hadoop8、hostPath PV、NodePort 30088、server 用 Recreate
+# 因为 SQLite 不能被两个 Pod 同时写）。脚本用 `set image` 做外科手术式发布，
+# 不覆盖它们，避免把线上调优冲掉。
+#
+# 不含 Secret：JWT 与计费密钥只在集群里（`podcloud-secrets`），
+# 导出会泄密，所以这份快照刻意没有它。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: podcloud-server
+  name: podcloud-server
+  namespace: podcloud
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: podcloud-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: podcloud-server
+    spec:
+      containers:
+      - env:
+        - name: TZ
+          value: Asia/Shanghai
+        - name: PODCLOUD_ENV
+          value: production
+        - name: PODCLOUD_DB_URL
+          value: sqlite:////app/data/podcloud.db
+        - name: PUBLIC_BASE_URL
+          value: https://podcloud.dlszjr.com
+        - name: PODCLOUD_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: PODCLOUD_JWT_SECRET
+              name: podcloud-secrets
+        - name: PADDLE_RESTART_AT
+          value: '1789470916'
+        envFrom:
+        - secretRef:
+            name: podcloud-secrets
+        image: podcloud-server:main-fbf730b
+        imagePullPolicy: IfNotPresent
+        name: server
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/v1/auth/config
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/data
+          name: data
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: hadoop8
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: podcloud-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: podcloud-web
+  name: podcloud-web
+  namespace: podcloud
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: podcloud-web
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: podcloud-web
+    spec:
+      containers:
+      - env:
+        - name: TZ
+          value: Asia/Shanghai
+        - name: PODCLOUD_SERVER_UPSTREAM
+          value: podcloud-server:8000
+        image: podcloud-web:main-fbf730b
+        imagePullPolicy: IfNotPresent
+        name: web
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        resources:
+          limits:
+            cpu: '1'
+            memory: 512Mi
+          requests:
+            cpu: 20m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: hadoop8
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podcloud-server
+  namespace: podcloud
+spec:
+  clusterIP: 10.104.151.98
+  clusterIPs:
+  - 10.104.151.98
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: podcloud-server
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podcloud-web
+  namespace: podcloud
+spec:
+  clusterIP: 10.108.19.38
+  clusterIPs:
+  - 10.108.19.38
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: podcloud-web
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: podcloud-web
+  name: podcloud-web-nodeport
+  namespace: podcloud
+spec:
+  clusterIP: 10.107.28.42
+  clusterIPs:
+  - 10.107.28.42
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    nodePort: 30088
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: podcloud-web
+  sessionAffinity: None
+  type: NodePort
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: podcloud-data
+  namespace: podcloud
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+  volumeMode: Filesystem
+  volumeName: podcloud-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: podcloud-pv
+spec:
+  accessModes:
+  - ReadWriteOnce
+  capacity:
+    storage: 2Gi
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: podcloud-data
+    namespace: podcloud
+    resourceVersion: '19493856'
+    uid: 6e516d5c-2d3f-4d0c-b3da-9176e370ac21
+  hostPath:
+    path: /opt/podcloud-data
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - hadoop8
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  volumeMode: Filesystem

@@ -19,6 +19,11 @@
 # 它看不见什么：**完全没包 t() 的硬编码中文**（例如 `label: '总览'`）、
 # 以及跨行写法的 t(\n '…' )。这两类只能靠界面走查，脚本只保证"包了 t() 的
 # 都有词条"。
+#
+# 一个例外：威胁目录（packages/guard/src/catalog.ts）这类**数据**文案是渲染时
+# `t(entry.title)` 查表的，静态抽取看不见调用点。它们的完整性由
+# packages/guard/src/catalog-i18n.test.ts 在 CI 里断言，本脚本只把它们
+# 从"僵尸键"里排除（见 DATA_SOURCES），避免 100+ 条噪音盖住真缺口。
 # ============================================================================
 set -uo pipefail
 
@@ -46,6 +51,36 @@ cat_keys_of() {
     grep -hoE "^  '[^']*':" "$1" | sed "s/^  '//; s/':$//"
     grep -hoE "^  [^' /][^:]*:" "$1" | sed "s/^  //; s/:$//"
   } | LC_ALL=C sort -u > "$2"
+}
+
+# ── 目录数据键例外 ──────────────────────────────────────────────────────────
+# 威胁目录的文案是**数据**：渲染时才按 t(entry.title) 查表，静态抽取看不见调用点，
+# 于是这 100+ 条会整批出现在"僵尸键"里，把真正的缺口淹掉。
+#
+# 规则：词条只要在这些"数据源文件"里作为**完整的字符串字面量**出现，就不算僵尸键。
+# 必须带引号匹配——否则 '代码执行' 这种短词会命中别的长句里的子串，把真缺口也吞掉。
+# "这些数据键到底有没有英文"由 packages/guard/src/catalog-i18n.test.ts 在 CI 里断言——
+# 那里能真的拿到目录对象，比在这里猜字符串可靠。
+DATA_SOURCES=(
+  "packages/guard/src/catalog.ts"   # 威胁目录：title / summary / 处置动作与理由 / gap
+  "packages/policy/src/rules.ts"    # 默认规则的 why（可在 rules.json 覆盖，命中内置值时才翻）
+)
+filter_catalog_data_keys() {
+  local in="$1" out="$2"
+  : > "$out"
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    local is_data=0
+    for src in "${DATA_SOURCES[@]}"; do
+      [ -f "$src" ] || continue
+      if grep -qF -- "'$key'" "$src" || grep -qF -- "\"$key\"" "$src"; then
+        is_data=1
+        break
+      fi
+    done
+    [ "$is_data" = "1" ] && continue
+    printf '%s\n' "$key" >> "$out"
+  done < "$in"
 }
 
 TOTAL_MISSING=0
@@ -85,7 +120,8 @@ report() {
 # ── CLI：apps/cli + packages/*，入口统一是 t()；跳过 i18n 自身（文档/测试里的示例串）
 find apps/cli/src packages/*/src -name '*.ts' ! -name '*.test.ts' ! -path 'packages/i18n/src/*' > "$TMP/cli-files.txt"
 used_keys_of "$TMP/cli-used.txt" $(cat "$TMP/cli-files.txt")
-cat_keys_of packages/i18n/src/en-US.ts "$TMP/cli-cat.txt"
+cat_keys_of packages/i18n/src/en-US.ts "$TMP/cli-cat-raw.txt"
+filter_catalog_data_keys "$TMP/cli-cat-raw.txt" "$TMP/cli-cat.txt"
 report "CLI" "$TMP/cli-used.txt" "$TMP/cli-cat.txt"
 
 # ── Web：cloud/web/src（Vue 里 t() 与 tr() 两种叫法都存在），跳过 i18n 自身

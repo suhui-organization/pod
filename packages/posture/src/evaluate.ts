@@ -78,7 +78,12 @@ export function evaluateHooks(rules: RuleSet, facts: Facts, baseline: Baseline |
         category: 'hook',
         severity,
         subject: `${hook.event} @ ${hook.file}`,
-        message: t('{why}（规则 {rule}）：{command}', { why: p.why ?? t('钩子命中风险规则'), rule: p.id, command: hook.command }),
+        // 规则里的 why 是用户可改的数据：命中内置默认值时才翻，用户自己写的说明原样显示
+        message: t('{why}（规则 {rule}）：{command}', {
+          why: p.why ? t(p.why) : t('钩子命中风险规则'),
+          rule: p.id,
+          command: hook.command,
+        }),
         evidence: [hook.command],
       });
     }
@@ -238,6 +243,17 @@ export function evaluateIdentities(rules: RuleSet, facts: Facts): Finding[] {
   if (!rules.identity.required) return findings;
   for (const id of facts.identities) {
     if (id.origin.length === 1 && id.origin[0] === 'identity') continue; // 只有身份、没有使用者
+    if (id.error) {
+      // 名字本身就是问题：它永远不可能有身份目录，先让用户改名
+      findings.push({
+        id: shortId('identity', id.agent, 'invalid-name'),
+        category: 'identity',
+        severity: 'high',
+        subject: id.agent,
+        message: t('这个 agent 名无法映射到身份目录（{error}）——先改名，再 pod identity init', { error: id.error }),
+      });
+      continue;
+    }
     if (!id.hasIdentity) {
       findings.push({
         id: shortId('identity', id.agent, 'missing'),

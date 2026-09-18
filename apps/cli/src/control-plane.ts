@@ -12,12 +12,15 @@ import { homedir } from 'node:os';
 import { t } from '@podsec/i18n';
 import {
   AuditLog,
+  appendControlEvent,
   appendEntryExclusive,
   appendToAuditFile,
   hashValue,
   loadAuditFile,
+  CONTROL_CHAIN,
   type AuditEntry,
   type AuditKind,
+  type ControlEvent,
 } from '@podsec/audit';
 import {
   expandHome,
@@ -25,6 +28,9 @@ import {
   type Policy,
   type RuleSet,
 } from '@podsec/policy';
+// 控制平面事件的实现搬到了 @podsec/audit（只留一份：控制台也要写这类事件）。
+// 这里既 import（本模块内部用）又 re-export（既有调用方与测试的 import 路径不变）。
+export { appendControlEvent, CONTROL_CHAIN, type ControlEvent };
 import {
   generateAgentIdentity,
   grantCovers,
@@ -69,56 +75,6 @@ export function resolveRules(rulesPath: string | undefined, podHome: string): Ru
   return loadRules(existsSync(path) ? path : undefined);
 }
 
-// ---------- 控制平面事件入链 ----------
-
-export interface ControlEvent {
-  auditDir: string;
-  agent: string;
-  kind: AuditKind;
-  reason: string;
-  /**
-   * 事件短标签（hook/config/delegate 之类）。
-   * 注意：`server` 不开放给调用方——它是**哈希链的标识**，必须与审计文件名
-   * （control.jsonl）一致。pod sync 按文件分批、服务端按 events[0].server 找链，
-   * 同一个文件里 server 不一致会被判成断链（409）。
-   */
-  tool?: string;
-  decision?: 'allow' | 'deny' | 'approve';
-  outcome?: 'ok' | 'error' | 'blocked';
-  /** 参与哈希的附加信息（如能力清单），不存敏感原文 */
-  payload?: unknown;
-}
-
-/**
- * 云端同步接口对字段长度有上限（server 64 / tool 128 / reason 2000），超长会让
- * 整批事件 422。控制平面事件里的定位串常来自文件路径，长度不可控，所以在出链处
- * 就收口——宁可截断展示，也不能让 `pod sync` 因为一条 posture finding 整批失败。
- */
-function clamp(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
-}
-
-/** 控制平面事件所在的链标识，必须与审计文件名 control.jsonl 一致 */
-export const CONTROL_CHAIN = 'control';
-
-/** 追加一条控制平面事件；bolts 到该 agent 的 control.jsonl 链尾 */
-export function appendControlEvent(event: ControlEvent): AuditEntry {
-  const path = join(event.auditDir, event.agent, 'control.jsonl');
-  mkdirSync(dirname(path), { recursive: true });
-  // 与 pod ingest 同样的并发约束：多条命令可能同时往同一 agent 的 control.jsonl 追加
-  return appendEntryExclusive(path, 'control', () => ({
-    kind: event.kind,
-    agent: event.agent,
-    session: 'control-plane',
-    server: CONTROL_CHAIN,
-    tool: clamp(event.tool ?? '-', 128),
-    argsHash: hashValue(event.payload ?? { reason: event.reason }),
-    decision: event.decision ?? 'allow',
-    outcome: event.outcome ?? 'ok',
-    reason: clamp(event.reason, 2000),
-    policyVersion: 'control',
-  }));
-}
 
 function agentOf(finding: Finding): string {
   if (finding.category === 'identity' || finding.category === 'delegation') return finding.subject.split('/')[0] ?? '_control';

@@ -119,7 +119,10 @@ build_image() { # $1=repo $2=镜像名 $3=server|web $4=tag $5=content_fp
   else
     echo "  检测到新内容 → 构建 $name:$tag ..."
   fi
-  ( cd "$repo" && docker build -f deploy/Dockerfile -t "$name:$tag" . ) || fail "构建 $name 失败"
+  # BUILD_TAG 打进镜像（后端 /auth/config 会返回它，前端侧栏显示它）：
+  # 界面与 curl 都能直接回答"这次滚的是哪个 tag"。
+  ( cd "$repo" && docker build --build-arg "BUILD_TAG=$tag" -f deploy/Dockerfile -t "$name:$tag" . ) \
+    || fail "构建 $name 失败"
   printf '%s' "$fp" > "$stamp"
   REBUILT+=("$name")
   ok "构建完成: $name:$tag"

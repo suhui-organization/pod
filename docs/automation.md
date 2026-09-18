@@ -11,6 +11,7 @@
 | `com.podcloud.serve-openclaw` | OpenClaw 网关 `http://127.0.0.1:8783/mcp`（agent=openclaw） | 常驻（KeepAlive）|
 | `com.podcloud.coverage` | `pod coverage --strict` 配置漂移检查（有未受管 server 时退出码 1） | 每小时 |
 | `com.podcloud.digest` | `pod digest --out ~/.pod/digest/weekly.md` 本地安全周报 | 每周一 09:00 |
+| `com.podcloud.guard` | `pod guard scan --strict` 多 agent / 多 harness 漏洞扫描（有 high 时退出码 1） | 每小时 |
 
 > Codex 曾配 HTTP 网关 8785，因其 rmcp 客户端只发纯 JSON Accept（被 SDK 强制
 > JSON+SSE 拒绝），已切换为 stdio wrapper（`~/.pod/pod-serve-codex-stdio.sh`，
@@ -33,6 +34,26 @@ pod digest --since 7d --json          # 机器可读
 
 `pod coverage --strict` 适合挂 launchd/cron：退出码非 0 即触发告警（邮件/webhook 由你的调度器负责）。
 `pod digest` 无网络依赖，报告里包含调用量、拦截、审批、敏感命中、未受管 server 与哈希链健康。
+
+## 多 agent 漏洞扫描（pod guard）
+
+两种挂法，按"你多久看一次"选：
+
+```bash
+# A. 定时跑一次，有 high 就退出码 1（适合 launchd/cron + 告警）
+pod guard baseline                                  # 先冻结现状，此后漂移才值得看
+pod guard scan --strict --out ~/.pod/guard/latest   # 报告落在 out/guard-report.md
+
+# B. 常驻轮询，只对新增/变化/消失说话，并把变化写进哈希链（适合开着不动）
+pod guard watch --interval 300 --audit
+```
+
+差别是**噪声口径**：`scan --strict` 每次都会把当前全部问题算一遍（适合"我只看退出码"）；
+`watch` 只输出与上一轮不同的部分（适合人盯屏幕）。两者共用同一份
+`~/.pod/guard/state.json` 之外的判定逻辑，不会出现两套结论。
+
+想让 `watch` 的发现也进云端时间线：加 `--audit`，变化项会以 `kind=anomaly` 写进
+`~/.pod/audit/<agent>/control.jsonl`，随后 `pod sync` 会照常带走。
 
 ## 管理命令
 

@@ -44,8 +44,19 @@ import {
 } from '@podsec/policy';
 import { createFileApprovalProvider, decideApproval, listPendingApprovals } from './approval.js';
 import { diffPolicies, draftPolicy, mostCommonAgent, renderPolicyDiff } from './policy-draft.js';
-import { runHarden } from './harden.js';
+import { runHarden, verifyHardenPackage } from './harden.js';
 import { runRedteam } from './redteam.js';
+import { cmdGuardBaseline, cmdGuardRemediate, cmdGuardScan, cmdGuardWatch } from './guard.js';
+import { localizedCatalog, renderThreatCatalog, runGuardScan } from '@podsec/guard';
+import {
+  applyEnforcement,
+  applyTakeover,
+  enrollAgent,
+  forgetAgent,
+  planEnforcement,
+  planTakeover,
+  revertTakeover,
+} from '@podsec/console';
 import { renderRedteamReport } from '@podsec/redteam';
 import { signPolicy, verifyPolicy } from './policy-sign.js';
 import { applyOnboard, computeCoverage, discoverTargets, revertOnboard } from './onboard.js';
@@ -190,12 +201,17 @@ type ProxyServer = Awaited<ReturnType<typeof createStdioProxy>>;
  *
  * 两个退出信号缺一不可：
  *   1. stdin EOF —— 正常情况，agent 关掉管道；
- *   2. PPID 迁移到 1 —— agent 进程被强杀、或管道写端被别的子进程继承时不会来 EOF，
- *      这时网关会被 launchd 收养并永久滞留（dogfood 机器上曾留下 5 个从 9/7 起就没有客户端的网关）。
- *      只在「启动时本来有父进程」时才判定，避免把经 wrapper 后台启动的网关误杀。
+ *   2. PPID 迁移 —— agent 进程被强杀、或管道写端被别的子进程继承时不会来 EOF，
+ *      这时网关会被 init/launchd 收养并永久滞留（dogfood 机器上曾留下 5 个从 9/7 起就没有客户端的网关）。
+ *      只在「启动时本来有父进程」时才装看门狗，避免把经 wrapper 后台启动的网关误杀。
+ *
+ * 判定用「PPID 与启动时不同」而不是「PPID === 1」：在被收养时新父进程不一定是 pid 1
+ * （容器里常见 repser/subreaper，测试环境实测会收养到别的 pid）。写成 `=== 1` 会让看门狗
+ * 在那些环境里永不触发——正是它本来要防的泄漏。
  */
 async function connectStdioAndExitOnAgentGone(server: ProxyServer, label: string): Promise<void> {
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+  const initialPpid = process.ppid;
   let closing = false;
   const shutdown = (reason: string): void => {
     if (closing) return;
@@ -209,9 +225,9 @@ async function connectStdioAndExitOnAgentGone(server: ProxyServer, label: string
 
   // ponytail: 只看「启动时父进程还在」的情况。若 agent 在网关起来之前就死了（tsx 启动约 1-2s），
   // 这里已经 ppid=1，看门狗不装，只能靠 stdin EOF 收敛。要覆盖这一档就得引入空闲超时。
-  if (process.ppid !== 1) {
+  if (initialPpid !== 1) {
     setInterval(() => {
-      if (process.ppid === 1) shutdown('agent 进程已退出（已 reparent 到 launchd）');
+      if (process.ppid !== initialPpid) shutdown('agent 进程已退出（父进程已不在了）');
     }, 5000).unref();
   }
 
@@ -990,6 +1006,10 @@ async function main(): Promise<void> {
       'allow-expansion': { type: 'boolean' },
       'no-evidence': { type: 'boolean' },
       upload: { type: 'boolean' },
+      client: { type: 'string' },
+      auditor: { type: 'string' },
+      engagement: { type: 'string' },
+      verify: { type: 'string' },
       scenarios: { type: 'string' },
       'export-surface': { type: 'string' },
       'from-cloud': { type: 'boolean' },
@@ -1051,6 +1071,13 @@ async function main(): Promise<void> {
       once: { type: 'boolean' },
       'pod-bin': { type: 'string' },
       strict: { type: 'boolean' },
+      apply: { type: 'boolean' },
+      'read-only': { type: 'boolean' },
+      harness: { type: 'string' },
+      'purge-identity': { type: 'boolean' },
+      workspace: { type: 'string', multiple: true },
+      state: { type: 'string' },
+      'export-context': { type: 'string' },
       yes: { type: 'boolean', short: 'y' },
       revert: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
@@ -1354,6 +1381,33 @@ async function main(): Promise<void> {
   // ---------- 加固审计交付（方向 A：一次性审计服务） ----------
 
   if (cmd === 'harden') {
+    // 校验模式：收到报告的一方用它独立复验，不需要重跑审计、也不需要信任出具方
+    if (values.verify) {
+      const result = verifyHardenPackage(String(values.verify));
+      if (values.json) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else if (result.error) {
+        log(`❌ ${result.error}`);
+      } else if (result.ok) {
+        log(t('✅ 交付物校验通过：{n} 份产物哈希全部匹配（生成于 {ts}）', {
+          n: result.checked,
+          ts: result.generatedAt ?? '—',
+        }));
+      } else {
+        log(t('❌ 交付物校验失败：缺失 {missing} 份、哈希不匹配 {mismatch} 份', {
+          missing: result.missing.length,
+          mismatch: result.mismatches.length,
+        }));
+        for (const file of result.missing) log(t('   - 缺失：{file}', { file }));
+        for (const item of result.mismatches) {
+          log(t('   - 已被修改：{file}', { file: item.file }));
+          log(t('     期望 {expected}', { expected: item.expected }));
+          log(t('     实际 {actual}', { actual: item.actual }));
+        }
+      }
+      if (!result.ok) process.exitCode = 1;
+      return;
+    }
     const result = runHarden({
       home: values.home ?? homedir(),
       auditDir: values['audit-dir'] ?? podPath('audit'),
@@ -1365,6 +1419,15 @@ async function main(): Promise<void> {
       server: values.server,
       includeEvidence: values['no-evidence'] !== true,
       writeAudit: values.audit === true,
+      ...(values.client || values.auditor || values.engagement
+        ? {
+            engagement: {
+              ...(values.client ? { client: String(values.client) } : {}),
+              ...(values.auditor ? { auditor: String(values.auditor) } : {}),
+              ...(values.engagement ? { engagementId: String(values.engagement) } : {}),
+            },
+          }
+        : {}),
     });
     if (values.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -1377,6 +1440,14 @@ async function main(): Promise<void> {
           platforms: s.platforms.length,
           servers: s.mcpServers,
           secrets: s.exposedSecrets,
+        }),
+      );
+      log(
+        t('  harness 扫描 {harnesses} 类（{installed} 类已安装，{unmanaged} 类未纳管）· 真实调用语料 {corpus} 条', {
+          harnesses: s.harnessesScanned,
+          installed: s.installedHarnesses,
+          unmanaged: s.unmanagedHarnesses,
+          corpus: s.corpusEntries,
         }),
       );
       log(
@@ -1423,6 +1494,93 @@ async function main(): Promise<void> {
   }
 
   // ---------- 策略红队（大模型想攻击，网关判定器判结果） ----------
+
+  // ---------- 多 agent / 多 harness 持续漏洞扫描（pod guard） ----------
+
+  if (cmd === 'guard') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const sub = positionals[1] ?? 'scan';
+    const common = {
+      home: values.home ?? homedir(),
+      podHome: POD_HOME,
+      rules,
+      auditDir: values['audit-dir'] ?? podPath('audit'),
+      ...(values.workspace ? { workspaces: values.workspace } : {}),
+      ...(values.baseline ? { baselinePath: values.baseline } : {}),
+      json: values.json === true,
+      log,
+    };
+
+    if (sub === 'catalog') {
+      process.stdout.write(
+        (values.json ? JSON.stringify(localizedCatalog(), null, 2) : renderThreatCatalog()) + '\n',
+      );
+      return;
+    }
+
+    if (sub === 'scan') {
+      const out = cmdGuardScan({
+        ...common,
+        strict: values.strict === true,
+        ...(values.out ? { outDir: values.out } : {}),
+        writeAudit: values.audit === true,
+      });
+      if (out.exitCode !== 0) process.exitCode = out.exitCode;
+      return;
+    }
+
+    if (sub === 'baseline') {
+      const r = cmdGuardBaseline(common);
+      log(t('guard 基线已写入 {path}', { path: r.path }));
+      log(t('  冻结 {servers} 个 MCP server 指纹 · {hooks} 个钩子指纹', { servers: r.servers, hooks: r.hooks }));
+      log(t('  之后同名 server 换包/改参数会在 pod guard scan 里报出来（需 rules.packages.requireIntegrity=true）'));
+      return;
+    }
+
+    if (sub === 'watch') {
+      const intervalSec = Number(values.interval ?? 300);
+      if (!Number.isFinite(intervalSec) || intervalSec <= 0) {
+        console.error(t('--interval 必须是正数（秒），收到 {value}', { value: String(values.interval) }));
+        process.exit(1);
+      }
+      const statePath = values.state ?? podPath('guard', 'state.json');
+      const summary = await cmdGuardWatch({
+        ...common,
+        intervalSec,
+        once: values.once === true,
+        statePath,
+        writeAudit: values.audit === true,
+      });
+      log(
+        t('guard watch 结束：{rounds} 轮 · 新增 {added} · 变化 {changed} · 消失 {resolved}', {
+          rounds: summary.rounds,
+          added: summary.added,
+          changed: summary.changed,
+          resolved: summary.resolved,
+        }),
+      );
+      return;
+    }
+
+    if (sub === 'remediate') {
+      const result = await cmdGuardRemediate({
+        ...common,
+        useLlm: values.llm === true,
+        ...(values.out ? { outDir: values.out } : {}),
+        ...(values.provider ? { provider: values.provider } : {}),
+        ...(values.model ? { model: values.model } : {}),
+        ...(values['llm-base-url'] ? { baseUrl: values['llm-base-url'] } : {}),
+        ...(values['export-context'] ? { exportContextPath: values['export-context'] } : {}),
+        apply: values.apply === true,
+      });
+      if (values.json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      return;
+    }
+
+    console.error(t('未知的 guard 子命令：{sub}（可用：scan / watch / remediate / baseline / catalog）', { sub }));
+    console.error(usage());
+    process.exit(1);
+  }
 
   if (cmd === 'redteam') {
     if (!values.policy) {
@@ -2097,6 +2255,288 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ---------- 纳管本机 agent（与控制台「加入监控」同一条写路径） ----------
+
+  if (cmd === 'agents') {
+    const rules = resolveRules(values.rules, POD_HOME);
+    const home = values.home ?? homedir();
+    const auditDir = values['audit-dir'] ?? podPath('audit');
+    const policyDir = expandPath(rules.delegation.policyDirs[0] ?? '~/.pod/policies');
+    const identityDir = expandPath(rules.identity.dir);
+    const sub = positionals[1] ?? 'scan';
+    const scan = runGuardScan({ home, rules, auditDir });
+
+    if (sub === 'scan' || sub === 'list') {
+      const managed = scan.facts.harnesses.filter((h) => h.installed && h.managed).length;
+      const installed = scan.facts.harnesses.filter((h) => h.installed);
+      log(t('本机已安装 {installed} 个 harness，其中 {managed} 个已纳管。', { installed: installed.length, managed }));
+      log(t('  harness          已纳管   agent                 servers  执法/进网关  漏洞(h/m/l)'));
+      for (const harness of scan.facts.harnesses) {
+        if (!harness.installed) continue;
+        const servers = scan.facts.servers.filter((s) => s.harness === harness.id);
+        const wrapped = servers.filter((s) => s.behindGateway);
+        // 「进网关」与「真的在拦」是两件事：只报前者会把"只录不拦"显示成"已保护"
+        const gateway = `${wrapped.filter((s) => !s.recordOnly).length}/${wrapped.length}`;
+        const found = scan.findings.filter((f) => f.harness === harness.id);
+        const h = found.filter((f) => f.severity === 'high').length;
+        const m = found.filter((f) => f.severity === 'medium').length;
+        const l = found.filter((f) => f.severity === 'low').length;
+        log(
+          `  ${harness.id.padEnd(16)} ${(harness.managed ? '✅' : '—').padEnd(7)} ` +
+            `${(harness.agentNames.join(',') || '—').padEnd(20)} ${String(servers.length).padEnd(8)} ` +
+            `${gateway.padEnd(12)} ${h}/${m}/${l}`,
+        );
+      }
+      if (values.json === true) {
+        process.stdout.write(
+          JSON.stringify(
+            scan.facts.harnesses.map((harness) => ({
+              ...harness,
+              servers: scan.facts.servers.filter((s) => s.harness === harness.id).length,
+              findings: scan.findings.filter((f) => f.harness === harness.id).length,
+            })),
+            null,
+            2,
+          ) + '\n',
+        );
+      }
+      const unmanaged = installed.filter((h) => !h.managed);
+      if (unmanaged.length > 0) {
+        log(t('未纳管：{list}', { list: unmanaged.map((h) => h.id).join('、') }));
+        log(t('纳管一个：pod agents enroll --harness <id> [--agent <name>]'));
+      }
+      return;
+    }
+
+    if (sub === 'enroll') {
+      if (!values.harness) {
+        console.error(t('pod agents enroll 需要 --harness <id>（先用 pod agents scan 看有哪些）'));
+        process.exit(1);
+      }
+      const harnessId = values.harness;
+      const candidate = scan.facts.harnesses.find((h) => h.id === harnessId);
+      const agent = values.agent ?? candidate?.agentNames[0] ?? harnessId;
+      const servers = scan.facts.servers.filter((s) => s.harness === harnessId);
+      const result = enrollAgent({
+        podHome: POD_HOME,
+        harness: harnessId,
+        agent,
+        policyDir,
+        auditDir,
+        identityDir,
+        enrolledBy: 'pod agents',
+        serverSummary: { total: servers.length, behindGateway: servers.filter((s) => s.behindGateway).length },
+      });
+      if (values.json === true) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else {
+        log(
+          result.alreadyManaged
+            ? t('agent {agent} 已在纳管中（本次无改动）', { agent: result.agent })
+            : t('已纳管 agent {agent}（身份 {fp} · 策略 {policy}）', {
+                agent: result.agent,
+                fp: result.identityFingerprint ?? '—',
+                policy: result.policyFile ?? '（沿用已有策略）',
+              }),
+        );
+        for (const note of result.notes) log(`  ${note}`);
+        log(t('下一步：'));
+        for (const step of result.nextSteps) log(`  ${step}`);
+      }
+      return;
+    }
+
+    if (sub === 'forget') {
+      if (!values.agent) {
+        console.error(t('pod agents forget 需要 --agent <name>'));
+        process.exit(1);
+      }
+      const result = forgetAgent({
+        podHome: POD_HOME,
+        agent: values.agent,
+        policyDir,
+        auditDir,
+        identityDir,
+        purgeIdentity: values['purge-identity'] === true,
+        actor: 'pod agents',
+      });
+      if (values.json === true) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else {
+        log(
+          result.found
+            ? t('已移除纳管 {agent}（策略 {policy} · 身份 {identity}）', {
+                agent: result.agent,
+                policy: result.removed.policy ? '已删' : '保留',
+                identity: result.removed.identity ? '已删' : '保留',
+              })
+            : t('{agent} 没有纳管记录', { agent: values.agent }),
+        );
+        for (const note of result.notes) log(`  ${note}`);
+      }
+      return;
+    }
+
+    if (sub === 'onboard') {
+      const harness = values.harness;
+      if (!harness) {
+        console.error(t('pod agents onboard 需要 --harness <id>（先用 pod agents scan 看有哪些）'));
+        process.exit(1);
+      }
+      const opts = {
+        home,
+        podHome: POD_HOME,
+        harness,
+        ...(values.agent ? { agent: values.agent } : {}),
+        policyDir,
+        auditDir,
+        ...(values['pod-bin'] ? { podBin: values['pod-bin'] } : {}),
+        actor: 'pod agents',
+      };
+      const plan = planTakeover(opts);
+      // 默认只打印计划：改写的是**用户的 harness 配置**，不能凭一条命令就动
+      if (values.yes !== true) {
+        log(t('接管计划（dry-run；加 --yes 才真正改写配置）'));
+        for (const entry of plan.entries) {
+          log(`  ${entry.configLabel}`);
+          for (const server of entry.servers) {
+            log(t('    {name}：{from}', { name: server.name, from: server.from }));
+            log(t('      → {to}', { to: server.to }));
+          }
+          log(t('    备份：{path}', { path: entry.backupLabel }));
+        }
+        for (const item of plan.unsupported) log(`  ⚠️ ${item}`);
+        for (const item of plan.skipped) log(`  · ${item}`);
+        if (plan.blockedReason) {
+          log(t('不可执行：{reason}', { reason: plan.blockedReason }));
+          process.exit(1);
+        }
+        log(t('策略：{path}{reuse}', {
+          path: plan.policyLabel,
+          reuse: plan.reusesExistingPolicy ? t('（沿用已有策略，不覆盖）') : '',
+        }));
+        for (const note of plan.notes) log(`  ${note}`);
+        return;
+      }
+      try {
+        const result = applyTakeover(opts);
+        if (values.json === true) {
+          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        } else {
+          log(t('已接管 {harness} → agent {agent}', { harness: result.harness, agent: result.agent }));
+          for (const change of result.changed) {
+            log(t('  {config}：{servers}（备份 {backup}）', {
+              config: change.configPath,
+              servers: change.servers.join('、'),
+              backup: change.backup,
+            }));
+          }
+          for (const note of result.notes) log(`  ${note}`);
+        }
+      } catch (err) {
+        console.error(t('接管失败：{error}', { error: err instanceof Error ? err.message : String(err) }));
+        process.exit(1);
+      }
+      return;
+    }
+
+    if (sub === 'revert') {
+      if (!values.agent) {
+        console.error(t('pod agents revert 需要 --agent <name>'));
+        process.exit(1);
+      }
+      const result = revertTakeover({
+        home,
+        podHome: POD_HOME,
+        agent: values.agent,
+        actor: 'pod agents',
+      });
+      if (values.json === true) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else {
+        log(t('已还原 {n} 个配置', { n: result.restored.length }));
+        for (const item of result.restored) log(`  ${item.configPath} ← ${item.backup}`);
+        for (const note of result.notes) log(`  ${note}`);
+      }
+      return;
+    }
+
+    if (sub === 'enforce') {
+      const harness = values.harness;
+      if (!harness) {
+        console.error(t('pod agents enforce 需要 --harness <id>'));
+        process.exit(1);
+      }
+      const mode = values['record-only'] === true ? 'record-only' : 'enforce';
+      const opts = {
+        home,
+        podHome: POD_HOME,
+        harness,
+        mode,
+        policyDir,
+        auditDir,
+        ...(values.agent ? { agent: values.agent } : {}),
+        actor: 'pod agents',
+      } as const;
+      const plan = planEnforcement(opts);
+      if (values.yes !== true) {
+        log(
+          mode === 'enforce'
+            ? t('执法计划（dry-run；加 --yes 才真正改写包装命令）')
+            : t('回到只录不拦的计划（dry-run；加 --yes 才改写）'),
+        );
+        for (const entry of plan.entries) {
+          log(`  ${entry.configLabel}`);
+          for (const server of entry.servers) {
+            log(t('    {name}：{from}', { name: server.name, from: server.from }));
+            log(t('      → {to}', { to: server.to }));
+          }
+          log(t('    备份：{path}', { path: entry.backupLabel }));
+        }
+        if (plan.policySummary) {
+          log(
+            t('执法策略：{path}（{servers} 个 server · {tools} 个工具 · allow {allow} / approve {approve} / deny {deny}）', {
+              path: plan.policyLabel ?? '',
+              servers: plan.policySummary.servers,
+              tools: plan.policySummary.tools,
+              allow: plan.policySummary.allow,
+              approve: plan.policySummary.approve,
+              deny: plan.policySummary.deny,
+            }),
+          );
+        }
+        log(t('当前审计语料：{corpus} 条', { corpus: plan.corpus }));
+        for (const item of plan.skipped) log(`  · ${item}`);
+        for (const note of plan.notes) log(`  ${note}`);
+        if (plan.blockedReason) {
+          log(t('不可执行：{reason}', { reason: plan.blockedReason }));
+          process.exit(1);
+        }
+        return;
+      }
+      try {
+        const result = applyEnforcement(opts);
+        if (values.json === true) {
+          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        } else {
+          log(
+            result.mode === 'enforce'
+              ? t('已切执法 {harness} → agent {agent}', { harness: result.harness, agent: result.agent })
+              : t('已回到只录不拦 {harness} → agent {agent}', { harness: result.harness, agent: result.agent }),
+          );
+          for (const note of result.notes) log(`  ${note}`);
+        }
+      } catch (err) {
+        console.error(t('切执法失败：{error}', { error: err instanceof Error ? err.message : String(err) }));
+        process.exit(1);
+      }
+      return;
+    }
+
+    console.error(t('未知的 agents 子命令：{sub}（可用：scan / enroll / onboard / enforce / revert / forget）', { sub }));
+    process.exit(1);
+  }
+
   if (cmd === 'ui') {
     const portRaw = values.port;
     const port = portRaw ? Number.parseInt(portRaw, 10) : 8787;
@@ -2108,6 +2548,8 @@ async function main(): Promise<void> {
       podHome: POD_HOME,
       port,
       token: values['auth-token'],
+      readOnly: values['read-only'] === true,
+      ...(values['pod-bin'] ? { podBin: values['pod-bin'] } : {}),
       log,
     });
     return;
@@ -2187,8 +2629,18 @@ Usage:
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
   pod scan [--json]
+  pod guard [scan] [--workspace <dir>]... [--rules <file>] [--baseline <file>] [--out <dir>] [--strict] [--json] [--audit]
+  pod guard watch [--interval <sec>] [--once] [--state <file>] [--workspace <dir>]... [--audit]
+  pod guard remediate [--llm] [--provider <id>] [--model <name>] [--apply] [--export-context <file>] [--out <dir>] [--json]
+  pod guard baseline [--rules <file>] [--baseline <file>]
+  pod guard catalog [--json]
+  pod agents [scan] [--json] | enroll --harness <id> [--agent <name>] | forget --agent <name> [--purge-identity]
+             | onboard --harness <id> [--pod-bin <path>] [--yes] | revert --agent <name>
+             | enforce --harness <id> [--record-only] [--yes]
   pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
+             [--client <name>] [--auditor <name>] [--engagement <id>] \\
              [--no-evidence] [--audit] [--upload] [--config <cloud.json>] [--json]
+  pod harden --verify <dir> [--json]
   pod rules [show] [--rules <file>] [--json]
   pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
                  --version <pack-version> --issued-by <who> [--note <text>]
@@ -2209,7 +2661,7 @@ Usage:
   pod quarantine [list] | add --agent <name> [--reason <why>] | remove --agent <name>
   pod anomaly [--rules <file>] [--audit-dir <dir>] [--json] [--audit]
   pod trace <agent> [--audit-dir <dir>] [--json]
-  pod ui [--port <n>]
+  pod ui [--port <n>] [--auth-token <token>] [--read-only]
   pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
   pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
   pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]
@@ -2227,7 +2679,11 @@ onboard: discover and take over local MCP servers (dry-run by default; --yes wri
 digest: local weekly security digest (audit + coverage + hash-chain health; no network).
 coverage: managed coverage and config drift (--strict exits 1 when a server bypasses the gateway).
 posture: control-plane posture (hooks, frozen config, memory, package sources, identities, delegation); rules from --rules or ~/.pod/rules.json.
-harden: one-shot hardening audit deliverable — exposure scan + control-plane posture + least-privilege draft + evidence, all in one report directory. Local only; --upload sends just report.md + findings.json (never the raw evidence bundle).
+harden: one-shot hardening audit deliverable — multi-harness scan + exposure scan + control-plane posture + least-privilege draft + evidence, all in one client-ready report directory. --client/--auditor/--engagement stamp the cover; --verify re-checks a delivered directory's sha256 manifest by hand. Local only; --upload sends just report.md + findings.json (never the raw evidence bundle).
+guard: continuous vulnerability scan and remediation guidance across agents and harnesses. scan produces a vulnerability list plus recommendations; watch speaks only on new/changed/gone findings and records them in the audit chain; remediate --llm has a model draft proposals (never auto-applied; they pass the relaxation guard first); catalog lists the threat catalog with sources.
+agents: enroll local agents (the same write path as the console's "Enroll" button): scan lists installed harnesses; enroll creates an identity + zero-permission policy + audit dir (it does not touch harness config); forget removes the enrollment (identity kept by default).
+        onboard takes over: wraps MCP servers in the gateway (**it rewrites the harness config**: a plan is printed first, --yes applies it, backups and revert are included); revert restores the config from the most recent backup.
+        enforce switches to enforcement (drops --record-only and points at the compiled policy; refuses when the policy has no server rules or is allow:*); add --record-only to go back.
 rules: rule packs for subscribed hardening (pack/verify/apply/pull). A pack that loosens your existing rules is refused unless --allow-relax.
 redteam: attack scenarios against your policy. The model (optional, --llm) only *proposes* scenarios as data; the verdict comes from the same pure pipeline the gateway uses, so results are reproducible and CI-able. Exit code 1 on a high-severity bypass.
 identity/delegate/grant/quarantine/anomaly/trace: identities, delegation narrowing, JIT grants, quarantine, trust-propagation anomalies, pollution tracing.
@@ -2276,8 +2732,18 @@ Usage:
   pod digest [--since 7d] [--audit-dir <dir>] [--out <file>] [--json]
   pod coverage [--json] [--strict]
   pod scan [--json]
+  pod guard [scan] [--workspace <dir>]... [--rules <file>] [--baseline <file>] [--out <dir>] [--strict] [--json] [--audit]
+  pod guard watch [--interval <sec>] [--once] [--state <file>] [--workspace <dir>]... [--audit]
+  pod guard remediate [--llm] [--provider <id>] [--model <name>] [--apply] [--export-context <file>] [--out <dir>] [--json]
+  pod guard baseline [--rules <file>] [--baseline <file>]
+  pod guard catalog [--json]
+  pod agents [scan] [--json] | enroll --harness <id> [--agent <name>] | forget --agent <name> [--purge-identity]
+             | onboard --harness <id> [--pod-bin <path>] [--yes] | revert --agent <name>
+             | enforce --harness <id> [--record-only] [--yes]
   pod harden [--out <dir>] [--agent <name>] [--rules <file>] [--audit-dir <dir>] \\
+             [--client <name>] [--auditor <name>] [--engagement <id>] \\
              [--no-evidence] [--audit] [--upload] [--config <cloud.json>] [--json]
+  pod harden --verify <dir> [--json]
   pod rules [show] [--rules <file>] [--json]
   pod rules pack --key <private.pem> --in <rules.json> --out <pack.json> \\
                  --version <pack-version> --issued-by <who> [--note <text>]
@@ -2298,7 +2764,7 @@ Usage:
   pod quarantine [list] | add --agent <name> [--reason <why>] | remove --agent <name>
   pod anomaly [--rules <file>] [--audit-dir <dir>] [--json] [--audit]
   pod trace <agent> [--audit-dir <dir>] [--json]
-  pod ui [--port <n>]
+  pod ui [--port <n>] [--auth-token <token>] [--read-only]
   pod graph build [--home <dir>] [--config <path>] [--no-exec] [--timeout <ms>] [--out <file>] [--policy <file>] [--json]
   pod graph toxic [--graph <file>] [--out-dir <dir>] [--no-cross-agent] [--min-confidence <0-1>] [--max-paths <n>] [--diff <baseline.json>] [--json]
   pod graph explain <path-id|chain-id> [--out-dir <dir>] [--json]
@@ -2316,7 +2782,11 @@ onboard: 发现并接管本机 MCP server（默认 dry-run；--yes 改写，--re
 digest: 本地安全周报（只读审计 + 覆盖率 + 哈希链健康，不联网）。
 coverage: 受管覆盖率与配置漂移检查（--strict 有未受管 server 时退出码 1）。
 posture: 控制平面姿态检查（钩子/冻结项/记忆/包来源/身份/委托），规则来自 --rules 或 ~/.pod/rules.json。
-harden: 一次性加固审计交付物——暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份报告目录。默认全程本地；--upload 只上传 report.md 与 findings.json，绝不上传原始证据包。
+harden: 一次性加固审计交付物——多 harness 扫描 + 暴露面 + 控制平面姿态 + 最小权限草稿 + 证据包，汇成一份可直接交给客户的报告目录。--client/--auditor/--engagement 写进封面；--verify 让收到报告的一方自己复验 sha256 清单。默认全程本地；--upload 只上传 report.md 与 findings.json，绝不上传原始证据包。
+guard:  多 agent / 多 harness 的持续漏洞扫描与加固建议。scan 出漏洞清单 + 建议清单；watch 只对"新增/变化/消失"说话并写审计链；remediate --llm 让模型产出加固建议物（不自动生效，先过放宽守卫）；catalog 列出威胁目录与出处。
+agents: 纳管本机 agent（与控制台「加入监控」同一条写路径）：scan 列出装了哪些 harness；enroll 建身份 + 零权限策略 + 审计目录（不改 harness 配置）；forget 移除纳管（默认保留身份）。
+        onboard 接管——把 MCP server 包进网关（**会改写 harness 的配置**：先出计划，--yes 才执行，带备份与 revert）；revert 从最近备份还原配置。
+        enforce 切执法（去掉 --record-only 并指向编译好的策略；策略不含 server 规则或为 allow:* 时拒绝执行）；加 --record-only 则退回只录不拦。
 rules:  规则包（订阅式加固的分发单元）：pack/verify/apply/pull；放宽已有规则的包默认拒绝应用，--allow-relax 才放行。
 redteam: 对你的策略做红队：模型（可选 --llm）只"提出"攻击场景这类数据，判定由网关同一条纯函数流水线给出，所以结论可复现、可进 CI；有高危绕过时退出码 1。
 identity/delegate/grant/quarantine/anomaly/trace: 身份、委托收窄、JIT 令牌、熔断、信任传播异常、污染溯源。

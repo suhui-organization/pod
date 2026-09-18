@@ -14,8 +14,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { scanMachine } from '@podsec/scan';
 import { t } from '@podsec/i18n';
-import type { Policy } from '@podsec/policy';
+import { DEFAULT_RULES, loadRules, type Policy, type RuleSet } from '@podsec/policy';
+import { runGuardScan, type Facts, type Finding } from '@podsec/guard';
 import type { ToxicPath } from '@podsec/graph';
+import { enrollmentStatePath, readEnrollment } from './enroll.js';
+import { findTakeoverForHarness, readTakeover, takeoverStatePath } from './takeover.js';
 import type {
   AgentActivity,
   AgentAsset,
@@ -26,6 +29,7 @@ import type {
   AgentRisk,
   DecisionState,
   DiscoveredPlatform,
+  HarnessCandidate,
   RiskSeverity,
 } from './types.js';
 
@@ -40,6 +44,8 @@ export interface AggregateOptions {
   podHome?: string;
   /** 注入"现在"，便于测试 */
   now?: Date;
+  /** 控制台是否允许写操作（pod ui --read-only 时为 false） */
+  writesEnabled?: boolean;
 }
 
 interface AuditRow {
@@ -370,6 +376,124 @@ function buildRisks(input: {
 
 // ---------- 主入口 ----------
 
+/**
+ * 本机 harness 扫描（`pod guard` 的纳管视图）。
+ *
+ * 复用 guard 的注册表与检测器，控制台不再维护第二份"本机有什么 agent"的清单
+ * ——两处各写一份的结果必然是"控制台看到 6 个、CLI 看到 16 个"。
+ *
+ * 规则文件坏了不能拖垮整个控制台：退回默认规则并把这件事写进 notes。
+ */
+function buildHarnesses(input: {
+  home: string;
+  podHome: string;
+  auditDir: string;
+  agents: AgentAsset[];
+  notes: string[];
+  now: Date;
+}): HarnessCandidate[] {
+  let rules: RuleSet;
+  try {
+    const rulesPath = join(input.podHome, 'rules.json');
+    rules = loadRules(existsSync(rulesPath) ? rulesPath : undefined);
+  } catch (err) {
+    rules = DEFAULT_RULES;
+    input.notes.push(
+      t('规则文件无法解析，纳管扫描暂按默认规则进行：{error}', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+
+  let facts: Facts;
+  let findings: Finding[];
+  try {
+    const scan = runGuardScan({
+      home: input.home,
+      rules,
+      auditDir: input.auditDir,
+      now: input.now,
+    });
+    facts = scan.facts;
+    findings = scan.findings;
+  } catch (err) {
+    input.notes.push(
+      t('本机 harness 扫描失败，纳管列表为空：{error}', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return [];
+  }
+
+  const enrolled = readEnrollment(enrollmentStatePath(input.podHome)).agents;
+  const takeoverState = readTakeover(takeoverStatePath(input.podHome));
+
+  return facts.harnesses
+    .map((harness) => {
+      const harnessFindings = findings.filter((f) => f.harness === harness.id);
+      const servers = facts.servers.filter((s) => s.harness === harness.id);
+      // 建议的 agent 名：已纳管就用现成的名字，否则用 harness id
+      const suggested = harness.agentNames[0] ?? harness.id;
+      const wrapped = servers.filter((s) => s.behindGateway);
+      const recordOnly = wrapped.filter((s) => s.recordOnly).length;
+      // 包装命令里的 --policy：多个 server 指向不同文件时留空（不猜）
+      const policies = new Set(
+        wrapped
+          .map((s) => {
+            const idx = s.args.indexOf('--policy');
+            return idx !== -1 ? s.args[idx + 1] : undefined;
+          })
+          .filter((v): v is string => typeof v === 'string'),
+      );
+      const candidate: HarnessCandidate = {
+        id: harness.id,
+        label: harness.label,
+        installed: harness.installed,
+        evidence: harness.evidence,
+        configFiles: harness.configFiles,
+        managed: harness.managed,
+        managedBy: harness.managedBy,
+        hasPolicy: harness.managedBy.includes('policy'),
+        agentNames: harness.agentNames,
+        suggestedAgent: suggested,
+        servers: {
+          total: servers.length,
+          behindGateway: wrapped.length,
+          recordOnly,
+          enforcing: wrapped.length - recordOnly,
+        },
+        corpus: input.agents.find((a) => a.id === suggested)?.activity.entries ?? 0,
+        findings: {
+          high: harnessFindings.filter((f) => f.severity === 'high').length,
+          medium: harnessFindings.filter((f) => f.severity === 'medium').length,
+          low: harnessFindings.filter((f) => f.severity === 'low').length,
+        },
+        // 只在 harness id 命中台账时算"控制台纳管的"——按 agent 名反推会误报
+        enrolledAt: enrolled[harness.id]?.enrolledAt ?? null,
+        takeover: (() => {
+          const record = findTakeoverForHarness(takeoverState, harness.id);
+          return record
+            ? {
+                takenOverAt: record.takenOverAt,
+                takenOverBy: record.takenOverBy,
+                configCount: record.configs.length,
+              }
+            : null;
+        })(),
+        takeoverMode: findTakeoverForHarness(takeoverState, harness.id)?.mode ?? null,
+        enforcedPolicy:
+          policies.size === 1
+            ? (() => {
+                const only = [...policies][0]!;
+                return only.startsWith(`${input.home}/`) ? `~/${only.slice(input.home.length + 1)}` : only;
+              })()
+            : null,
+      };
+      return candidate;
+    })
+    .sort((a, b) => Number(b.installed) - Number(a.installed) || a.id.localeCompare(b.id));
+}
+
 export function aggregateAgents(opts: AggregateOptions): AgentAssetsPayload {
   const podHome = opts.podHome ?? join(opts.home, '.pod');
   const policyDir = join(podHome, 'policies');
@@ -475,6 +599,15 @@ export function aggregateAgents(opts: AggregateOptions): AgentAssetsPayload {
     generatedAt: now.toISOString(),
     podHome,
     dirs: { policies: policyDir, audit: auditDir, graph: graphDir },
+    harnesses: buildHarnesses({
+      home: opts.home,
+      podHome,
+      auditDir,
+      agents,
+      notes,
+      now,
+    }),
+    capabilities: { writes: opts.writesEnabled === true },
     agents,
     totals: {
       agents: agents.length,

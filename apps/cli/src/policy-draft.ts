@@ -14,6 +14,7 @@
  */
 import type { AuditEntry } from '@podsec/audit';
 import { t } from '@podsec/i18n';
+import { enumSep } from '@podsec/guard';
 import { lintPolicy, type Policy, type ServerPolicy } from '@podsec/policy';
 
 export type Proposed = 'allow' | 'approve' | 'deny';
@@ -96,10 +97,12 @@ export function mostCommonAgent(input: Array<{ entries: AuditEntry[] }>): string
 export function classifyTool(name: string): { proposed: Proposed; reason: string } {
   const tokens = tokenizeToolName(name);
   const destructive = tokens.find((t) => DESTRUCTIVE_TOKENS.has(t));
-  if (destructive) return { proposed: 'deny', reason: `工具名含破坏性动词 "${destructive}"` };
+  if (destructive) {
+    return { proposed: 'deny', reason: t('工具名含破坏性动词 "{verb}"', { verb: destructive }) };
+  }
   const write = tokens.find((t) => WRITE_TOKENS.has(t));
-  if (write) return { proposed: 'approve', reason: `工具名含写/执行动词 "${write}"` };
-  return { proposed: 'allow', reason: '未命中高危动词（只读类）' };
+  if (write) return { proposed: 'approve', reason: t('工具名含写/执行动词 "{verb}"', { verb: write }) };
+  return { proposed: 'allow', reason: t('未命中高危动词（只读类）') };
 }
 
 function isSensitive(entry: AuditEntry): boolean {
@@ -148,7 +151,7 @@ export function draftPolicyFromEntries(input: DraftInput[], opts: DraftOptions):
         stat.sensitive += 1;
         // 观测到的敏感命中永远覆盖工具名猜测：强制 deny
         stat.proposed = 'deny';
-        stat.reason = '观测到敏感路径/密钥命中（强制 deny）';
+        stat.reason = t('观测到敏感路径/密钥命中（强制 deny）');
       }
     }
   }
@@ -173,7 +176,9 @@ export function draftPolicyFromEntries(input: DraftInput[], opts: DraftOptions):
   const sensitiveTools = stats.filter((s) => s.sensitive > 0);
   if (sensitiveTools.length > 0) {
     notes.push(
-      `以下工具观测到敏感命中，已强制 deny：${sensitiveTools.map((s) => `${s.server}.${s.tool}`).join('、')}`,
+      t('以下工具观测到敏感命中，已强制 deny：{list}', {
+        list: sensitiveTools.map((s) => `${s.server}.${s.tool}`).join(enumSep()),
+      }),
     );
   }
 
@@ -203,7 +208,7 @@ export function draftPolicyFromEntries(input: DraftInput[], opts: DraftOptions):
 
 /** 人类可读的草稿报告 */
 export function renderDraftReport(result: DraftResult): string {
-  const lines: string[] = ['# pod policy draft — 从录制语料生成的最小权限草稿', ''];
+  const lines: string[] = [t('# pod policy draft — 从录制语料生成的最小权限草稿'), ''];
   lines.push(t('生成时间：{ts}', { ts: new Date().toISOString() }));
   lines.push(
     t('agent：{agent}　未登记 server 默认：{defaultDecision}', {
@@ -323,13 +328,13 @@ export function diffPolicies(baseline: Policy, draft: Policy): PolicyDiff {
 /** 把 diff 渲染成 Markdown（可直接贴进 PR / 截图传播） */
 export function renderPolicyDiff(diff: PolicyDiff): string {
   const label: Record<DiffKind, string> = {
-    added: '新增',
-    tightened: '收紧',
-    loosened: '放宽',
-    removed: '移除',
-    'default-changed': '默认决策',
+    added: t('新增'),
+    tightened: t('收紧'),
+    loosened: t('放宽'),
+    removed: t('移除'),
+    'default-changed': t('默认决策'),
   };
-  const lines: string[] = ['## 策略 diff（baseline → draft）', ''];
+  const lines: string[] = [t('## 策略 diff（baseline → draft）'), ''];
   if (diff.entries.length === 0) {
     lines.push(t('（无差异）'));
     return lines.join('\n');
@@ -342,7 +347,12 @@ export function renderPolicyDiff(diff: PolicyDiff): string {
   }
   lines.push('');
   lines.push(
-    `**汇总**：收紧 ${diff.tightened} · 新增 ${diff.added} · 移除 ${diff.removed} · 放宽 ${diff.loosened}`,
+    t('**汇总**：收紧 {tightened} · 新增 {added} · 移除 {removed} · 放宽 {loosened}', {
+      tightened: diff.tightened,
+      added: diff.added,
+      removed: diff.removed,
+      loosened: diff.loosened,
+    }),
   );
   if (diff.loosened > 0) {
     lines.push('', t('> ⚠️ 有放宽项，启用前必须人工复核。'));

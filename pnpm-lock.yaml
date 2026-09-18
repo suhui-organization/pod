@@ -38,12 +38,18 @@ importers:
       '@podsec/graph':
         specifier: workspace:*
         version: link:../../packages/graph
+      '@podsec/guard':
+        specifier: workspace:*
+        version: link:../../packages/guard
       '@podsec/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
       '@podsec/identity':
         specifier: workspace:*
         version: link:../../packages/identity
+      '@podsec/onboard':
+        specifier: workspace:*
+        version: link:../../packages/onboard
       '@podsec/policy':
         specifier: workspace:*
         version: link:../../packages/policy
@@ -86,12 +92,24 @@ importers:
 
   packages/console:
     dependencies:
+      '@podsec/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@podsec/graph':
         specifier: workspace:*
         version: link:../graph
+      '@podsec/guard':
+        specifier: workspace:*
+        version: link:../guard
       '@podsec/i18n':
         specifier: workspace:*
         version: link:../i18n
+      '@podsec/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@podsec/onboard':
+        specifier: workspace:*
+        version: link:../onboard
       '@podsec/policy':
         specifier: workspace:*
         version: link:../policy
@@ -129,6 +147,18 @@ importers:
         specifier: workspace:*
         version: link:../policy
 
+  packages/guard:
+    dependencies:
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@podsec/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@podsec/scan':
+        specifier: workspace:*
+        version: link:../scan
+
   packages/i18n: {}
 
   packages/identity:
@@ -139,6 +169,15 @@ importers:
       '@podsec/i18n':
         specifier: workspace:*
         version: link:../i18n
+
+  packages/onboard:
+    dependencies:
+      '@podsec/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@podsec/policy':
+        specifier: workspace:*
+        version: link:../policy
 
   packages/policy:
     dependencies:

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { withFileLock, type LockOptions } from './lock.js';
 
 export * from './lock.js';
@@ -270,4 +270,65 @@ export function loadAuditFile(path: string, policyVersion: string, options?: Aud
 export function writeAuditFile(path: string, log: AuditLog): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, log.toJSONL(), 'utf8');
+}
+
+// ---------- 控制平面事件 ----------
+
+/**
+ * 控制平面事件：钩子、配置、身份、委托、熔断、模型调用……都走这里。
+ *
+ * 为什么和工具调用放同一条链：威胁模型 T10/T11/T13 要回答"谁在什么时候改了
+ * 钩子/配置/记忆"。分成两条链，时间顺序就没了。
+ *
+ * 为什么放在 audit 包里：**只留一份实现**。CLI 与控制台都要写这类事件，
+ * 各写一份的后果是链格式漂移，而链格式漂移会以最难排查的方式坏掉
+ * （同一个文件里 server 不一致会被云端判成断链）。
+ */
+export interface ControlEvent {
+  auditDir: string;
+  agent: string;
+  kind: AuditKind;
+  reason: string;
+  /**
+   * 事件短标签（hook/config/delegate 之类）。
+   * 注意：`server` 不开放给调用方——它是哈希链的标识，必须与审计文件名
+   * （control.jsonl）一致。pod sync 按文件分批、服务端按 events[0].server 找链，
+   * 同一个文件里 server 不一致会被判成断链（409）。
+   */
+  tool?: string;
+  decision?: Decision;
+  outcome?: Outcome;
+  /** 参与哈希的附加信息（如能力清单），不存敏感原文 */
+  payload?: unknown;
+}
+
+/**
+ * 云端同步接口对字段长度有上限（server 64 / tool 128 / reason 2000），超长会让
+ * 整批事件 422。定位串常来自文件路径，长度不可控，所以在出链处就收口。
+ */
+function clampField(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
+/** 控制平面事件所在的链标识，必须与审计文件名 control.jsonl 一致 */
+export const CONTROL_CHAIN = 'control';
+
+/** 追加一条控制平面事件；bolts 到该 agent 的 control.jsonl 链尾 */
+export function appendControlEvent(event: ControlEvent): AuditEntry {
+  const path = join(event.auditDir, event.agent, 'control.jsonl');
+  mkdirSync(dirname(path), { recursive: true });
+  // 与 pod ingest 同样的并发约束：多个进程可能同时往同一 agent 的 control.jsonl
+  // 追加（例如控制台纳管与 CLI 巡检同时发生）
+  return appendEntryExclusive(path, CONTROL_CHAIN, () => ({
+    kind: event.kind,
+    agent: event.agent,
+    session: 'control-plane',
+    server: CONTROL_CHAIN,
+    tool: clampField(event.tool ?? '-', 128),
+    argsHash: hashValue(event.payload ?? { reason: event.reason }),
+    decision: event.decision ?? 'allow',
+    outcome: event.outcome ?? 'ok',
+    reason: clampField(event.reason, 2000),
+    policyVersion: 'control',
+  }));
 }

@@ -52,6 +52,10 @@ def auth_config():
         # 这是实例级属性,与"账号是否存在"无关,所以可以公开。
         "password_reset": "email" if mailer_configured() else "log",
         "password_reset_minutes": RESET_TOKEN_MINUTES,
+        # 本次构建的标识（镜像 tag）：前端在侧栏显示"构建 xxx"，运维也可以直接
+        # `curl /api/v1/auth/config` 判断"新版本滚上去了没有"——比拿端点 401/404
+        # 猜要确定得多。这是实例级公开信息，与账号是否存在无关。
+        "build": settings.build_tag,
     }
 
 

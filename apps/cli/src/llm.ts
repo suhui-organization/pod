@@ -204,8 +204,22 @@ function ledger(
 }
 
 /** 离线模拟：固定样例，不联网。用于演示 / CI / 没有 key 时验证链路。 */
-function mockContent(jsonMode: boolean): string {
+function mockContent(jsonMode: boolean, shape: 'array' | 'object'): string {
   if (jsonMode) {
+    if (shape === 'object') {
+      return JSON.stringify({
+        summary: '（离线模拟）以上为固定样例，未调用任何外部模型。',
+        actions: [
+          {
+            threat: 'AG-03',
+            step: '用 pod onboard 把直连的 MCP server 包进网关',
+            command: 'pod onboard --yes && pod coverage --strict',
+            rationale: '只有经过网关的调用才受策略与审计约束',
+          },
+        ],
+        ruleSuggestions: {},
+      });
+    }
     return JSON.stringify([
       {
         id: 'llm-mock-secret-read',
@@ -239,6 +253,8 @@ export interface CallOptions {
   maxTokens?: number;
   timeoutMs?: number;
   jsonMode?: boolean;
+  /** mock provider 返回哪种形状的固定样例（默认 array，与 redteam 保持一致） */
+  mockShape?: 'array' | 'object';
   /** 写留痕的审计目录；不传则不留痕（仅限测试） */
   auditDir?: string;
 }
@@ -262,7 +278,7 @@ export async function callChat(
   const auditDir = opts.auditDir;
 
   if (cfg.provider === 'mock') {
-    const content = mockContent(opts.jsonMode === true);
+    const content = mockContent(opts.jsonMode === true, opts.mockShape ?? 'array');
     if (auditDir) {
       ledger(auditDir, cfg, opts.feature, {
         ok: true,
@@ -345,6 +361,15 @@ export async function callChat(
 
 /** 从模型输出里抽出 JSON 数组（剥 markdown 代码块与前后杂质） */
 export function extractJsonArray(text: string): unknown {
+  return JSON.parse(extractJsonSlice(text, '[', ']'));
+}
+
+/** 从模型输出里抽出 JSON 对象（与 extractJsonArray 同一套剥离规则） */
+export function extractJsonObject(text: string): unknown {
+  return JSON.parse(extractJsonSlice(text, '{', '}'));
+}
+
+function extractJsonSlice(text: string, open: string, close: string): string {
   let t = text.trim();
   if (t.startsWith('```')) {
     t = t.split('\n').slice(1).join('\n');
@@ -352,8 +377,10 @@ export function extractJsonArray(text: string): unknown {
     if (end !== -1) t = t.slice(0, end);
     t = t.trim();
   }
-  const start = t.indexOf('[');
-  const end = t.lastIndexOf(']');
-  if (start === -1 || end === -1 || end <= start) throw new LlmError('模型输出里没有找到 JSON 数组');
-  return JSON.parse(t.slice(start, end + 1));
+  const start = t.indexOf(open);
+  const end = t.lastIndexOf(close);
+  if (start === -1 || end === -1 || end <= start) {
+    throw new LlmError(`模型输出里没有找到 JSON ${open === '[' ? '数组' : '对象'}`);
+  }
+  return t.slice(start, end + 1);
 }

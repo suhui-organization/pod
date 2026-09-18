@@ -2,6 +2,11 @@
 # 构建: docker build -f deploy/Dockerfile -t podcloud-web:<tag> .
 FROM node:20-alpine AS build
 
+# 本次构建的标识（镜像 tag）→ 前端构建时经 VITE_BUILD_TAG 打进产物，
+# 界面侧栏显示"构建 <tag>"，与后端 /auth/config 返回的 build 对照。
+ARG BUILD_TAG=dev
+ENV VITE_BUILD_TAG=$BUILD_TAG
+
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

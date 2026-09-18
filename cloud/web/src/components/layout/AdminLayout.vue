@@ -26,6 +26,18 @@
           <Settings :size="18" :stroke-width="1.8" class="nav-icon" />
           <span class="nav-label">{{ t('设置') }}</span>
         </div>
+        <!-- 构建标识：直接回答"这个页面是哪一次发布"。前后端 tag 不一致时标红——
+             那正是滚动发布最容易漏掉的一种破法（新前端撞旧后端，见 rolling-update §4.2）。 -->
+        <div
+          class="nav-build"
+          :class="{ 'nav-build--mismatch': !sameBuild(deployment.buildTag || null) }"
+          :title="buildTitle"
+        >
+          <span>{{ t('构建') }} {{ deployment.buildTag || '…' }}</span>
+          <span v-if="!sameBuild(deployment.buildTag || null)" class="nav-build__web">
+            {{ t('前端 {tag}（与后端不是同一次构建）', { tag: WEB_BUILD_TAG }) }}
+          </span>
+        </div>
       </div>
     </aside>
     <main class="admin-main">
@@ -51,6 +63,7 @@ import UserMenu from './UserMenu.vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../../stores/auth'
 import { useDeploymentStore } from '../../stores/deployment'
+import { WEB_BUILD_TAG, sameBuild } from '../../utils/build'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -74,6 +87,16 @@ const navDefs = [
 ]
 
 const deployment = useDeploymentStore()
+
+/** 悬停时把两个标识都给全：侧栏一行放不下，但排障时要看得到 */
+const buildTitle = computed(() => {
+  const server = deployment.buildTag || '（未知）'
+  const same = sameBuild(deployment.buildTag || null)
+  return same
+    ? `后端镜像 ${server} · 前端 ${WEB_BUILD_TAG}`
+    : `后端镜像 ${server} · 前端 ${WEB_BUILD_TAG} —— 不是同一次构建，可能只滚了一半`
+})
+
 const allNavItems = computed(() => navDefs.map((i) => ({ ...i, label: t(i.label) })))
 const visibleNavItems = computed(() =>
   allNavItems.value.filter((i) => (!i.admin || auth.isAdmin) && (!i.billing || deployment.billingEnabled)),
@@ -106,6 +129,19 @@ function isActive(to: string): boolean {
 .nav-item.active { background: rgba(79, 124, 255, 0.14); color: #4f7cff; }
 .nav-label { font-size: 14px; }
 .nav-foot { padding: 8px 10px 14px; border-top: 1px solid var(--pod-border, #2a2f37); }
+
+/* 构建标识：小、安静、可核查。前后端不一致时才用告警色——那是需要人处理的状态 */
+.nav-build {
+  margin-top: 8px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--pod-text-dim, #8b93a1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.nav-build--mismatch { color: #e0a23c; }
+.nav-build__web { display: block; }
 .admin-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .admin-topbar {
   height: 52px; display: flex; align-items: center; justify-content: space-between;

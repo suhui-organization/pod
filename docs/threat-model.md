@@ -77,6 +77,22 @@
 ### T8 本地 Web 控制台被本机恶意进程利用 【低】
 - **场景**：`pod ui` 本地服务端口被同机恶意软件调用执行策略变更。
 - **防线**：绑定 127.0.0.1 + 随机 token 鉴权；策略变更写入审计；控制台只读模式默认。
+- **纳管通道的额外防线**（2026-09 加入）：控制台唯一的写操作是纳管/移除 agent，
+  要同时过四道闸门——① 包默认只读，`pod ui` 显式打开写能力；② token 鉴权；
+  ③ `Content-Type: application/json`（跨站表单发不出这个类型）；
+  ④ Origin 必须与 Host 同源。每次纳管/移除都写进控制平面哈希链
+  （`console:enroll:<agent>` / `console:forget:<agent>`），且只写 `~/.pod`
+  下的产物、**不改动任何 harness 配置**（那是 `pod onboard --yes` 的事，它有备份与回滚）。
+- **接管通道**（2026-09 加入）：纳管之后还有一步"接管"——把 MCP server 的启动命令
+  改写成经网关的包装命令。它是控制台里**唯一会改写用户配置**的操作，所以另有四条约束：
+  先出计划（逐条"改前 → 改后"）再确认；改写前备份成 `<配置>.pod-backup-<时间戳>`
+  且可从控制台还原；只碰**用户级**配置、不动仓库里的项目级配置（那正是 T15 的面）；
+  `pod` 不在 PATH 上就**拒绝执行**（包装命令跑不起来会让该 harness 的 MCP server 全部失效）。
+  包装默认 `--record-only`（只录不拦），切执法是显式动作。
+- **切执法的前置闸门**（2026-09 加入）：把包装命令的 `--record-only` 去掉即进入执法，
+  所以这一步必须挡住"假保护"——没有绑定该 agent 且含 server 规则的策略、
+  或策略是 `allow:["*"]`（record 模板）时**拒绝执行**。执法前必须回答得出
+  "用哪份策略、允许什么、编译时有多少语料"，否则界面显示的"已保护"就是假的。
 
 ### T9 误配置/误批准（人为）【低-中】
 - **场景**：用户批量批准、策略写得太宽。
@@ -110,6 +126,35 @@
 - **边界**：pod 只看得到经过网关的调用与 pod 自己的委托记录，看不到 agent 之间的对话。跨 agent 的"推理级联"（Planner→Executor→Reviewer）不在覆盖范围内。
 - **OWASP 映射**：ASI08 级联失效。
 
+### T15 项目级配置在打开工作区时自动执行【高】
+- **场景**：仓库里的 `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json` 被 clone 下来后，
+  接受"信任此文件夹"这一个动作就足以让攻击者的命令以开发者权限启动。CurXecute 更进一步：
+  一次外部提示注入改写 `~/.cursor/mcp.json`，下次启动即执行。
+- **OWASP 映射**：ASI05 意外代码执行、ASI04 供应链。
+- **防线**：`pod guard` 扫 `--workspace` 下的项目级配置并报出来；`pod onboard` 把这类
+  server 包进网关后，策略对它有约束。
+- **边界**：pod 不阻断 harness 自己启动项目级 server 这个动作——那是 harness 的行为，
+  不在 MCP 边界内。能力是发现 + 取证。
+
+### T16 以"跳过审批"参数启动 agent【高】
+- **场景**：`--dangerously-skip-permissions` / `--yolo` / `--trust-all-tools` /
+  `DANGEROUSLY_OMIT_AUTH` 把人类审批整条摘掉。s1ngularity（Nx 供应链事件）正是用这些
+  参数把开发者本机的 AI CLI 变成无审批的侦察与打包工具。
+- **OWASP 映射**：ASI09 人机信任利用、ASI02 工具误用。
+- **防线**：`rules.guard.dangerousFlags` 命中即报；真正的执行侧防线是网关的 approve 闸门
+  与 `pod grant` 的 JIT 令牌（用限时令牌替代关掉审批）。
+- **边界**：agent 自己的 CLI flag 不在 pod 控制范围内，pod 只能发现配置里的放宽项。
+
+### T17 远程 / HTTP 形态的 MCP 端点未鉴权【高】
+- **场景**：MCP 的 Streamable HTTP / SSE 传输把工具执行暴露成网络接口。
+  MCP Inspector 的 CVE-2025-49596（CVSS 9.4）是绑定 `0.0.0.0` 且无鉴权，
+  一次 CSRF 直接变成远程代码执行；oatpp-mcp 的 CVE-2025-6515 用可预测 session id
+  做提示词劫持。
+- **OWASP 映射**：ASI07 agent 间通信不安全。
+- **防线**：`pod serve --http` 绑定 127.0.0.1 + token；`pod guard` 从配置里发现
+  `0.0.0.0` 绑定、关闭鉴权的开关、明文 HTTP 的远程端点并按 `rules.guard.allowedRemoteHosts` 判定。
+- **边界**：第三方 server 自己的监听地址与鉴权策略 pod 看不到，只能从配置线索推断。
+
 ## 3. 设计决策的威胁溯源
 
 | 产品决策 | 主要应对威胁 |
@@ -127,6 +172,17 @@
 | 每 agent 独立密钥 + 逐跳签名委托 | T12（共享凭证无法归因） |
 | JIT 令牌（TTL + 作用域 + 单次） | T12/T3（长期静态令牌是最容易失窃的资产） |
 | 熔断与异常检测阈值全部来自规则 | T14（误报率由用户按自己的噪声容忍度调） |
+| 项目级配置扫描 + 危险启动参数检测（`pod guard`） | T15/T16 |
+| 远程端点与鉴权开关检测（`pod guard`） | T17 |
+
+## 3.1 威胁目录（AG-xx）
+
+上面 T1–T17 是**本机的威胁清单**；`AG-01 – AG-18` 是**面向 agent/harness 生态的威胁目录**
+（机器可读版本在 `packages/guard/src/catalog.ts`，可读版 `pod guard catalog`）。
+
+两者的关系：AG 条目是"外部真实发生的攻击形态"，每条都映射回这里的 T 编号与
+OWASP 的 ASI 编号，并标注 pod 的覆盖程度（covered / partial / gap）。
+完整盘点、差距分析与 `pod guard` 的设计见 **[agent-harness-security.md](agent-harness-security.md)**。
 
 ## 4. 安全承诺（对外发布时的公开文档）
 
