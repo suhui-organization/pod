@@ -238,14 +238,28 @@ export function collectIdentities(rules: RuleSet, home: string, auditDir?: strin
   }
   return [...origins.entries()]
     .map(([agent, origin]) => {
-      const identity = loadAgentIdentity(agent, dir);
-      return {
-        agent,
-        hasIdentity: identity !== null,
-        hasPrivateKey: identity !== null && existsSync(join(dir, agent, 'private.pem')),
-        fingerprint: identity?.fingerprint ?? null,
-        origin: [...origin].sort(),
-      };
+      // 坏 agent 名（空 / 路径分隔符 / 空格）会让 loadAgentIdentity 抛错。
+      // 这里是只读报表：把它记成"这个 agent 没有可用身份"，而不是让
+      // 整轮 posture 崩掉——用户需要看到的是那条可执行的提示，不是堆栈。
+      try {
+        const identity = loadAgentIdentity(agent, dir);
+        return {
+          agent,
+          hasIdentity: identity !== null,
+          hasPrivateKey: identity !== null && existsSync(join(dir, agent, 'private.pem')),
+          fingerprint: identity?.fingerprint ?? null,
+          origin: [...origin].sort(),
+        };
+      } catch (err) {
+        return {
+          agent,
+          hasIdentity: false,
+          hasPrivateKey: false,
+          fingerprint: null,
+          origin: [...origin].sort(),
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     })
     .sort((a, b) => a.agent.localeCompare(b.agent));
 }

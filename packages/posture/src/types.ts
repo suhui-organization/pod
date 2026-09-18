@@ -45,6 +45,14 @@ export interface IdentityFact {
   fingerprint: string | null;
   /** 这个 agent 是从哪发现的（策略文件 / 审计目录 / 已有身份） */
   origin: Array<'policy' | 'audit' | 'identity'>;
+  /**
+   * 身份无法加载时的原因（例如 agent 名含空格，永远不可能有合法身份目录）。
+   *
+   * 为什么需要这个字段：`~/.pod/policies` 里一个名字带空格的历史策略文件，
+   * 会让 `loadAgentIdentity` 抛错——而那是**只读报表**命令。报表不能因为
+   * 一个坏输入整条崩掉（用户会以为"pod 坏了"，而不是"有个文件要改"）。
+   */
+  error?: string;
 }
 
 export interface DelegationFact {
