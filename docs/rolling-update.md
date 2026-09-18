@@ -30,19 +30,46 @@
 
 ## 2. 操作顺序
 
-### ① 备份数据库
+### ① 备份数据库（**别用 cp**）
+
+库跑在 WAL 模式，`cp podcloud.db` 只拷主文件、丢掉 `-wal` 里已提交的事务，
+得到的是一份**过期**的快照（线上实测：主文件 380 KB，而 WAL 有 4 MB）。
+要么用 sqlite 的在线备份，要么把三个文件一起拷：
 
 ```bash
-kubectl -n podcloud exec deploy/podcloud-server -- \
-  cp /app/data/podcloud.db /app/data/podcloud.db.bak-$(date +%F)
+kubectl -n podcloud exec deploy/podcloud-server -- python3 -c "
+import sqlite3
+src = sqlite3.connect('/app/data/podcloud.db')
+dst = sqlite3.connect('/app/data/podcloud.db.bak-$(date +%F)')
+src.backup(dst); dst.close(); src.close()
+"
 ```
+
+`install-server.sh` / `install-local.sh` 的服务器路径已经内置这一步。
 
 ### ② 拉新代码并滚动更新
 
+两个目标各有一条命令（**别互相套用**，见下表的区别）：
+
 ```bash
-git pull
+# 服务器集群（192.168.66.8 / ns podcloud）：在节点就地构建 → 导入 containerd → set image
+KUBECONFIG=~/.kube/config-server.yaml PUBLIC_URL=https://podcloud.dlszjr.com \
+  bash cloud/server/deploy/k8s/install-server.sh
+
+# 本机 kind：内容指纹 tag → kind load → apply 仓库清单
 bash cloud/server/deploy/k8s/install-local.sh
 ```
+
+| | 服务器集群 | 本机 kind |
+|---|---|---|
+| 脚本 | `install-server.sh` | `install-local.sh` |
+| 镜像 tag | `main-<commit>`（可追溯到 commit） | `fp-<内容指纹>` |
+| 构建在哪 | **节点上**（集群没有公网镜像仓） | 本机 |
+| 怎么让 k8s 看到镜像 | `docker save \| ctr -n k8s.io images import -`（docker 里的镜像 kubelet 看不见） | `kind load docker-image` |
+| 清单来源 | 线上对象（手工调过，见 [server-cluster-snapshot.yaml](../cloud/server/deploy/k8s/server-cluster-snapshot.yaml)）；脚本只 `set image`，**不 apply** | 仓库模板渲染后 apply |
+| server 发布策略 | `Recreate`（SQLite 不能被两个 Pod 同时写）→ **几十秒 API 不可用** | RollingUpdate |
+
+两条脚本都是幂等的：已经在目标 tag 上就空跑退出。
 
 脚本幂等：按源码指纹判断要不要重建镜像；重建时先滚 server 并等就绪，再滚 web。
 

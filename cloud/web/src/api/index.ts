@@ -27,6 +27,8 @@ export const api = {
     /** 找回密码的投递方式：email=已配 SMTP；log=链接写服务端日志 */
     password_reset: 'email' | 'log'
     password_reset_minutes: number
+    /** 后端镜像的构建标识（tag）；与前端自己的 tag 对照即可看出是否同一次发布 */
+    build: string
   }> {
     return http.get('/api/v1/auth/config').then((r) => r.data)
   },

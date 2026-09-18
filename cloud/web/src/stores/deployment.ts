@@ -13,6 +13,8 @@ export const useDeploymentStore = defineStore('deployment', () => {
   const isPrivate = ref(false)
   const billingEnabled = ref(false)
   const billingProvider = ref('')
+  /** 后端镜像的构建标识（来自 /auth/config）。前端自己的标识见 utils/build.ts */
+  const buildTag = ref('')
 
   async function load() {
     if (loaded.value) return
@@ -21,6 +23,7 @@ export const useDeploymentStore = defineStore('deployment', () => {
       isPrivate.value = cfg.is_private
       billingEnabled.value = cfg.billing_enabled === true
       billingProvider.value = cfg.billing_provider ?? ''
+      buildTag.value = cfg.build ?? ''
     } catch {
       // 拉不到就按未启用计费处理：少一个入口，好过一个会报错的入口
       billingEnabled.value = false
@@ -29,5 +32,5 @@ export const useDeploymentStore = defineStore('deployment', () => {
     }
   }
 
-  return { loaded, isPrivate, billingEnabled, billingProvider, load }
+  return { loaded, isPrivate, billingEnabled, billingProvider, buildTag, load }
 })

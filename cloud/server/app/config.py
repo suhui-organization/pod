@@ -23,6 +23,9 @@ class Settings:
     jwt_expire_minutes: int = int(os.environ.get("PODCLOUD_JWT_EXPIRE_MINUTES", "720"))
     is_private: bool = os.environ.get("PODCLOUD_IS_PRIVATE", "false").lower() == "true"
     podcloud_env: str = _ENV
+    # 本次构建的标识（镜像 tag / commit）。由 deploy/Dockerfile 的 BUILD_TAG 注入。
+    # 存在的意义：回答"这个实例跑的是哪次构建"——界面与运维都不用再靠猜。
+    build_tag: str = os.environ.get("PODCLOUD_BUILD_TAG", "dev")
     provider: str = os.environ.get("PODCLOUD_PROVIDER", "auto")
     mcp_commands: str = os.environ.get("PODCLOUD_MCP_COMMANDS", "")
     # 免支付切换套餐：只在 dev 默认开启。
