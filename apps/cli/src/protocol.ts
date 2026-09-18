@@ -9,7 +9,9 @@
  * 所以：版本号与健康摘要都只从这里出，两端各自只依赖这一个契约
  * （对照文档见 docs/local-cloud-contract.md）。
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { hostname, userInfo } from 'node:os';
 
 /**
  * 协议版本。**只在破坏性变更时 +1**（改字段含义 / 删字段 / 改语义）；
@@ -33,6 +35,29 @@ export function cliVersion(): string {
   } catch {
     return 'unknown';
   }
+}
+
+/**
+ * 这台机器的稳定标识（伪匿名）。
+ *
+ * 为什么需要：**资产是机器级的**，而云端的一行 Agent = 一个绑定。
+ * 一台机器接了好几个 agent（codex / hermes / …）时，机器清单会被按绑定复制多份，
+ * Dashboard 上的"还有多少 server 绕过网关"就会按绑定数翻倍——数字看着精确、其实不对。
+ * 带上这个 id，云端才能按机器去重。
+ *
+ * 取值：`sha256(hostname|username|platform)` 前 16 位。**是哈希，不是明文**——
+ * 云端拿到它无法反推主机名，只能判断"是不是同一台机器"。
+ * 确定性派生（不落盘）：`pod sync` 是定时任务，尽量不写本机状态。
+ * 代价是改主机名/用户名会被当成新机器——对"去重"这个用途可以接受。
+ */
+export function machineId(): string {
+  let who = 'unknown';
+  try {
+    who = `${hostname()}|${userInfo().username}|${process.platform}`;
+  } catch {
+    who = `unknown|unknown|${process.platform}`;
+  }
+  return createHash('sha256').update(who).digest('hex').slice(0, 16);
 }
 
 /**
@@ -91,6 +116,8 @@ export interface InventoryPayload {
   pod_version: string;
   rules_version: string;
   scanned_at: string;
+  /** 机器标识（伪匿名哈希）；云端按它去重机器级快照 */
+  machine_id: string;
   coverage: { servers: number; unmanaged: number };
   harnesses: Array<{
     id: string;

@@ -107,7 +107,8 @@ def list_agents(db: Session = Depends(get_db), tenant_id: int = Depends(get_curr
         else:
             bucket["servers"].append(
                 {"name": row.key, "harness": row.harness or "", "behind_gateway": bool(row.behind_gateway),
-                 "record_only": bool(row.record_only), "package": row.package, "pinned": bool(row.pinned)}
+                 "record_only": bool(row.record_only), "package": row.package, "pinned": bool(row.pinned),
+                 "machine_id": row.machine_id or ""}
             )
             if not row.behind_gateway:
                 bucket["unmanaged"] += 1

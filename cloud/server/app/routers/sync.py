@@ -127,6 +127,8 @@ class InventoryIn(BaseModel):
     """② 资产清单（机器级快照，每次上报整体替换）。"""
 
     pod_version: str = Field(default="", max_length=32)
+    # 机器标识（伪匿名哈希）。同一台机器接多个绑定时靠它去重
+    machine_id: str = Field(default="", max_length=32)
     rules_version: str = Field(default="", max_length=32)
     scanned_at: str = Field(default="", max_length=64)
     coverage: CoverageHealthIn = Field(default_factory=CoverageHealthIn)
@@ -395,12 +397,14 @@ def sync_inventory(
     now = datetime.utcnow()
     inv = body.inventory
     db.query(PodAgentAsset).filter(PodAgentAsset.agent_id == agent.id).delete(synchronize_session=False)
+    mid = inv.machine_id.strip()[:32]
     for h in inv.harnesses:
         db.add(
             PodAgentAsset(
                 tenant_id=agent.tenant_id,
                 agent_id=agent.id,
                 kind="harness",
+                machine_id=mid,
                 key=h.id[:128],
                 label=h.label[:64],
                 installed=h.installed,
@@ -415,6 +419,7 @@ def sync_inventory(
                 tenant_id=agent.tenant_id,
                 agent_id=agent.id,
                 kind="server",
+                machine_id=mid,
                 key=s.name[:128],
                 installed=True,
                 managed=s.behind_gateway,
@@ -442,6 +447,7 @@ def sync_findings(
     body: FindingsRequest,
     db: Session = Depends(get_db),
     x_sync_token: str = Header(default=""),
+    x_pod_machine: str = Header(default=""),
 ):
     """③ 发现：pod 干活时扫出来的问题（漏洞扫描 + 控制平面姿态）。
 
@@ -450,12 +456,14 @@ def sync_findings(
     agent = _agent_from_token(db, x_sync_token)
     now = datetime.utcnow()
     db.query(PodAgentFinding).filter(PodAgentFinding.agent_id == agent.id).delete(synchronize_session=False)
+    mid = x_pod_machine.strip()[:32]
     for f in body.findings.findings:
         db.add(
             PodAgentFinding(
                 tenant_id=agent.tenant_id,
                 agent_id=agent.id,
                 source=f.source[:16],
+                machine_id=mid,
                 key=f.key[:64],
                 severity=f.severity[:16],
                 harness=f.harness[:64],

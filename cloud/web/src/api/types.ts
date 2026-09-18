@@ -137,7 +137,7 @@ export interface DashboardSummary {
   }
   trend_7d: Array<{ date: string; events: number }>
   /** ② 资产（机器上报后聚合）：还有多少 server 绕过网关 */
-  assets: { servers: number; unmanaged: number; harnesses: number; harnesses_managed: number; agents_with_unmanaged: number }
+  assets: { servers: number; unmanaged: number; harnesses: number; harnesses_managed: number; machines_with_unmanaged: number; agents_with_unmanaged: number }
   /** ③ 发现（机器上报后聚合）：扫出来的问题，按严重级别优先 */
   findings: {
     totals: { high: number; medium: number; low: number }

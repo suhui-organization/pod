@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.2 — 资产与发现按机器去重（修真实缺陷）
+
+真机验证时暴露：一台机器接了三个 agent（codex / hermes / deepseek-harness），
+而**资产是机器级快照**、云端一行 Agent = 一个绑定——于是同一份清单被复制三份，
+Dashboard 上"48 个 server 绕过网关"实际是 16 × 3。**看着精确、其实不对的数字**
+比没有数字更糟，所以这一版修掉。
+
+- 端 A：inventory 增加 `machine_id`（`sha256(hostname|username|platform)` 前 16 位，
+  **哈希而非明文**），并随 `X-Pod-Machine` 头用于发现上报；确定性派生，不写本机状态。
+- 端 B：两张表新增 `machine_id` 列（走 ADD COLUMN 迁移）；Dashboard 的覆盖率与
+  Top 威胁按 `(machine_id, key)` 去重，并新增 `machines_with_unmanaged`（涉及几**台机器**）。
+- 老客户端没上报 `machine_id` 时退回按 `agent_id` 计——宁可不合并，也不要错合并。
+- 测试：`test_same_machine_with_multiple_bindings_is_counted_once` 与
+  `test_two_machines_are_counted_separately` 一正一反守这条语义。
+
 ## v0.4.1 — 端 A ↔ 端 B 的契约层；资产与发现也上云了
 
 一期分工是**pod 干活、podcloud 收集·展示·持久化·备语料**。这一版补的是两者之间的

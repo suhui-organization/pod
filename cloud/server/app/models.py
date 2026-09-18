@@ -168,6 +168,10 @@ class PodAgentAsset(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
+    # 机器标识（客户端上报的伪匿名哈希）。资产是**机器级**快照，而一行 Agent = 一个绑定：
+    # 一台机器接多个 agent 时会复制多份，Dashboard 必须按 machine_id 去重才不会翻倍。
+    # 老客户端不上报 → 为空，云端退回按 agent_id 计（宁可不合并，也不要错合并）。
+    machine_id: Mapped[str] = mapped_column(String(32), default="")
     # harness（本机装了哪个 agent 平台）| server（MCP server）
     kind: Mapped[str] = mapped_column(String(16))
     # harness id 或 server 名
@@ -198,6 +202,7 @@ class PodAgentFinding(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("pod_agents.id"), index=True)
+    machine_id: Mapped[str] = mapped_column(String(32), default="")
     # guard=漏洞扫描（key 是 AG-xx）；posture=控制平面姿态（key 是类别）
     source: Mapped[str] = mapped_column(String(16))
     key: Mapped[str] = mapped_column(String(64))

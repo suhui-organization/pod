@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
 import { DEFAULT_RULES } from '@podsec/policy';
@@ -200,6 +200,10 @@ describe('② 资产清单 与 ③ 发现（pod 干的活的另一半）', () =>
     expect(server!.behind_gateway).toBe(false); // 没接管 → 策略与审计对它无效
     expect(server!.harness).toBe('claude-code');
     expect(inventory.coverage.unmanaged).toBeGreaterThanOrEqual(1);
+    // 机器标识：稳定、伪匿名（不含主机名明文），用于云端按机器去重
+    expect(inventory.machine_id).toMatch(/^[0-9a-f]{16}$/);
+    expect(collectReports({ home, auditDir, rules: DEFAULT_RULES }).inventory.machine_id).toBe(inventory.machine_id);
+    expect(inventory.machine_id).not.toContain(hostname());
 
     // 隐私边界：没有本机路径、没有命令行、没有 args
     const text = JSON.stringify(inventory);

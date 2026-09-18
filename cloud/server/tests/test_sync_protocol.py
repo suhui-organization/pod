@@ -220,3 +220,48 @@ def test_dashboard_aggregates_assets_and_findings_across_agents(client):
     assert summary["assets"]["agents_with_unmanaged"] == 2
     assert summary["findings"]["totals"]["high"] == 6  # 两台机器 × 3
     assert summary["findings"]["top"][0]["key"] == "AG-03"
+
+
+def test_same_machine_with_multiple_bindings_is_counted_once(client):
+    """一台机器接多个 agent 时，机器级快照不能翻倍。
+
+    这是真机上暴露的问题：三个绑定指向同一台机器，资产被复制三份，
+    Dashboard 上"48 个 server 绕过网关"实际是 16 × 3。
+    """
+    token = register_and_login(client)
+    _, token_a = _register_agent(client, token, "codex")
+    _, token_b = _register_agent(client, token, "hermes")
+    same_machine = {"inventory": {**INVENTORY["inventory"], "machine_id": "aaaa1111bbbb2222"}}
+    _push_inventory(client, token_a, same_machine)
+    _push_inventory(client, token_b, same_machine)
+    findings_same = {
+        "findings": {
+            **FINDINGS["findings"],
+        }
+    }
+    for tok in (token_a, token_b):
+        client.post(
+            "/api/v1/sync/findings",
+            json=findings_same,
+            headers={"X-Sync-Token": tok, "X-Pod-Machine": "aaaa1111bbbb2222"},
+        )
+
+    summary = client.get("/api/v1/dashboard/summary", headers={"Authorization": f"Bearer {token}"}).json()
+    # 两个绑定、同一台机器 → 按机器去重后只算一份
+    assert summary["assets"]["servers"] == 2
+    assert summary["assets"]["unmanaged"] == 1
+    assert summary["assets"]["machines_with_unmanaged"] == 1
+    assert summary["findings"]["totals"]["high"] == 3
+    assert summary["findings"]["reported_agents"] == 1
+
+
+def test_two_machines_are_counted_separately(client):
+    """不同机器（machine_id 不同）必须各算一份——去重不能把两台机器合成一台。"""
+    token = register_and_login(client)
+    _, token_a = _register_agent(client, token, "mac-mini")
+    _, token_b = _register_agent(client, token, "linux-box")
+    _push_inventory(client, token_a, {"inventory": {**INVENTORY["inventory"], "machine_id": "1111"}})
+    _push_inventory(client, token_b, {"inventory": {**INVENTORY["inventory"], "machine_id": "2222"}})
+    summary = client.get("/api/v1/dashboard/summary", headers={"Authorization": f"Bearer {token}"}).json()
+    assert summary["assets"]["servers"] == 4
+    assert summary["assets"]["machines_with_unmanaged"] == 2

@@ -9,7 +9,7 @@
 import type { RuleSet } from '@podsec/policy';
 import { runGuardScan } from '@podsec/guard';
 import { loadAllAuditFiles } from './evidence.js';
-import { cliVersion, type FindingsPayload, type InventoryPayload, type PodHealth } from './protocol.js';
+import { cliVersion, machineId, type FindingsPayload, type InventoryPayload, type PodHealth } from './protocol.js';
 import { runPosture } from './control-plane.js';
 
 export interface HealthInput {
@@ -79,6 +79,7 @@ export function collectReports(input: HealthInput & { baselinePath?: string }): 
     pod_version: cliVersion(),
     rules_version: input.rules.version,
     scanned_at: now.toISOString(),
+    machine_id: machineId(),
     coverage: { servers: 0, unmanaged: 0 },
     harnesses: [],
     servers: [],

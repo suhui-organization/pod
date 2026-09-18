@@ -39,7 +39,7 @@
         <p class="panel-note">
           {{ t('{unmanaged} 个 MCP server 绕过网关（涉及 {agents} 台机器）——这些 server 的策略、审批与审计都不生效。', {
             unmanaged: s?.assets.unmanaged ?? 0,
-            agents: s?.assets.agents_with_unmanaged ?? 0,
+            agents: s?.assets.machines_with_unmanaged ?? 0,
           }) }}
         </p>
         <p class="panel-note">

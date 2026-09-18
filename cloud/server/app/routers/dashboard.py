@@ -55,11 +55,23 @@ def dashboard_summary(db: Session = Depends(get_db), tenant_id: int = Depends(ge
         .filter(PodAgentAsset.tenant_id == tenant_id, PodAgentAsset.kind == "harness")
         .all()
     )
+    # 资产是**机器级**快照，而一行 Agent = 一个绑定：一台机器接多个 agent 时清单会复制多份。
+    # 所以按 (machine_id, key) 去重；老客户端没上报 machine_id 时退回 agent_id
+    # （宁可不合并，也不要错合并成"一台机器"）。
+    def _machine_key(row) -> str:
+        return row.machine_id or f"agent:{row.agent_id}"
+
+    seen_servers = {( _machine_key(r), r.key) for r in asset_servers}
+    seen_unmanaged = {(_machine_key(r), r.key) for r in asset_servers if not r.behind_gateway}
+    seen_harnesses = {(_machine_key(r), r.key) for r in asset_harnesses}
+    managed_harnesses = {(_machine_key(r), r.key) for r in asset_harnesses if r.managed}
     coverage_out = {
-        "servers": len(asset_servers),
-        "unmanaged": sum(1 for r in asset_servers if not r.behind_gateway),
-        "harnesses": len(asset_harnesses),
-        "harnesses_managed": sum(1 for r in asset_harnesses if r.managed),
+        "servers": len(seen_servers),
+        "unmanaged": len(seen_unmanaged),
+        "harnesses": len(seen_harnesses),
+        "harnesses_managed": len(managed_harnesses),
+        # 有多少**台机器**存在绕过网关的 server（按机器去重后才对得上直觉）
+        "machines_with_unmanaged": len({m for m, _ in seen_unmanaged}),
         "agents_with_unmanaged": len({r.agent_id for r in asset_servers if not r.behind_gateway}),
     }
 
@@ -69,17 +81,23 @@ def dashboard_summary(db: Session = Depends(get_db), tenant_id: int = Depends(ge
     sev_rank = {"high": 0, "medium": 1, "low": 2}
     agg: dict[tuple[str, str, str], int] = {}
     findings_totals = {"high": 0, "medium": 0, "low": 0}
+    # 同一台机器的多个绑定会各报一份相同的发现——按机器去重，避免 high 数字翻倍
+    dedup: dict[tuple[str, str, str, str], int] = {}
     for row in finding_rows:
-        agg[(row.source, row.key, row.severity)] = agg.get((row.source, row.key, row.severity), 0) + row.count
-        if row.severity in findings_totals:
-            findings_totals[row.severity] += row.count
+        mkey = row.machine_id or f"agent:{row.agent_id}"
+        k = (mkey, row.source, row.key, row.severity)
+        dedup[k] = max(dedup.get(k, 0), row.count)
+    for (_m, s_, k_, sev), n in dedup.items():
+        agg[(s_, k_, sev)] = agg.get((s_, k_, sev), 0) + n
+        if sev in findings_totals:
+            findings_totals[sev] += n
     findings_top = [
         {"source": s, "key": k, "severity": sev, "count": n}
         for (s, k, sev), n in sorted(
             agg.items(), key=lambda kv: (sev_rank.get(kv[0][2], 9), -kv[1])
         )[:10]
     ]
-    findings_reported_agents = len({r.agent_id for r in finding_rows})
+    findings_reported_agents = len({r.machine_id or f"agent:{r.agent_id}" for r in finding_rows})
 
     # 近 7 天按天聚合。**按事件发生时间 ts 分组，不是按上传时间 synced_at**：
     # 离线几天的机器补传时，synced_at 会把历史事件全堆在"今天"，看图会以为今天爆发。
