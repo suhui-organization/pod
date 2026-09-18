@@ -327,10 +327,10 @@ export const enUS: Record<string, string> = {
     'pod digest only reads local audit data; it does not use the network and uploads nothing.',
 
   // ── pod ui 控制台（packages/console）──
-  'pod 控制台（只读）已启动：{url}': 'pod console (read-only) started at {url}',
+  '下一步：': 'Next steps:',
   '数据目录：{path}': 'Data directory: {path}',
   '收到 {signal}，正在停止控制台…': 'Received {signal}; stopping the console…',
-  'pod ui listening on http://{host}:{port} (只读)': 'pod ui listening on http://{host}:{port} (read-only)',
+  'pod ui listening on http://{host}:{port}（只读）': 'pod ui listening on http://{host}:{port} (read-only)',
   '文件超过 {max} 字节，已跳过': 'File is larger than {max} bytes; skipped',
   '未找到策略目录 {dir}：还没有登记任何 agent 策略（先跑 pod policy draft）':
     'Policy directory {dir} not found: no agent policies registered yet (run pod policy draft first)',
@@ -743,4 +743,270 @@ export const enUS: Record<string, string> = {
   '# 审计完整性自检\n\n（审计目录为空）': '# Audit integrity self-check\n\n(the audit directory is empty)',
   '  审计链 {chains} 条 / {entries} 条记录{broken}': '  {chains} audit chains / {entries} records{broken}',
   '（⚠️ {n} 条断裂）': ' (⚠️ {n} broken)',
+
+  // ── guard（多 agent / 多 harness 持续漏洞扫描）──
+  '# pod guard — 多 agent / 多 harness 漏洞扫描': '# pod guard — multi-agent / multi-harness vulnerability scan',
+  '> 只读扫描：不联网、不上传、不修改任何文件。判定规则来自你的 rules.json。':
+    '> Read-only scan: no network, no uploads, no file changes. The verdict rules come from your rules.json.',
+  '## 0. 概览': '## 0. Overview',
+  '扫描范围：{harnesses} 个 harness（{installed} 个已安装）、{servers} 个 MCP server、{hooks} 个钩子、{secrets} 处明文凭据、{projects} 个工作区。':
+    'Scanned: {harnesses} harnesses ({installed} installed), {servers} MCP servers, {hooks} hooks, {secrets} plaintext credentials, {projects} workspaces.',
+  '覆盖声明：{automated} 类有确定性判定、{partial} 类只能给信号、{gap} 类 pod 看不到（见 §4）。':
+    'Coverage: {automated} categories are decided deterministically, {partial} can only raise a signal, {gap} are invisible to pod (see §4).',
+  '本轮没有发现可判定的问题。注意这不等于"安全"——§4 列了 pod 看不到的那部分。':
+    'No decidable problems this round. That is not the same as "safe" — §4 lists what pod cannot see.',
+  '## 1. 漏洞清单': '## 1. Vulnerability list',
+  '（空）': '(empty)',
+  '🔴 high — 现在就该处理': '🔴 high — fix now',
+  '🟠 medium — 本周处理': '🟠 medium — fix this week',
+  '🟡 low — 记录在案': '🟡 low — note it down',
+  '（其余 {n} 处见 guard-findings.json）': '({n} more in guard-findings.json)',
+  '## 2. 建议清单（按优先级）': '## 2. Recommendations (by priority)',
+  '（没有需要处理的项）': '(nothing to act on)',
+  '对应威胁：`{threat}`{title} · 影响 {count} 处 · harness：{affects}':
+    'Threat: `{threat}`{title} · {count} finding(s) · harness: {affects}',
+  '为什么：{why}': 'Why: {why}',
+  'pod 覆盖：有确定性判定 + 有执行点——处理完这类问题就消失了。':
+    'pod coverage: deterministic detection plus an enforcement point — fixing it removes this class of problem.',
+  'pod 覆盖：能发现，但拦不住（缺口见 §4）。':
+    'pod coverage: detectable, but not blockable (see the gap in §4).',
+  'pod 覆盖：pod 看不到这类问题，只能靠人工与外部工具。':
+    'pod coverage: invisible to pod; only manual work and external tooling can help.',
+  '可以让模型生成加固建议物：`pod guard remediate --llm`（建议物不自动生效，先过放宽守卫）。':
+    'A model can draft remediation proposals: `pod guard remediate --llm` (proposals never auto-apply; they pass the relaxation guard first).',
+  '## 3. 让扫描持续跑起来': '## 3. Keep the scan running',
+  'pod guard baseline            # 把当前状态冻结为基线（此后只对新增/变化报警）':
+    'pod guard baseline            # freeze the current state as a baseline (only changes alert afterwards)',
+  'pod guard watch --interval 300  # 每 5 分钟扫一轮，有变化就写进审计链':
+    'pod guard watch --interval 300  # scan every 5 minutes; changes go into the audit chain',
+  'pod guard scan --strict       # high 时退出码 1，可直接挂 CI / 定时任务':
+    'pod guard scan --strict       # exit code 1 on high severity, ready for CI or cron',
+  '## 4. 覆盖边界与出处': '## 4. Coverage boundaries and sources',
+  '**能发现但拦不住（缺口必须说清楚）**': '**Detectable but not blockable (gaps must be spelled out)**',
+  '**pod 看不到的**': '**Invisible to pod**',
+  '**触发到的威胁与出处**': '**Threats triggered, with sources**',
+  '（本轮没有触发任何目录条目）': '(no catalog entry was triggered this round)',
+  '**采集说明**': '**Collection notes**',
+  'pod guard 只读、不联网、不上传任何数据。': 'pod guard is read-only, offline, and uploads nothing.',
+  '# pod guard 威胁目录': '# pod guard threat catalog',
+  '> 每条都对应一个可自动执行的检测器，并带上可核查的外部出处。':
+    '> Every entry maps to an executable detector and cites verifiable external sources.',
+  '| 编号 | 严重级别 | 类别 | 覆盖 | 标题 |': '| ID | Severity | Category | Coverage | Title |',
+  'OWASP：{asi} · 威胁模型：{local} · pod 覆盖：{coverage}':
+    'OWASP: {asi} · threat model: {local} · pod coverage: {coverage}',
+  '已有防线：': 'Existing controls:',
+  '缺口：{gap}': 'Gap: {gap}',
+  '建议：{action}': 'Recommended: {action}',
+  '理由：{why}': 'Rationale: {why}',
+  '出处：': 'Sources:',
+  '凭据暴露': 'credential exposure',
+  '代码执行': 'code execution',
+  '边界与闸门': 'boundary and gates',
+  '网络暴露': 'network exposure',
+  '供应链': 'supply chain',
+  '权限与审批': 'permissions and approval',
+  '记忆完整性': 'memory integrity',
+  '身份与归因': 'identity and attribution',
+  '可见性与证据': 'visibility and evidence',
+  'guard 报告已写入：{path}': 'guard report written to: {path}',
+  '  机器可读清单：{path}': '  machine-readable findings: {path}',
+  'guard 基线已写入 {path}': 'guard baseline written to {path}',
+  '  冻结 {servers} 个 MCP server 指纹 · {hooks} 个钩子指纹':
+    '  froze {servers} MCP server fingerprints · {hooks} hook fingerprints',
+  '  之后同名 server 换包/改参数会在 pod guard scan 里报出来（需 rules.packages.requireIntegrity=true）':
+    '  from now on a renamed package or changed args for the same server shows up in pod guard scan (needs rules.packages.requireIntegrity=true)',
+  '[{ts}] 无变化（{total} 条已知问题）': '[{ts}] no change ({total} known findings)',
+  '[{ts}] 新增 {added} · 变化 {changed} · 消失 {resolved}（共 {total} 条）':
+    '[{ts}] new {added} · changed {changed} · gone {resolved} ({total} total)',
+  'guard watch 结束：{rounds} 轮 · 新增 {added} · 变化 {changed} · 消失 {resolved}':
+    'guard watch finished: {rounds} rounds · new {added} · changed {changed} · gone {resolved}',
+  '--interval 必须是正数（秒），收到 {value}': '--interval must be a positive number of seconds, got {value}',
+  '未知的 guard 子命令：{sub}（可用：scan / watch / remediate / baseline / catalog）':
+    'Unknown guard subcommand: {sub} (available: scan / watch / remediate / baseline / catalog)',
+  '出网上下文已导出：{path}（这是唯一需要交给模型的东西）':
+    'Outbound context exported to {path} (this is the only thing a model needs to see)',
+  '模型：{provider}/{model}': 'Model: {provider}/{model}',
+  '本轮没有扫出需要处置的问题。': 'This round found nothing that needs remediation.',
+  '没有发现可处置的问题，未调用模型（不为了"用上模型"而发数据出去）。':
+    'Nothing actionable, so no model call was made (we do not send data out just to use a model).',
+  '规则增量会放宽 {n} 处现有防线，已整体拒绝应用（与 pod rules apply 的放宽守卫同一口径）。':
+    'The rule delta would relax {n} existing control(s), so the whole delta was refused (same relaxation guard as pod rules apply).',
+  '没有可应用的规则增量（未生成，或被放宽守卫拒绝），rules.json 保持不变。':
+    'No applicable rule delta (none produced, or refused by the relaxation guard); rules.json is unchanged.',
+  '规则已应用到 {path}（原文件已备份为 rules.json.bak）':
+    'Rules applied to {path} (the previous file was backed up as rules.json.bak)',
+  '加固建议已写入：{path}': 'Remediation guidance written to: {path}',
+  '# pod guard — 加固建议（模型辅助）': '# pod guard — remediation guidance (model-assisted)',
+  '> 建议物不自动生效。规则增量必须过放宽守卫（与 pod rules apply 同一套判定）。':
+    '> Proposals never auto-apply. Rule deltas must pass the relaxation guard (the same check pod rules apply uses).',
+  '## 结论': '## Conclusion',
+  '## 处置步骤': '## Remediation steps',
+  '（没有可用步骤——模型未产出，或产出全部被校验器丢弃）':
+    '(no usable steps — the model produced none, or every item was dropped by the validator)',
+  '## 规则增量': '## Rule delta',
+  '增量已通过放宽守卫。写入 `rules-suggested.json`（增量）与 `rules-merged.json`（合并结果）。':
+    'The delta passed the relaxation guard. Written to `rules-suggested.json` (the delta) and `rules-merged.json` (merged result).',
+  '应用：`pod guard remediate --llm --apply`，或 `pod rules apply` 走签名包通道。':
+    'Apply with `pod guard remediate --llm --apply`, or go through the signed-pack path with `pod rules apply`.',
+  '**被放宽守卫拒绝**——这份增量会削弱现有防线，不应用：':
+    '**Refused by the relaxation guard** — this delta would weaken existing controls, so it is not applied:',
+  '（本次没有规则增量）': '(no rule delta this time)',
+  '## 被丢弃的模型产出': '## Model output that was dropped',
+  '## 参考：本轮扫描结论': '## Reference: this round’s scan result',
+  '{high} high · {medium} medium · {low} low（完整清单见 guard-report.md）':
+    '{high} high · {medium} medium · {low} low (full list in guard-report.md)',
+  '这个 agent 名无法映射到身份目录（{error}）——先改名，再 pod identity init':
+    'This agent name cannot map to an identity directory ({error}) — rename it first, then run pod identity init',
+  '未加 --llm：本次只做本地扫描与产物落盘。处置步骤来自 `pod guard scan` 的建议清单；加 --llm 才会生成模型建议物。':
+    'No --llm given: this run only scans locally and writes artifacts. Remediation steps come from the `pod guard scan` recommendations; pass --llm to have a model draft proposals.',
+
+  // ── 纳管（pod agents / 控制台的「加入监控」）──
+  '非法 agent 名：{agent}（只允许 A-Za-z0-9._-，长度 1-64；名字会进路径与审计链）':
+    'Invalid agent name: {agent} (A-Za-z0-9._- only, length 1-64; the name goes into paths and the audit chain)',
+  '纳管只写 ~/.pod 下的产物，不改动 harness 的配置。':
+    'Enrolling only writes artifacts under ~/.pod; it does not touch the harness configuration.',
+  '该 harness 有 {total} 个 MCP server，其中 {behind} 个经过 pod 网关——纳管本身不会拦住其余 {rest} 个。':
+    'This harness has {total} MCP servers, {behind} of which go through the pod gateway — enrolling alone will not block the other {rest}.',
+  '新建的策略是零权限起点（未登记 server 一律拒绝），需要采集语料后编译最小权限策略。':
+    'The new policy is a zero-permission starting point (unregistered servers are denied); collect a corpus and compile a least-privilege policy from it.',
+  'pod onboard --yes    # 把该 harness 的 MCP server 包进网关；不改配置就只有记录、没有闸门':
+    'pod onboard --yes    # wrap this harness’s MCP servers in the gateway; without it you get records but no gate',
+  'pod record --agent {agent} --server <name>    # 先只录不拦，采集真实调用':
+    'pod record --agent {agent} --server <name>    # record-only first, to collect real calls',
+  'pod policy draft --agent {agent} --diff <baseline>    # 编译最小权限策略，复核后再切执法':
+    'pod policy draft --agent {agent} --diff <baseline>    # compile a least-privilege policy, review it, then enforce',
+  'pod guard scan --strict    # 随时看这个 agent 的漏洞清单':
+    'pod guard scan --strict    # see this agent’s vulnerability list at any time',
+  '台账里没有这个 agent 的纳管记录——可能是手动创建的，pod 不动它。':
+    'No enrollment record for this agent — it was probably created by hand, and pod leaves it alone.',
+  '策略文件 {file} 现在绑定的是别的 agent，未删除':
+    'Policy file {file} is now bound to a different agent, so it was not deleted',
+  '策略文件 {file} 不存在或无法解析，跳过删除':
+    'Policy file {file} is missing or unparsable; skipping deletion',
+  '保留 {file}：它不是纳管时创建的，不删用户自己的策略':
+    'Keeping {file}: it was not created by enrolling, and pod does not delete your own policies',
+  '身份与私钥保留（删掉就无法再证明历史上的调用是它做的）；要删用 --purge-identity。':
+    'Identity and private key kept (deleting them makes past calls unattributable); use --purge-identity to remove them.',
+  '规则文件无法解析，纳管扫描暂按默认规则进行：{error}':
+    'The rules file cannot be parsed; the enrollment scan falls back to default rules: {error}',
+  '本机 harness 扫描失败，纳管列表为空：{error}':
+    'Local harness scan failed, so the enrollment list is empty: {error}',
+  'pod ui listening on http://{host}:{port}（可写：纳管 / 移除）':
+    'pod ui listening on http://{host}:{port} (writable: enroll / remove)',
+  'pod 控制台（只读模式）已启动：{url}': 'pod console started in read-only mode: {url}',
+  'pod 控制台已启动：{url}': 'pod console started: {url}',
+  '写操作已开启（页面上的「加入监控 / 移除监控」）：只写 ~/.pod 下的身份、零权限策略与审计记录，每次都会进哈希链。要关掉用 --read-only。':
+    'Writes are enabled (the "Enroll / Remove" buttons): they only write identity, a zero-permission policy and audit records under ~/.pod, and every one goes into the hash chain. Use --read-only to disable.',
+  '本机已安装 {installed} 个 harness，其中 {managed} 个已纳管。':
+    '{installed} harnesses installed on this machine, {managed} of them enrolled.',
+  '  harness          已纳管   agent                 servers  执法/进网关  漏洞(h/m/l)':
+    '  harness          enrolled  agent                 servers  enforced/wrapped  findings(h/m/l)',
+  '未纳管：{list}': 'Not enrolled: {list}',
+  '纳管一个：pod agents enroll --harness <id> [--agent <name>]':
+    'To enroll one: pod agents enroll --harness <id> [--agent <name>]',
+  'pod agents enroll 需要 --harness <id>（先用 pod agents scan 看有哪些）':
+    'pod agents enroll needs --harness <id> (run pod agents scan to list them)',
+  'agent {agent} 已在纳管中（本次无改动）': 'agent {agent} is already enrolled (no changes)',
+  '已纳管 agent {agent}（身份 {fp} · 策略 {policy}）':
+    'Enrolled agent {agent} (identity {fp} · policy {policy})',
+  'pod agents forget 需要 --agent <name>': 'pod agents forget needs --agent <name>',
+  '已移除纳管 {agent}（策略 {policy} · 身份 {identity}）':
+    'Removed enrollment for {agent} (policy {policy} · identity {identity})',
+  '{agent} 没有纳管记录': '{agent} has no enrollment record',
+  // ── 接管（把 MCP server 包进网关）──
+  '{file}：TOML 配置暂不支持自动改写（`pod onboard` 只写 JSON 形态的 mcpServers）':
+    '{file}: TOML configs cannot be rewritten automatically yet (pod onboard only writes JSON mcpServers)',
+  '{file}：没读到可改写的 server 列表（只认 JSON 的 mcpServers 或 servers 数组）':
+    '{file}: no rewritable server list found (only JSON mcpServers or a servers array is recognised)',
+  '{file} → {name}：已经指向 pod，跳过': '{file} → {name}: already points at pod, skipping',
+  '{file} → {name}：transport={transport}，v0 只支持 stdio':
+    '{file} → {name}: transport={transport}; v0 only supports stdio',
+  '接管会把 MCP server 的启动命令改写为 `pod serve --record-only …`，**默认只录不拦**：先采几天语料，再用 pod policy draft 编译最小权限策略、复核后切执法。':
+    'Takeover rewrites each MCP server’s command to `pod serve --record-only …`, which **records but does not block**: collect a corpus for a few days, compile a least-privilege policy with pod policy draft, then switch to enforcement.',
+  '改写前会把原配置备份成 <配置>.pod-backup-<时间戳>；移除接管会从最近的备份还原。':
+    'The original config is backed up as <config>.pod-backup-<timestamp>; reverting restores from the most recent backup.',
+  '只改用户级配置，不动仓库里的项目级配置（.mcp.json / .cursor/mcp.json 等）。':
+    'Only user-level configs are touched; project-level configs in repositories (.mcp.json, .cursor/mcp.json, …) are left alone.',
+  '包装沿用你已有的策略 {file}（不新建 allow-all 模板）——即使哪天去掉 --record-only，行为也是 fail-closed 而不是全部放行。':
+    'The wrapper reuses your existing policy {file} (no allow-all template is created) — so even if --record-only is dropped later, the behaviour is fail-closed rather than wide open.',
+  '在 PATH 上找不到 `{bin}`：包装后的命令会启动失败，导致该 harness 的 MCP server 全部不可用。先安装 pod 或改用 --pod-bin <绝对路径>。':
+    '`{bin}` is not on PATH: the wrapped commands would fail to start, taking every MCP server of this harness down with them. Install pod first, or pass --pod-bin <absolute path>.',
+  '这个 harness 的配置格式暂不支持自动改写（见下方说明）；可以手动跑 pod onboard --config <路径> --yes。':
+    'This harness’s config format cannot be rewritten automatically yet (see the notes below); run pod onboard --config <path> --yes by hand instead.',
+  '没有需要接管的 server（可能都已经在网关后面）。':
+    'No server needs taking over (they may all be behind the gateway already).',
+  '接管计划不可执行': 'The takeover plan is not applicable',
+  '已接管：这些 server 现在经过 pod 网关，**只录不拦**（enforced=false）。':
+    'Taken over: these servers now go through the pod gateway, **recording but not blocking** (enforced=false).',
+  '下一步：用几天后跑 `pod policy draft` 编译最小权限策略，复核后把包装参数里的 --record-only 去掉即切执法。':
+    'Next: run `pod policy draft` after a few days to compile a least-privilege policy, then drop --record-only from the wrapper to enforce.',
+  '台账里没有这个 agent 的接管记录；已按该 harness 的配置路径尝试从最近备份还原。':
+    'No takeover record for this agent; restored from the most recent backup using this harness’s config paths.',
+  '没有找到可还原的备份（可能已经还原过，或配置文件被移动了）。':
+    'No restorable backup found (it may already have been reverted, or the config was moved).',
+  '已从最近的备份还原。策略文件与审计记录保留——它们不是配置的一部分。':
+    'Restored from the most recent backup. Policy files and audit records are kept — they are not part of the config.',
+  '接管改写了配置：如果你之前跑过 pod posture freeze，之后会看到配置漂移告警——确认这次改写无误后重新 pod posture freeze 即可。':
+    'Takeover rewrote the config: if you ran pod posture freeze before, you will now see a config-drift alert — re-run pod posture freeze once you have confirmed the rewrite.',
+  '配置已被改写：跑一次 `pod posture freeze` 把新配置记进基线，否则姿态检查会把这次改写报成漂移。':
+    'The config was rewritten: run `pod posture freeze` once to record it in the baseline, otherwise the posture check reports this rewrite as drift.',
+  'pod agents onboard 需要 --harness <id>（先用 pod agents scan 看有哪些）':
+    'pod agents onboard needs --harness <id> (run pod agents scan to list them)',
+  '接管计划（dry-run；加 --yes 才真正改写配置）':
+    'Takeover plan (dry-run; add --yes to actually rewrite the config)',
+  '    {name}：{from}': '    {name}: {from}',
+  '      → {to}': '      → {to}',
+  '    备份：{path}': '    backup: {path}',
+  '不可执行：{reason}': 'Not applicable: {reason}',
+  '策略：{path}{reuse}': 'Policy: {path}{reuse}',
+  '（沿用已有策略，不覆盖）': ' (reusing the existing policy, not overwriting it)',
+  '已接管 {harness} → agent {agent}': 'Took over {harness} → agent {agent}',
+  '  {config}：{servers}（备份 {backup}）': '  {config}: {servers} (backup {backup})',
+  '接管失败：{error}': 'Takeover failed: {error}',
+  'pod agents revert 需要 --agent <name>': 'pod agents revert needs --agent <name>',
+  '已还原 {n} 个配置': 'Restored {n} config file(s)',
+
+  // ── 切执法 / 回到只录不拦 ──
+  '{name}：已经是只录不拦，跳过': '{name}: already recording only, skipping',
+  '{name}：已经不在只录模式，跳过': '{name}: no longer in record-only mode, skipping',
+  '回到只录不拦：策略不变，只是不再阻断——用来在执法打断工作流时快速退一步。':
+    'Back to record-only: the policy is unchanged, it just stops blocking — useful when enforcement is getting in the way.',
+  '切执法后，命中 approve 的调用会挂起等审批（超时按拒绝处理）。没在跑 `pod watch` 的话，它们会等到超时被拒——这是 fail-closed，不是故障。':
+    'After switching to enforcement, calls that hit approve suspend and wait for a human (timeout counts as denied). Without `pod watch` running they wait until the timeout and are denied — that is fail-closed, not a bug.',
+  '想免掉人工审批又要保持可审计：用 `pod grant issue` 签发限时/限作用域令牌。':
+    'To skip the human step while staying auditable, issue a time-boxed, scope-limited token with `pod grant issue`.',
+  '策略是刚从语料编译出来的话，先跑 `pod lint --policy <file>` 并人工复核一遍——执法改动直接影响 agent 能不能干活。':
+    'If the policy was just compiled, run `pod lint --policy <file>` and review it — enforcement directly affects whether the agent can get work done.',
+  '没有处于执法模式的 server（可能已经都在只录不拦）。':
+    'No server is in enforcement mode (they may all be record-only already).',
+  '没有处于只录不拦的 server（先用「接管」把 server 包进网关）。':
+    'No server is in record-only mode (use "Take over" first to put servers behind the gateway).',
+  '没有可用于执法的策略：`policies/` 下没有绑定 agent {agent} 且含 server 规则的策略文件。先跑 `pod policy draft --agent {agent} --out <file>` 并复核（当前审计语料 {corpus} 条）。':
+    'No policy is ready for enforcement: no file under `policies/` is bound to agent {agent} and contains server rules. Run `pod policy draft --agent {agent} --out <file>` and review it first (the corpus currently holds {corpus} records).',
+  '策略 {file} 的 server 规则是 allow:["*"]（等于全部放行）——直接切执法只会让人以为已经保护了。请先编译最小权限策略。':
+    'The server rules in {file} are allow:["*"] (i.e. everything is permitted) — enforcing that would only create the illusion of protection. Compile a least-privilege policy first.',
+  '执法计划不可执行': 'The enforcement plan is not applicable',
+  '已切执法：网关现在会按策略判定 deny / approve / allow（未登记的一律拒绝）。':
+    'Enforcement is on: the gateway now decides deny / approve / allow from the policy (anything unregistered is denied).',
+  '命中 approve 的调用会挂起等审批；没在跑 `pod watch` 就会等超时被拒（fail-closed）。':
+    'Calls that hit approve suspend for a human; without `pod watch` they time out and are denied (fail-closed).',
+  '要退回可以用卡片上的「回到只录不拦」，或「还原配置」恢复到接管之前。':
+    'To back out, use "Back to record-only", or "Restore config" to return to the pre-takeover state.',
+  '已回到只录不拦：策略不变，只是不再阻断。':
+    'Back to record-only: the policy is unchanged, it just does not block.',
+  '还可以继续撤销：再点一次「还原配置」会退到上一步（当前 {mode}）。':
+    'You can keep undoing: clicking "Restore config" again steps back one more (currently {mode}).',
+  'pod agents enforce 需要 --harness <id>': 'pod agents enforce needs --harness <id>',
+  '执法计划（dry-run；加 --yes 才真正改写包装命令）':
+    'Enforcement plan (dry-run; add --yes to rewrite the wrapper command)',
+  '回到只录不拦的计划（dry-run；加 --yes 才改写）':
+    'Plan for going back to record-only (dry-run; add --yes to rewrite)',
+  '执法策略：{path}（{servers} 个 server · {tools} 个工具 · allow {allow} / approve {approve} / deny {deny}）':
+    'Enforcement policy: {path} ({servers} servers · {tools} tools · allow {allow} / approve {approve} / deny {deny})',
+  '当前审计语料：{corpus} 条': 'Audit corpus: {corpus} records',
+  '已切执法 {harness} → agent {agent}': 'Enforcement on for {harness} → agent {agent}',
+  '已回到只录不拦 {harness} → agent {agent}': 'Back to record-only for {harness} → agent {agent}',
+  '切执法失败：{error}': 'Switching to enforcement failed: {error}',
+  '未知的 agents 子命令：{sub}（可用：scan / enroll / onboard / enforce / revert / forget）':
+    'Unknown agents subcommand: {sub} (available: scan / enroll / onboard / enforce / revert / forget)',
 }

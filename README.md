@@ -102,7 +102,7 @@ Requires **Node.js ≥ 22.13** (pnpm 11's runtime floor) and git.
 |---|---|---|
 | `packages/` | 核心库：策略求值、审计哈希链、网关、能力图、控制平面姿态、身份/委托/JIT、扫描器 | `pnpm install && pnpm build` |
 | `apps/cli` | `pod` 命令行（网关 + 策略编译 + 证据 + 控制平面命令） | `bash scripts/install.sh` |
-| `apps/web` | 本地控制台（`pod ui`，只读） | 随 CLI 构建 |
+| `apps/web` | 本地控制台（`pod ui`：读为主，写操作只有纳管/移除） | 随 CLI 构建 |
 | `cloud/server` | 可选云端控制平面后端（FastAPI）：agent 注册、审计同步、策略中心、告警、时间线、控制平面事件 | `bash deploy/install.sh` |
 | `cloud/web` | 云端控制台前端（Vue 3 + Element Plus） | 同上（随 docker 构建） |
 | `deploy/` | 一键部署：`install.sh` + `docker-compose.yml` + `.env.example`（含每个配置项说明） | `bash deploy/install.sh` |
@@ -161,6 +161,10 @@ Compared with the rest of the market: platform-native sandboxes (Claude Code, Co
 - **Control-plane posture (`pod posture`)** — same rules, applied to the control plane: lifecycle hooks, frozen config, memory files, MCP package sources, agent identities, delegation chains. Drift is reported against a `pod posture freeze` baseline; `--strict` exits 1.
 - **User-owned rules** — every verdict comes from `~/.pod/rules.json` (or `--rules <file>`): risk patterns, severities, thresholds, trusted sources, egress lists. Code ships defaults; you own the decisions. Invalid rules fail closed.
 - **Hardening audit deliverable (`pod harden`)** — one command runs exposure scan + control-plane posture + least-privilege compilation + evidence export and writes a client-ready report directory (`report.md` / `findings.json` / `policy-draft.json` / `evidence.json` / `manifest.json` with per-file sha256). Local only, never uploaded; secrets appear as masks, never prefixes.
+- **Continuous agent/harness guard (`pod guard`)** — scans 16 harnesses (Claude Code, Codex, Cursor, DSH, OpenClaw, OpenCode, Gemini CLI, Windsurf, Zed, VS Code, Cline, Kilo, Amazon Q, Copilot CLI, Amp, Continue), 5 config formats (incl. Codex TOML) plus project-level `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`, and reports against an 18-entry threat catalog (`AG-01…AG-18`, each with cited sources and an honest coverage verdict). Output is a vulnerability list plus a **prioritized recommendation list** with runnable commands. `pod guard baseline` + `pod guard watch` make it continuous: it only speaks on new/changed/gone findings and writes those to the hash chain. `pod guard remediate --llm` has a model draft proposals from an outbound allowlist that carries **no paths, no hostnames and no config text**; rule deltas must pass the same relaxation guard as `pod rules apply`, and any non-`pod` command is stripped.
+- **Enrollment from the console (`pod agents` / the "Enroll" button)** — one click scans the host for installed harnesses and lists them as cards with their evidence, MCP-server count, how many of those bypass the gateway, and their `pod guard` finding counts. Enrolling an agent creates an ed25519 identity, a **zero-permission policy** (unregistered servers denied) and an audit directory, then appends `kind=identity` / `config-change` events to **that agent's** hash chain — so `pod sync` carries them to the cloud's control-plane view (machine-wide facts stay on the local `_control` chain). It **never rewrites harness configuration** — that stays with `pod onboard --yes` (which backs up and can revert). Enrolling is idempotent, removable (`forget`, identity kept by default), and `pod ui --read-only` turns the whole write path off. The console's POST endpoints require the token, `Content-Type: application/json` and a same-origin `Origin`.
+- **Takeover (`pod agents onboard` / the "Take over" button)** — step two: rewrites each MCP server's command to `pod serve --record-only … --command <original>` so calls actually cross the gateway. Because it edits your files, the console shows the **before/after command per server**, the backup path and the "records but does not block" caveat *before* you confirm. It only touches user-level configs (never repo-level `.mcp.json`), refuses to run when `pod` is not on PATH (a broken wrapper would take every MCP server down), and reuses your existing zero-permission policy instead of writing an `allow:['*']` template — so dropping `--record-only` later fails closed rather than open. `pod agents revert --agent <name>` restores from the most recent `.pod-backup-*`.
+- **Enforcement switch (`pod agents enforce` / the "Enforce" button)** — step three: drops `--record-only` and points the wrapper at your compiled policy, so the gateway actually decides. The failure mode here is not "broke the config" but **"looks enforced while protecting nothing"**, so it hard-refuses unless a policy exists that is bound to the agent, has server rules, and is not `allow:["*"]` — and the dialog shows which policy is in force, its allow/approve/deny counts and how much corpus it was compiled from. Switching back to record-only, or "restore config" (which undoes one step at a time), are both one click.
 - **Subscribed rules (`pod rules`)** — rules ship as signed Ed25519 packs (`pack` / `verify` / `apply` / `pull`). Network sources must be verified. A pack that would *loosen* any of your existing rules is refused unless you pass `--allow-relax`, so an "update" can never silently weaken your posture.
 - **Policy red team (`pod redteam`)** — attack scenarios are drilled against your policy through the *same* pure pipeline the gateway uses (`decideCall`), so "blocked" means blocked in production too, and the results are reproducible in CI. A model can *propose* scenarios (`--llm`), but only as data: it never gets a verdict, never gets execution, and never touches an MCP server. Only the capability surface (server/tool names + verdicts) leaves the machine, and every model call is written to the hash chain as `kind=llm-call`.
 - **Agent identities + delegation narrowing (`pod identity` / `pod delegate`)** — ed25519 keypair per agent; delegations are signed hop-by-hop and must narrow capabilities; `--ttl` bounds every hop.
@@ -209,6 +213,17 @@ pod coverage        managed vs. unmanaged MCP servers; --strict exits 1 on drift
 pod export-evidence / verify-evidence   export & verify evidence bundles
 pod lint | doctor   policy lint / environment health
 pod scan            free local security scan (config & bypass checks)
+pod guard [scan]    continuous multi-agent / multi-harness vulnerability scan → vulnerability list + prioritized recommendations
+pod guard watch     re-scan on an interval; speaks only on new/changed/gone findings, records them in the audit chain
+pod guard remediate --llm   model drafts hardening proposals (never auto-applied; must pass the relaxation guard)
+pod guard catalog   the threat catalog (AG-01…AG-18) with sources and pod's coverage for each
+pod agents [scan]   list the harnesses installed on this machine (and whether each is already enrolled)
+pod agents enroll --harness <id>   enroll one: identity + zero-permission policy + audit dir (never touches harness config)
+pod agents onboard --harness <id> [--yes]   take over (rewrite that harness's MCP servers to go through the gateway; backup + revert)
+pod agents enforce --harness <id> [--record-only] [--yes]   switch to enforcement (or back to record-only) — refuses unless a compiled policy exists
+pod agents revert --agent <name>   restore the config from the most recent .pod-backup-*
+pod agents forget --agent <name>   remove the enrollment (policy deleted; identity kept unless --purge-identity)
+pod ui [--read-only]   local console; the "Scan this machine" + "Enroll" + "Take over" buttons call the same write paths as pod agents
 pod harden          one-shot hardening audit: scan + posture + policy draft + evidence → one report directory
 pod posture [freeze]   control-plane posture: hooks / frozen config / memory / packages / identities / delegations
 pod rules              rule packs for subscribed hardening: show | pack | verify | apply | pull
@@ -243,6 +258,7 @@ pod sync / pull-policy   optional Pod Cloud sync & policy distribution
 > 已并入本仓库 `cloud/` 下并**归档原仓库**——历史链接会看到指向这里的告示。
 - [Positioning & wedge](docs/positioning.md)
 - [Threat model](docs/threat-model.md)
+- [Multi-agent / multi-harness security](docs/agent-harness-security.md) ← 现状盘点 · 威胁目录 · 差距
 - [Egress defense](docs/egress-defense.md)
 - [Control-plane hardening (requirements + design)](docs/control-plane-hardening.md)
 - [Agent onboarding](docs/agent-onboarding.md)

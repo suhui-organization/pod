@@ -1,5 +1,40 @@
 # Changelog
 
+## 未发布 — 纳管/接管/切执法的事件改成"上得了云"的落点
+
+一个用户最先发现的问题：**pocloud 上看不到本地做的事**。查下来是事件落点错了。
+
+### 修复：控制平面事件写进被改动 agent 的链
+
+纳管、接管、切执法、还原、移除纳管这五个动作，事件原来统一写机器级的
+`~/.pod/audit/_control/control.jsonl`，而 `pod sync` 是按绑定里的 `local_agent`
+过滤事件的（`e.agent === local_agent`）——于是这些事件**一条都没上云**。
+线上实测：`pod_control_events = 0`（数据平面 58 条、同步记账 397 条），
+云端「控制平面」页永远是空的，而本地界面还在说"已纳管"。
+
+现在这些事件写进**被改动的那个 agent** 的链
+（`audit/<agent>/control.jsonl`，`agent` 字段就是该 agent 名），沿用既有绑定即可上云。
+判断口径写进了 [docs/control-plane-hardening.md](docs/control-plane-hardening.md)：
+**某个 agent 被改了 → 写那个 agent 的链；与具体 agent 无关的机器级事实 → `_control`。**
+真正的机器级事件（`pod posture` 的全局发现、LLM 调用留痕）仍留在 `_control`，
+它们要上云需要一条 `local_agent: "_control"` 的绑定（文档 §5.3 第 4 条）。
+
+### 顺带修掉两个被这次改动暴露出来的问题
+
+- **语料计数把控制平面事件算进去了**：`pod agents enforce` 的前置检查说"当前审计语料
+  N 条"，而 N 会把 identity / config-change 数进去。那些不是工具调用——数进去会让人
+  以为"已经采到 N 条调用了"，拿一张空表去切执法。现在只数数据平面。
+- **`changed.auditDir` 会误报 false**：事件写进 agent 链时会顺手 `mkdir`，
+  于是"审计目录是不是我建的"这个判定发生在它之后，明明是我们建的却报 false。
+  改成先判定并建目录，再写事件。
+
+### 测试
+
+- 新增 `apps/cli/test/control-plane-sync.test.ts`：证明纳管之后，
+  `collectPendingEvents` 能把它捞出来（且只有该 agent 的绑定捞得到、游标不会重复推）。
+  这是这条链路唯一的自动化保险——线上那个"0 条"正是没有它才悄悄发生的。
+- 控制台三个测试文件的断言从 `_control` 改成 agent 链。
+
 ## 未发布 — 页面与 API 都能看出"这是哪次构建"
 
 起因是一个很直接的问题：**"从页面上怎么看出哪些是新功能？"**——答案是看不出来：
