@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.i18n import EN, resolve_locale
 from app.dependencies import require_admin
-from app.models import Agent, AuditLog, SyncEvent
+from app.models import Agent, AuditLog, PodAgentAsset, PodAgentFinding, SyncEvent
 from app.security import get_current_tenant_id, get_current_user
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -44,7 +44,12 @@ def _infer_platform(name: str) -> str:
     return "other"
 
 
-def agent_out(a: Agent, event_count: int = 0) -> dict:
+def agent_out(
+    a: Agent,
+    event_count: int = 0,
+    assets: dict | None = None,
+    findings: dict | None = None,
+) -> dict:
     # 健康摘要由机器自己上报（只含计数），坏了就当没有——不用默认值冒充"健康"
     health = None
     if a.health_json:
@@ -72,6 +77,11 @@ def agent_out(a: Agent, event_count: int = 0) -> dict:
         "protocol_version": int(a.protocol_version or 0),
         "health": health,
         "health_at": a.health_at.isoformat() if a.health_at else None,
+        # ② 资产 / ③ 发现：pod 干的活的另一半（机器上报，云端只聚合展示）
+        "assets": assets or {"harnesses": [], "servers": [], "unmanaged": 0},
+        "findings": findings or {"rows": [], "high": 0, "medium": 0, "low": 0},
+        "inventory_at": a.inventory_at.isoformat() if a.inventory_at else None,
+        "findings_at": a.findings_at.isoformat() if a.findings_at else None,
         "created_at": a.created_at.isoformat(),
     }
 
@@ -86,7 +96,35 @@ def list_agents(db: Session = Depends(get_db), tenant_id: int = Depends(get_curr
         .group_by(SyncEvent.agent_id)
         .all()
     )
-    return {"agents": [agent_out(a, counts.get(a.id, 0)) for a in agents]}
+    # 资产与发现按 agent 批量取，避免 N+1（每台机器的行数都不大）
+    asset_rows = db.query(PodAgentAsset).filter(PodAgentAsset.tenant_id == tenant_id).all()
+    finding_rows = db.query(PodAgentFinding).filter(PodAgentFinding.tenant_id == tenant_id).all()
+    assets_by_agent: dict[int, dict] = {}
+    for row in asset_rows:
+        bucket = assets_by_agent.setdefault(row.agent_id, {"harnesses": [], "servers": [], "unmanaged": 0})
+        if row.kind == "harness":
+            bucket["harnesses"].append({"id": row.key, "label": row.label, "managed": bool(row.managed)})
+        else:
+            bucket["servers"].append(
+                {"name": row.key, "harness": row.harness or "", "behind_gateway": bool(row.behind_gateway),
+                 "record_only": bool(row.record_only), "package": row.package, "pinned": bool(row.pinned)}
+            )
+            if not row.behind_gateway:
+                bucket["unmanaged"] += 1
+    findings_by_agent: dict[int, dict] = {}
+    for row in finding_rows:
+        bucket = findings_by_agent.setdefault(row.agent_id, {"rows": [], "high": 0, "medium": 0, "low": 0})
+        bucket["rows"].append(
+            {"source": row.source, "key": row.key, "severity": row.severity, "harness": row.harness, "count": row.count}
+        )
+        if row.severity in bucket:
+            bucket[row.severity] += row.count
+    return {
+        "agents": [
+            agent_out(a, counts.get(a.id, 0), assets_by_agent.get(a.id), findings_by_agent.get(a.id))
+            for a in agents
+        ]
+    }
 
 
 @router.post("", status_code=201)

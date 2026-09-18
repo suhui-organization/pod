@@ -6,6 +6,7 @@
 - 敏感内容：只收哈希（args_hash/output 不传输），隐私最小化
 """
 
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -14,7 +15,16 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import CONTROL_CHAIN, Agent, PodAlert, PodControlEvent, PodPolicy, SyncEvent
+from app.models import (
+    CONTROL_CHAIN,
+    Agent,
+    PodAgentAsset,
+    PodAgentFinding,
+    PodAlert,
+    PodControlEvent,
+    PodPolicy,
+    SyncEvent,
+)
 from app.protocol import MIN_CLIENT_PROTOCOL, SERVER_PROTOCOL
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -88,6 +98,91 @@ class PingIn(BaseModel):
     protocol_version: int = Field(default=0, ge=0, le=10_000)
     pod_version: str = Field(default="", max_length=32)
     health: HealthIn | None = None
+
+
+class InventoryHarnessIn(BaseModel):
+    """本机装的一个 harness。"""
+
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(default="", max_length=64)
+    installed: bool = True
+    managed: bool = False
+    managed_by: list[str] = Field(default_factory=list, max_length=8)
+
+
+class InventoryServerIn(BaseModel):
+    """本机配置里的一个 MCP server。只收标识与状态，不收 args/paths/env 取值。"""
+
+    name: str = Field(min_length=1, max_length=128)
+    harness: str = Field(default="", max_length=64)
+    transport: str = Field(default="", max_length=16)
+    behind_gateway: bool = False
+    record_only: bool = False
+    scope: str = Field(default="", max_length=16)
+    package: str = Field(default="", max_length=128)
+    pinned: bool = False
+
+
+class InventoryIn(BaseModel):
+    """② 资产清单（机器级快照，每次上报整体替换）。"""
+
+    pod_version: str = Field(default="", max_length=32)
+    rules_version: str = Field(default="", max_length=32)
+    scanned_at: str = Field(default="", max_length=64)
+    coverage: CoverageHealthIn = Field(default_factory=CoverageHealthIn)
+    harnesses: list[InventoryHarnessIn] = Field(default_factory=list, max_length=64)
+    servers: list[InventoryServerIn] = Field(default_factory=list, max_length=300)
+
+
+class InventoryRequest(BaseModel):
+    inventory: InventoryIn
+
+
+class FindingIn(BaseModel):
+    """③ 一条聚合发现：哪个威胁/类别、多严重、落在哪、几处。"""
+
+    source: str = Field(min_length=1, max_length=16)
+    key: str = Field(min_length=1, max_length=64)
+    severity: str = Field(min_length=1, max_length=16)
+    harness: str = Field(default="", max_length=64)
+    count: int = Field(default=0, ge=0, le=1_000_000)
+
+
+class FindingsTotalsIn(BaseModel):
+    high: int = Field(default=0, ge=0, le=1_000_000)
+    medium: int = Field(default=0, ge=0, le=1_000_000)
+    low: int = Field(default=0, ge=0, le=1_000_000)
+
+
+class FindingsPayloadIn(BaseModel):
+    """③ 发现清单本体（每次上报整体替换）。"""
+
+    scanned_at: str = Field(default="", max_length=64)
+    totals: FindingsTotalsIn = Field(default_factory=FindingsTotalsIn)
+    findings: list[FindingIn] = Field(default_factory=list, max_length=500)
+
+
+class FindingsRequest(BaseModel):
+    """线上升级形状：`{"findings": {...}}`——与客户端的 payload 一一对应。
+
+    为什么不让顶层直接是那些字段：端 A 的两个上报都是"一个信封 + 一份快照"
+    （`{"inventory": …}` / `{"findings": …}`），形状一致才不容易接错。
+    """
+
+    findings: FindingsPayloadIn
+
+
+def _agent_from_token(db: Session, x_sync_token: str) -> Agent:
+    """X-Sync-Token → Agent。三处上报端点共用，鉴权口径只有这一份。"""
+    if not x_sync_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少 X-Sync-Token")
+    from hashlib import sha256
+
+    token_hash = sha256(x_sync_token.encode("utf-8")).hexdigest()
+    agent = db.query(Agent).filter(Agent.sync_token_hash == token_hash).first()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="sync token 无效")
+    return agent
 
 
 @router.post("/events")
@@ -254,8 +349,6 @@ def sync_ping(
 
     # 健康摘要：只存合规字段（Pydantic 已限定形状），过期数据不留着冒充现状
     if body is not None and body.health is not None:
-        import json
-
         agent.health_json = json.dumps(body.health.model_dump(), ensure_ascii=False)
         agent.health_at = now
 
@@ -282,6 +375,97 @@ def sync_ping(
             f"（云端协议 {SERVER_PROTOCOL}）。建议升级本机 pod：当前版本的部分能力不会被云端识别。"
         )
     return resp
+
+
+@router.post("/inventory")
+def sync_inventory(
+    body: InventoryRequest,
+    db: Session = Depends(get_db),
+    x_sync_token: str = Header(default=""),
+):
+    """② 资产清单：这台机器上有什么（harness / MCP server / 覆盖率）。
+
+    **整体替换**语义：资产是快照，不是流水——机器说"现在有这些"，云端就存这些，
+    某台 server 被删掉时会自然消失，不需要靠 diff。
+
+    隐私边界：只收标识与布尔（name / harness / behind_gateway / scope / 包名），
+    不收路径、args、env 取值与配置原文（那些留在本机报告里）。
+    """
+    agent = _agent_from_token(db, x_sync_token)
+    now = datetime.utcnow()
+    inv = body.inventory
+    db.query(PodAgentAsset).filter(PodAgentAsset.agent_id == agent.id).delete(synchronize_session=False)
+    for h in inv.harnesses:
+        db.add(
+            PodAgentAsset(
+                tenant_id=agent.tenant_id,
+                agent_id=agent.id,
+                kind="harness",
+                key=h.id[:128],
+                label=h.label[:64],
+                installed=h.installed,
+                managed=h.managed,
+                managed_by_json=json.dumps(h.managed_by, ensure_ascii=False),
+                updated_at=now,
+            )
+        )
+    for s in inv.servers:
+        db.add(
+            PodAgentAsset(
+                tenant_id=agent.tenant_id,
+                agent_id=agent.id,
+                kind="server",
+                key=s.name[:128],
+                installed=True,
+                managed=s.behind_gateway,
+                behind_gateway=s.behind_gateway,
+                record_only=s.record_only,
+                scope=s.scope[:16],
+                package=s.package[:128],
+                pinned=s.pinned,
+                harness=s.harness[:64],
+                updated_at=now,
+            )
+        )
+    agent.inventory_at = now
+    db.commit()
+    return {
+        "ok": True,
+        "harnesses": len(inv.harnesses),
+        "servers": len(inv.servers),
+        "unmanaged": sum(1 for s in inv.servers if not s.behind_gateway),
+    }
+
+
+@router.post("/findings")
+def sync_findings(
+    body: FindingsRequest,
+    db: Session = Depends(get_db),
+    x_sync_token: str = Header(default=""),
+):
+    """③ 发现：pod 干活时扫出来的问题（漏洞扫描 + 控制平面姿态）。
+
+    同样是快照替换：修好之后下次上报就消失了，不会在云端永远留一条红。
+    """
+    agent = _agent_from_token(db, x_sync_token)
+    now = datetime.utcnow()
+    db.query(PodAgentFinding).filter(PodAgentFinding.agent_id == agent.id).delete(synchronize_session=False)
+    for f in body.findings.findings:
+        db.add(
+            PodAgentFinding(
+                tenant_id=agent.tenant_id,
+                agent_id=agent.id,
+                source=f.source[:16],
+                key=f.key[:64],
+                severity=f.severity[:16],
+                harness=f.harness[:64],
+                count=f.count,
+                updated_at=now,
+            )
+        )
+    agent.findings_at = now
+    db.commit()
+    return {"ok": True, "findings": len(body.findings.findings)}
 
 
 def _notify_alerts(db: Session, agent: Agent, new_alerts: list) -> None:

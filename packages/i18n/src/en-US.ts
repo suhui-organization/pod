@@ -72,6 +72,13 @@ export const enUS: Record<string, string> = {
     'cloud.json not configured (pod sync / pull-policy unavailable; local features unaffected)',
   '本机 pod 版本比云端支持的最低协议更旧（云端协议 {server}），建议升级：pod 的部分能力不会被云端识别。':
     'This machine runs an older protocol than the cloud supports (cloud protocol {server}). Upgrading pod is recommended: parts of its capability will not be recognised by the cloud.',
+  // —— ② 资产 / ③ 发现 上报 ——
+  '资产清单': 'asset inventory',
+  '扫描发现': 'scan findings',
+  '{label}上报失败：无法连接云端': 'Failed to report {label}: cannot reach the cloud',
+  '{label}上报失败：HTTP {status}': 'Failed to report {label}: HTTP {status}',
+  '云端不支持{label}上报（HTTP 404）——本机版本比云端新；升级云端控制台后即可看到这类数据。':
+    'The cloud does not support reporting {label} (HTTP 404) — this machine runs a newer version than the cloud. Upgrade the cloud console to see this data.',
   '审计目录: {dir}': 'Audit directory: {dir}',
 
   // ── 策略 ──

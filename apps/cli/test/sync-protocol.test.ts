@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { AuditLog } from '@podsec/audit';
 import { DEFAULT_RULES } from '@podsec/policy';
 import { runSync } from '../src/sync.js';
-import { buildHealthSnapshot } from '../src/health.js';
+import { buildHealthSnapshot, collectReports } from '../src/health.js';
 import { POD_PROTOCOL_VERSION, cliVersion } from '../src/protocol.js';
 
 interface Captured {
@@ -23,8 +23,12 @@ interface Captured {
 }
 
 /** 桩云端：记下每个请求的 header 与 ping body，可切换成"老服务端"（不回协议字段） */
-function startMockCloud(replyWithProtocol: boolean): Promise<{ url: string; close: () => void; pings: Captured[] }> {
+function startMockCloud(
+  replyWithProtocol: boolean,
+  supportsReports = true,
+): Promise<{ url: string; close: () => void; pings: Captured[]; uploads: Record<string, unknown[]> }> {
   const pings: Captured[] = [];
+  const uploads: Record<string, unknown[]> = { inventory: [], findings: [] };
   const server: Server = createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => (raw += c));
@@ -55,6 +59,19 @@ function startMockCloud(replyWithProtocol: boolean): Promise<{ url: string; clos
         res.end(JSON.stringify({ quarantined: false }));
         return;
       }
+      if (req.url?.endsWith('/api/v1/sync/inventory') || req.url?.endsWith('/api/v1/sync/findings')) {
+        if (!supportsReports) {
+          // 老服务端：没有这两个端点 → 客户端必须容忍（提示而不是失败）
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ detail: 'Not Found' }));
+          return;
+        }
+        const key = req.url.endsWith('/inventory') ? 'inventory' : 'findings';
+        uploads[key]!.push(JSON.parse(raw) as unknown);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
       // 其余端点（events / policies）一律返回空结果：本测试只关心契约
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ synced: 0, agent_id: 1, policies: [], events: [] }));
@@ -63,7 +80,7 @@ function startMockCloud(replyWithProtocol: boolean): Promise<{ url: string; clos
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as { port: number };
-      resolve({ url: `http://127.0.0.1:${port}`, close: () => server.close(), pings });
+      resolve({ url: `http://127.0.0.1:${port}`, close: () => server.close(), pings, uploads });
     });
   });
 }
@@ -168,6 +185,73 @@ describe('同步请求携带协议版本与健康摘要', () => {
         rules: DEFAULT_RULES,
       });
       expect(result.notices).toEqual([]);
+    } finally {
+      cloud.close();
+    }
+  });
+});
+
+describe('② 资产清单 与 ③ 发现（pod 干的活的另一半）', () => {
+  it('资产只出标识与布尔：harness / server / 覆盖率都在，路径与命令行不在', () => {
+    const { inventory } = collectReports({ home, auditDir, rules: DEFAULT_RULES });
+    expect(inventory.harnesses.some((h) => h.id === 'claude-code')).toBe(true);
+    const server = inventory.servers.find((s) => s.name === 'github');
+    expect(server).toBeTruthy();
+    expect(server!.behind_gateway).toBe(false); // 没接管 → 策略与审计对它无效
+    expect(server!.harness).toBe('claude-code');
+    expect(inventory.coverage.unmanaged).toBeGreaterThanOrEqual(1);
+
+    // 隐私边界：没有本机路径、没有命令行、没有 args
+    const text = JSON.stringify(inventory);
+    expect(text).not.toContain(home);
+    expect(text).not.toContain('.claude.json');
+    expect(text).not.toContain('npx');
+  });
+
+  it('发现按 (来源, 威胁/类别, 级别, harness) 聚合，且不含证据原文', () => {
+    const { findings } = collectReports({ home, auditDir, rules: DEFAULT_RULES });
+    expect(findings.findings.length).toBeGreaterThan(0);
+    expect(findings.findings.every((f) => f.count >= 1)).toBe(true);
+    expect(findings.findings.some((f) => f.source === 'guard')).toBe(true);
+    expect(Object.keys(findings.totals)).toEqual(['high', 'medium', 'low']);
+    const text = JSON.stringify(findings);
+    expect(text).not.toContain(home);
+    expect(text).not.toContain('.claude.json');
+  });
+
+  it('资产与发现会同 sync 一起推上去', async () => {
+    const cloud = await startMockCloud(true);
+    try {
+      await runSync({
+        auditDir: join(home, '.pod', 'audit'),
+        apiUrl: cloud.url,
+        agentId: 1,
+        syncToken: 'tok',
+        home,
+        rules: DEFAULT_RULES,
+      });
+      expect(cloud.uploads.inventory!.length).toBeGreaterThan(0);
+      expect(cloud.uploads.findings!.length).toBeGreaterThan(0);
+      const inv = cloud.uploads.inventory![0] as { inventory: { servers: unknown[] } };
+      expect(inv.inventory.servers.length).toBeGreaterThan(0);
+    } finally {
+      cloud.close();
+    }
+  });
+
+  it('老服务端没有这两个端点（404）时：提示而不是失败', async () => {
+    const cloud = await startMockCloud(true, false);
+    try {
+      const result = await runSync({
+        auditDir: join(home, '.pod', 'audit'),
+        apiUrl: cloud.url,
+        agentId: 1,
+        syncToken: 'tok',
+        home,
+        rules: DEFAULT_RULES,
+      });
+      expect(result.failures).toEqual([]);
+      expect(result.notices.join(' ')).toContain('不支持');
     } finally {
       cloud.close();
     }

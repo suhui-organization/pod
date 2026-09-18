@@ -95,3 +95,128 @@ def test_events_headers_also_record_version(client):
     row = next(a for a in agents if a["id"] == agent_id)
     assert row["pod_version"] == "0.4.0"
     assert row["protocol_version"] == 1
+
+
+INVENTORY = {
+    "inventory": {
+        "pod_version": "0.4.0",
+        "rules_version": "1",
+        "scanned_at": "2026-09-18T06:00:00.000Z",
+        "coverage": {"servers": 2, "unmanaged": 1},
+        "harnesses": [
+            {"id": "claude-code", "label": "Claude Code", "installed": True, "managed": True, "managed_by": ["policy"]},
+            {"id": "codex", "label": "Codex", "installed": True, "managed": False, "managed_by": []},
+        ],
+        "servers": [
+            {"name": "github", "harness": "claude-code", "transport": "stdio", "behind_gateway": False,
+             "record_only": False, "scope": "user", "package": "@modelcontextprotocol/server-github", "pinned": False},
+            {"name": "fs", "harness": "codex", "transport": "stdio", "behind_gateway": True,
+             "record_only": True, "scope": "user", "package": "", "pinned": False},
+        ],
+    }
+}
+
+FINDINGS = {
+    "findings": {
+        "scanned_at": "2026-09-18T06:00:00.000Z",
+        "totals": {"high": 3, "medium": 1, "low": 0},
+        "findings": [
+            {"source": "guard", "key": "AG-03", "severity": "high", "harness": "claude-code", "count": 2},
+            {"source": "guard", "key": "AG-12", "severity": "high", "harness": "machine", "count": 1},
+            {"source": "posture", "key": "hook", "severity": "medium", "harness": "machine", "count": 1},
+        ],
+    }
+}
+
+
+def _push_inventory(client, sync_token, payload=INVENTORY):
+    return client.post("/api/v1/sync/inventory", json=payload, headers={"X-Sync-Token": sync_token})
+
+
+def _push_findings(client, sync_token, payload=FINDINGS):
+    return client.post("/api/v1/sync/findings", json=payload, headers={"X-Sync-Token": sync_token})
+
+
+def test_inventory_lands_and_is_exposed_on_the_agent(client):
+    """② 资产：本机纳管的 harness / 绕过网关的 server，要出现在云端资产视图里。"""
+    token = register_and_login(client)
+    agent_id, sync_token = _register_agent(client, token)
+    assert _push_inventory(client, sync_token).status_code == 200
+
+    agents = client.get("/api/v1/agents", headers={"Authorization": f"Bearer {token}"}).json()["agents"]
+    row = next(a for a in agents if a["id"] == agent_id)
+    assert {h["id"] for h in row["assets"]["harnesses"]} == {"claude-code", "codex"}
+    assert row["assets"]["unmanaged"] == 1
+    assert row["inventory_at"] is not None
+    # 隐私：资产里不该出现任何路径或命令行
+    import json as _json
+
+    assert "/Users" not in _json.dumps(row["assets"])
+    assert "npx" not in _json.dumps(row["assets"])
+
+
+def test_inventory_is_a_snapshot_not_an_append(client):
+    """资产是快照：第二次上报只留新的那批（server 被删掉时云端要跟着消失）。"""
+    token = register_and_login(client)
+    agent_id, sync_token = _register_agent(client, token)
+    _push_inventory(client, sync_token)
+    shrink = {
+        "inventory": {
+            **INVENTORY["inventory"],
+            "servers": [INVENTORY["inventory"]["servers"][1]],
+            "harnesses": [INVENTORY["inventory"]["harnesses"][0]],
+        }
+    }
+    _push_inventory(client, sync_token, shrink)
+    agents = client.get("/api/v1/agents", headers={"Authorization": f"Bearer {token}"}).json()["agents"]
+    row = next(a for a in agents if a["id"] == agent_id)
+    assert [s["name"] for s in row["assets"]["servers"]] == ["fs"]
+    assert [h["id"] for h in row["assets"]["harnesses"]] == ["claude-code"]
+
+
+def test_findings_land_and_shrink_on_recheck(client):
+    """③ 发现：修好之后下次上报就消失，不在云端永远留一条红。"""
+    token = register_and_login(client)
+    agent_id, sync_token = _register_agent(client, token)
+    assert _push_findings(client, sync_token).status_code == 200
+
+    agents = client.get("/api/v1/agents", headers={"Authorization": f"Bearer {token}"}).json()["agents"]
+    row = next(a for a in agents if a["id"] == agent_id)
+    assert row["findings"]["high"] == 3
+    assert row["findings"]["medium"] == 1
+    assert any(f["key"] == "AG-03" for f in row["findings"]["rows"])
+    assert row["findings_at"] is not None
+
+    empty = {"findings": {"scanned_at": "2026-09-18T07:00:00.000Z", "totals": {}, "findings": []}}
+    _push_findings(client, sync_token, empty)
+    agents = client.get("/api/v1/agents", headers={"Authorization": f"Bearer {token}"}).json()["agents"]
+    row = next(a for a in agents if a["id"] == agent_id)
+    assert row["findings"]["rows"] == []
+    assert row["findings"]["high"] == 0
+
+
+def test_inventory_and_findings_require_a_valid_token(client):
+    register_and_login(client)
+    assert client.post("/api/v1/sync/inventory", json=INVENTORY).status_code == 401
+    assert client.post("/api/v1/sync/findings", json=FINDINGS).status_code == 401
+    assert (
+        client.post("/api/v1/sync/inventory", json=INVENTORY, headers={"X-Sync-Token": "nope"}).status_code == 401
+    )
+
+
+def test_dashboard_aggregates_assets_and_findings_across_agents(client):
+    """Dashboard：跨机器聚合"还有多少 server 绕过网关"与"扫出多少 high"。"""
+    token = register_and_login(client)
+    _, token_a = _register_agent(client, token, "mac-mini")
+    _, token_b = _register_agent(client, token, "linux-box")
+    _push_inventory(client, token_a)
+    _push_inventory(client, token_b)
+    _push_findings(client, token_a)
+    _push_findings(client, token_b)
+
+    summary = client.get("/api/v1/dashboard/summary", headers={"Authorization": f"Bearer {token}"}).json()
+    assert summary["assets"]["servers"] == 4  # 两台机器 × 2 个 server
+    assert summary["assets"]["unmanaged"] == 2
+    assert summary["assets"]["agents_with_unmanaged"] == 2
+    assert summary["findings"]["totals"]["high"] == 6  # 两台机器 × 3
+    assert summary["findings"]["top"][0]["key"] == "AG-03"

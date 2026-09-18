@@ -9,7 +9,8 @@
 import type { RuleSet } from '@podsec/policy';
 import { runGuardScan } from '@podsec/guard';
 import { loadAllAuditFiles } from './evidence.js';
-import type { PodHealth } from './protocol.js';
+import { cliVersion, type FindingsPayload, type InventoryPayload, type PodHealth } from './protocol.js';
+import { runPosture } from './control-plane.js';
 
 export interface HealthInput {
   home: string;
@@ -51,11 +52,42 @@ function auditHealth(auditDir: string): { audit: PodHealth['audit']; errors: str
 }
 
 export function buildHealthSnapshot(input: HealthInput): PodHealth {
+  return collectReports(input).health;
+}
+
+export interface MachineReports {
+  health: PodHealth;
+  /** ② 资产：这台机器上有什么 */
+  inventory: InventoryPayload;
+  /** ③ 发现：扫出来的问题（只出威胁/级别/harness/计数） */
+  findings: FindingsPayload;
+}
+
+/**
+ * 一次采集三样东西（健康 / 资产 / 发现）。
+ *
+ * 为什么合成一次：三样都要跑同一轮只读扫描（guard 只认事实、posture 只读基线），
+ * 分三次采会重复扫三遍；而 `pod sync` 是定时任务，成本要可控。
+ */
+export function collectReports(input: HealthInput & { baselinePath?: string }): MachineReports {
   const now = input.now ?? new Date();
   const { audit, errors } = auditHealth(input.auditDir);
 
   let coverage: PodHealth['coverage'] = { servers: 0, unmanaged: 0 };
   let guard: PodHealth['guard'] = null;
+  const inventory: InventoryPayload = {
+    pod_version: cliVersion(),
+    rules_version: input.rules.version,
+    scanned_at: now.toISOString(),
+    coverage: { servers: 0, unmanaged: 0 },
+    harnesses: [],
+    servers: [],
+  };
+  const findings: FindingsPayload = {
+    scanned_at: now.toISOString(),
+    totals: { high: 0, medium: 0, low: 0 },
+    findings: [],
+  };
   try {
     // 只读扫描：同时给出"有几个 server 绕过网关"与"扫出多少 high/medium/low"
     const scan = runGuardScan({
@@ -75,10 +107,91 @@ export function buildHealthSnapshot(input: HealthInput): PodHealth {
       low: count('low'),
       scanned_at: now.toISOString(),
     };
+
+    // ---- ② 资产：harness 与 server 的身份/状态，仅标识与布尔 ----
+    inventory.coverage = coverage;
+    inventory.harnesses = scan.facts.harnesses
+      .filter((h) => h.installed)
+      .map((h) => ({
+        id: h.id,
+        label: h.label,
+        installed: true,
+        managed: h.managed,
+        managed_by: h.managedBy,
+      }));
+    inventory.servers = scan.facts.servers.slice(0, 200).map((s) => ({
+      name: s.name,
+      harness: s.harness,
+      transport: s.transport,
+      behind_gateway: s.behindGateway,
+      record_only: s.recordOnly,
+      scope: s.scope,
+      package: s.package?.name ?? '',
+      pinned: Boolean(s.package?.version && s.package.version !== 'latest'),
+    }));
+
+    // ---- ③ 发现：guard 的威胁清单，按 (威胁, 级别, harness) 聚合 ----
+    const guardGroups = new Map<string, FindingsPayload['findings'][number]>();
+    for (const f of scan.findings) {
+      const key = `${f.threat}\u0000${f.severity}\u0000${f.harness}`;
+      const row = guardGroups.get(key);
+      if (row) row.count++;
+      else {
+        guardGroups.set(key, {
+          source: 'guard',
+          key: f.threat,
+          severity: f.severity,
+          harness: f.harness,
+          count: 1,
+        });
+      }
+    }
+    findings.findings.push(...guardGroups.values());
   } catch (err) {
     // 规则写错会 fail-closed 抛错——这里不能吞掉，但也不能让整次同步失败
     errors.push(`guard 扫描失败：${err instanceof Error ? err.message : String(err)}`);
   }
 
-  return { audit, coverage, guard, errors };
+  // ---- ③ 发现：控制平面姿态（钩子/配置/记忆/包来源/身份/委托的漂移）----
+  try {
+    const posture = runPosture({
+      rules: input.rules,
+      auditDir: input.auditDir,
+      baselinePath: input.baselinePath ?? '',
+      home: input.home,
+      now,
+      // 只读采集：绝不因为一次心跳就给本机写链（与 pod posture 默认行为一致）
+      writeAudit: false,
+    });
+    const groups = new Map<string, FindingsPayload['findings'][number]>();
+    for (const f of posture.result.findings) {
+      const key = `${f.category}\u0000${f.severity}`;
+      const row = groups.get(key);
+      if (row) row.count++;
+      else {
+        groups.set(key, {
+          source: 'posture',
+          key: f.category,
+          severity: f.severity,
+          harness: 'machine',
+          count: 1,
+        });
+      }
+    }
+    findings.findings.push(...groups.values());
+  } catch (err) {
+    errors.push(`posture 扫描失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const rank: Record<string, keyof FindingsPayload['totals']> = {
+    high: 'high',
+    medium: 'medium',
+    low: 'low',
+  };
+  for (const f of findings.findings) {
+    const bucket = rank[f.severity];
+    if (bucket) findings.totals[bucket] += f.count;
+  }
+
+  return { health: { audit, coverage, guard, errors }, inventory, findings };
 }

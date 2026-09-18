@@ -76,6 +76,16 @@
           {{ t('未上报健康状态（本机 pod 0.4.0 起随心跳上报，升级后可见）') }}
         </p>
 
+        <!-- ② 资产 + ③ 发现：机器自报"这台机器上有什么、扫出了什么"。
+             与上面的心跳健康分开显示——它是快照，不是实时。 -->
+        <p
+          v-if="hasAssets(a)"
+          class="agent-health"
+          :class="{ 'agent-health--alert': a.assets.unmanaged > 0 || a.findings.high > 0 }"
+        >
+          {{ assetLine(a) }}
+        </p>
+
         <!-- 未接入的 agent 给出下一步，而不是让用户对着"离线"发呆 -->
         <p v-if="!a.last_seen_at" class="agent-tip">
           {{ t('还没收到过它的同步。点「接入命令」拿一条命令，在跑 agent 的机器上执行； 执行完这里会自动变成「在线」。') }}
@@ -268,6 +278,37 @@ function healthAlert(a: AgentItem): boolean {
   const h = a.health
   if (!h) return false
   return h.audit.broken > 0 || h.coverage.unmanaged > 0 || (h.guard?.high ?? 0) > 0
+}
+
+/** 有没有上报过资产（快照）；没上报就整行不显示，避免出现一行空话 */
+function hasAssets(a: AgentItem): boolean {
+  return Boolean(a.assets && (a.assets.harnesses.length > 0 || a.assets.servers.length > 0))
+}
+
+/**
+ * 资产 + 发现一行字。
+ *
+ * 口径与 Dashboard 一致：先说"还缺什么防护"（绕过网关的 server、扫出的 high），
+ * 再说规模（纳管了几个 harness、几个 server）。缺数据就写缺数据。
+ */
+function assetLine(a: AgentItem): string {
+  const parts: string[] = []
+  const managed = a.assets.harnesses.filter((h) => h.managed).length
+  if (a.assets.harnesses.length > 0) {
+    parts.push(t('harness {managed}/{total} 已纳管', { managed, total: a.assets.harnesses.length }))
+  }
+  if (a.assets.servers.length > 0) {
+    parts.push(
+      a.assets.unmanaged > 0
+        ? t('server {total} 个，其中 {n} 个绕过网关', { total: a.assets.servers.length, n: a.assets.unmanaged })
+        : t('server {total} 个全部经过网关', { total: a.assets.servers.length }),
+    )
+  }
+  if (a.findings.rows.length > 0) {
+    parts.push(t('发现 high {high} · medium {medium}', { high: a.findings.high, medium: a.findings.medium }))
+  }
+  if (a.inventory_at) parts.push(t('资产更新于 {at}', { at: formatDateTime(a.inventory_at) }))
+  return parts.join(' · ')
 }
 
 const setupCommand = computed(() =>
